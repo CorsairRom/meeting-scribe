@@ -100,10 +100,22 @@ repo from F1).
       tests) → GREEN; errors/entity RED `13 failed, 13 passed` → GREEN `49 passed`. Import-linter:
       duplicate removed, every contract re-verified BROKEN→KEPT (incl. `dbus_fast` forbid).
       `.env` is an exclusive fallback: XDG file if present, else `./.env`; process env wins.
-- [ ] F1.2 `recording` domain + application (TDD): `RecordingSession` entity (states, transitions
+- [x] F1.2 `recording` domain + application (TDD): `RecordingSession` entity (states, transitions
       returning copies), errors (`RECORDING_ALREADY_ACTIVE`, `NO_ACTIVE_RECORDING`, ...), ports
       (`AudioCapture`, `AudioDeviceResolver`, `Clock`), `RecordingController` (start/stop/status →
       `Result`), session folder `<meetings_dir>/<YYYY-MM-DD_HHMMSS>/audio/`. Fakes in tests.
+      Route: delegated writer. Commits `497352c` (entity, errors, ports — 391 lines), `99233f6`
+      (controller, filesystem storage, system clock — 444). TDD: each module RED at collection
+      (`ModuleNotFoundError`) → GREEN; behavioural RED on storage (existing session folder was
+      tolerated) → fixed with `exist_ok=False` (GO-015). `make check` → 84 passed.
+      RDD `b73812b..99233f6` (1199 lines, medium): user granted; lineage `review-9e36164f94c5bba3`
+      approved + acknowledged. R3 WARNING (stop() after a crash reported STOPPED) fixed inline with
+      TDD: RED `test_stop_after_crash_reports_failure_without_calling_status_first` → GREEN 85 passed.
+      Technical decisions (writer's open questions): storage failure leaves state IDLE and returns
+      the error (nothing was recorded); two starts within the same second collide on the folder name
+      and return `RECORDING_STORAGE_FAILED` (acceptable: a restart within 1 s is not a real use case).
+      Follow-up: `create_app` logs the env source via a second `effective_env_files()` call, which can
+      disagree with injected settings — revisit when wiring D-Bus in F1.4.
 - [ ] F1.3 ffmpeg/PipeWire adapter (TDD): `pactl` device resolver; 2-channel 30 s WAV segments
       (ch0 mic, ch1 system monitor, ADR-002); `start_new_session=True`; stop with `q` + timeout +
       kill fallback; integration test with lavfi sources only.
@@ -210,5 +222,5 @@ it (F1.4). Items below kept for traceability.
 
 Owner merges tracker #2 (`feat/foundations` → `main`). Meanwhile F1 runs on integration branch
 `feat/recording` (based on `feat/foundations` until #2 lands, then retargeted to `main`).
-Current: F1.1 done (PR into `feat/recording`); next F1.2 recording domain. RDD boundary for F1 = tip of `feat/foundations`
+Current: F1.1 (#14) and F1.2 done; next F1.3 ffmpeg/PipeWire adapter. RDD boundary for F1 = tip of `feat/foundations`
 (its tree equals the reviewed F0 tree).
