@@ -224,6 +224,13 @@ extension in the user's session, or running the nested shell, only with the user
       monotonic clock; read `get_remote_error` before `strip_remote_error`; watcher NONE + proxy
       DO_NOT_AUTO_START so watching never launches the service. Orchestrator verified tests always
       inject the private connection.
+      RDD (#34 + F2.2, 776 lines): user granted; lineage `review-27a7ef9a81ecff7e` approved + acked.
+      F2.2b fixes (delegated writer): `5e9d9ea` per-recording token drops stale ElapsedSeconds seeds
+      (RED `expected 5, got 100`), FAILED reads FailureReason before emitting (RED interim empty
+      reason), client call timeout 20 s (> 14 s worst-case Stop); `ceb25d7` every fixture wait
+      bounded at 2 s, name-lost rejects, harness cleanup registry run before exit. GREEN 41 passed
+      ×3, no leftover daemons. Note: if `RECORDING_STOP_TIMEOUT_SECONDS` is raised above ~16 s the
+      20 s client timeout must follow.
 - [ ] F2.3 Extension shell (`extension.js`, `metadata.json` shell-version 50, `stylesheet.css`):
       `PanelMenu.Button`, 1 s timer only while recording, full cleanup in `disable()` (EGO rules).
 - [ ] F2.4 Packaging + runbook: `make extension-pack` (`gnome-extensions pack`), runbook for the
