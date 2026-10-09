@@ -313,6 +313,21 @@ ai_instructions:
 - **Status**: active
 - **Detail**: The spec requires unknown keys to survive a rewrite (forward compatibility). Every `meetings` model (the `Meeting` entity and its nested sections) sets pydantic `extra="allow"`, which keeps unknown keys through `model_validate`, `model_copy` and `model_dump`; a plain model would silently drop them on the first save. `Meeting.directory` is `Field(exclude=True)`: it is derived from the folder the repository read, never serialized. The schema check runs before validation (newer `schema_version` -> `MEETING_SCHEMA_UNSUPPORTED`, listed as `UNSUPPORTED` and never rewritten; missing, non-int or id-mismatched -> corrupt, skipped by list). `get` rejects ids that are not a bare folder name (path traversal), returning the null object. The atomic write uses a temp file in the same folder (`mkstemp`), `fsync`, then `Path.replace` (ruff PTH105 forbids `os.replace`; it calls it) so a crash or `OSError` never leaves a torn file, then `fsync`s the folder so the rename itself is durable (a power loss cannot revert the new state). `save` refuses a meeting whose `directory` is not exactly `<root>/<id>` (`MEETING_STORAGE_FAILED`): `get` rejects an id that differs from its folder name, so such a write would be unreadable.
 
+### GO-033 — A worker is stopped through a per-job cancel signal, not a `terminate()` call
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `preempt()` and `shutdown()` can fire between the loop taking a job and the worker spawning, when there is no process to signal; a `terminate()` method would lose that request (or, with a sticky flag, cancel an unrelated later job). `ProcessingController` therefore creates one `threading.Event` per job under its lock, `preempt()`/`shutdown()` set it, and `WorkerRunner.run` checks it before spawning and every 50 ms while waiting. `run_next` also refuses to take a job while a recording is active, under the same lock. A cancelled run returns `WorkerCancelledError`: the job is not failed, keeps its in-progress state on disk, and goes back to the queue head (preemption) or waits for the next start (shutdown).
+
+### GO-034 — Stopping a worker: process group by id, bounded, and the stderr tail starts at this run
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `SubprocessWorkerRunner` starts the worker with `start_new_session=True` and signals the group (`os.killpg(pid, ...)`, never by pattern, GO-007): SIGTERM, `PROCESSING_WORKER_KILL_GRACE_SECONDS`, SIGKILL, then a bounded reap. A reader thread queues stdout lines so timeout and cancellation are honoured while the worker is silent. `processing.log` is appended by every stage, so the crash reason records the file size before the spawn and reads only the bytes this run wrote. Exit rules: 0 needs a `result`, 1 with an `error` event is the worker's own failure (`WorkerReportedError` keeps the worker's code), anything else is `WORKER_CRASHED`; a bad line, an unknown event or an event after the final one is `WORKER_PROTOCOL_ERROR` and stops the worker at once.
+
+### GO-035 — Resume restarts at the first worker, and observers hear only persisted states
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `Meeting.resume(now, params)` moves an interrupted job (`TRANSCRIBING`, `DIARIZING`, `EXTRACTING_SAMPLES`) to `TRANSCRIBING` keeping `queued_at` and `attempt`; the transcribe worker answers `cache_hit` when its cache key matches (spec 4), so a meeting stored in `DIARIZING` skips transcription without the service guessing cache validity. Nothing is rewritten at `resume()` time: the disk keeps the old in-progress state until the loop picks the job up (AC-16). `ProcessingEvents.state_changed` fires only after `save` succeeded; recording the worker's device is a silent save (same state, no signal). Observer exceptions are logged at WARNING and never change the job (AC-18).
+
 ---
 
 ## Anti-Patterns (AP)
@@ -345,11 +360,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 32 | 0 | 0 |
+| GO | 35 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-032 — 2026-10-09
-**Next available IDs**: BR-005, CR-014, GO-033, AP-005
+**Last rule added**: GO-035 — 2026-10-09
+**Next available IDs**: BR-005, CR-014, GO-036, AP-005
 
 ---
 
