@@ -291,3 +291,17 @@ def test_a_stdin_write_failure_after_the_spawn_stops_the_worker(
 
     assert isinstance(failure, WorkerCrashedError)
     assert spawned[0].poll() is not None
+
+
+def test_a_result_received_before_the_deadline_survives_the_deadline_passing_in_the_grace(
+    tmp_path: Path,
+) -> None:
+    h = Harness(tmp_path)
+    h.runner = SubprocessWorkerRunner(
+        command=(sys.executable, str(FAKE)), kill_grace_seconds=0.5, result_exit_grace_seconds=5.0
+    )
+
+    result = h.run([{"pidfile": "pid"}, {"emit": RESULT}, {"hang": True}], timeout=1.5)
+
+    assert result.unwrap().detected_language == "es"  # the deadline passed while it lingered
+    assert not _alive(h.pid())

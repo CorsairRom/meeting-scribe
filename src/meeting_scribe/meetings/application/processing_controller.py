@@ -6,17 +6,19 @@ guards the queue and the preemption state). Only this class writes ``meeting.jso
 
 import logging
 import threading
+import time
 from collections import deque
 from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from returns.result import Failure, Result, Success
 
 from meeting_scribe.base.domain.errors import EntityNotFoundError, MeetingScribeError
 from meeting_scribe.meetings.domain.errors import (
+    MeetingCorruptError,
     MeetingSchemaUnsupportedError,
     MeetingStorageError,
     WorkerCancelledError,
@@ -50,8 +52,6 @@ from meeting_scribe.meetings.domain.worker import (
 
 logger = logging.getLogger(__name__)
 
-_MAX_SAVE_ATTEMPTS = 3  # a job whose state cannot be saved is retried this many times in a row
-
 
 class JobOutcome(StrEnum):
     """How one run of a job ended; the loop acts on it (never a bare bool)."""
@@ -60,14 +60,17 @@ class JobOutcome(StrEnum):
     FAILED = "failed"  # the failure is recorded on disk
     INTERRUPTED = "interrupted"  # preempted or shut down; resumable
     UNSAVED = "unsaved"  # the repository refused a state change; disk still holds the old state
+    UNLOADED = "unloaded"  # meeting.json could not be read (maybe transient); nothing was changed
+    UNREADABLE = "unreadable"  # meeting.json is corrupt or from a newer schema; never retried
     SKIPPED = "skipped"  # nothing to do (gone, or no longer unfinished)
 
 
 class ProcessingConfig(BaseModel):
     """What the service decides for every job; the worker reads no settings (spec 6.2).
 
-    No defaults: ``ProcessingSettings`` is the single source of the tuning values and the
-    composition root copies them here.
+    No defaults: every field is required. ``ProcessingSettings`` is the single source of the
+    tuning values (and ``ProcessingParams`` of the model parameters); the composition root copies
+    them here.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -75,7 +78,15 @@ class ProcessingConfig(BaseModel):
     device: Literal["cuda", "cpu"]
     worker_timeout_factor: float = Field(gt=0)
     worker_min_timeout_seconds: float = Field(gt=0)
-    params: ProcessingParams = ProcessingParams()
+    params: ProcessingParams
+    storage_retry_delays_seconds: tuple[float, ...]  # one retry per delay, so len + 1 runs at most
+
+    @field_validator("storage_retry_delays_seconds")
+    @classmethod
+    def _delays_are_positive(cls, delays: tuple[float, ...]) -> tuple[float, ...]:
+        if not delays or any(delay <= 0 for delay in delays):
+            raise ValueError("storage_retry_delays_seconds needs at least one delay, all > 0")
+        return delays
 
     def stage_timeout(self, audio_seconds: float) -> float:
         return max(self.worker_min_timeout_seconds, audio_seconds * self.worker_timeout_factor)
@@ -91,6 +102,7 @@ class ProcessingController:
         meetings_dir: Path,
         config: ProcessingConfig,
         events: ProcessingEvents | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._repository = repository
         self._runner = runner
@@ -104,7 +116,9 @@ class ProcessingController:
         self._recording_active = False
         self._stopping = False
         self._cancel = threading.Event()  # belongs to the running job; replaced per job
-        self._unsaved_runs: dict[str, int] = {}
+        self._monotonic = monotonic
+        self._storage_runs: dict[str, int] = {}  # consecutive runs ended by a storage failure
+        self._delayed: list[tuple[float, str]] = []  # (due time, meeting id) waiting to retry
 
     # -- commands (any thread) ------------------------------------------------------------
 
@@ -175,7 +189,7 @@ class ProcessingController:
 
     def queued_ids(self) -> tuple[str, ...]:
         with self._condition:
-            return tuple(self._queue)
+            return (*self._queue, *(meeting_id for _, meeting_id in self._delayed))
 
     # -- the loop (one thread) ------------------------------------------------------------
 
@@ -184,7 +198,7 @@ class ProcessingController:
         while True:
             with self._condition:
                 while not self._stopping and not self._can_start():
-                    self._condition.wait()
+                    self._condition.wait(self._seconds_until_next_retry())
                 if self._stopping:
                     return
             self.run_next()
@@ -207,10 +221,22 @@ class ProcessingController:
     # -- internals ------------------------------------------------------------------------
 
     def _can_start(self) -> bool:
+        """Caller holds the lock. Retries whose delay has passed join the queue tail first."""
+        now = self._monotonic()
+        due = [meeting_id for at, meeting_id in self._delayed if at <= now]
+        self._delayed = [(at, meeting_id) for at, meeting_id in self._delayed if at > now]
+        self._queue.extend(due)
         return bool(self._queue) and not self._recording_active
+
+    def _seconds_until_next_retry(self) -> float | None:
+        """Caller holds the lock. How long the loop may sleep; ``None`` means until notified."""
+        if not self._delayed:
+            return None
+        return max(0.0, min(at for at, _ in self._delayed) - self._monotonic())
 
     def _push(self, meeting: Meeting) -> Meeting:
         with self._condition:
+            self._delayed = [(at, mid) for at, mid in self._delayed if mid != meeting.id]
             if meeting.id not in self._queue:
                 self._queue.append(meeting.id)
             self._condition.notify_all()
@@ -243,8 +269,15 @@ class ProcessingController:
     def _run_job(self, meeting_id: str, cancel: threading.Event) -> JobOutcome:
         loaded = self._repository.get(meeting_id)
         if isinstance(loaded, Failure):
-            logger.error("Cannot load meeting '%s': %s", meeting_id, loaded.failure())
-            return JobOutcome.UNSAVED  # storage trouble is retried, then given up
+            error = loaded.failure()
+            if isinstance(error, MeetingSchemaUnsupportedError | MeetingCorruptError):
+                logger.error("Meeting '%s' cannot be read and is skipped: %s", meeting_id, error)
+                self._notify_storage_failed(
+                    meeting_id, f"meeting.json cannot be read ({error.error_code}): {error}"
+                )
+                return JobOutcome.UNREADABLE  # retrying cannot change a damaged or newer file
+            logger.warning("Cannot load meeting '%s': %s", meeting_id, error)
+            return JobOutcome.UNLOADED
         if loaded.unwrap().processing.state not in UNFINISHED_STATES:
             logger.error("Meeting '%s' cannot be processed; skipped.", meeting_id)
             return JobOutcome.SKIPPED
@@ -279,25 +312,54 @@ class ProcessingController:
         return job.run()
 
     def _settle(self, meeting_id: str, outcome: JobOutcome) -> None:
-        """Act on how a job ended: requeue what is resumable, bound what keeps failing to save."""
-        if outcome is not JobOutcome.UNSAVED:
-            self._unsaved_runs.pop(meeting_id, None)
+        """Act on how a job ended: requeue what is resumable, back off and bound storage trouble."""
+        storage_trouble = outcome in (JobOutcome.UNSAVED, JobOutcome.UNLOADED)
+        if not storage_trouble:
+            self._storage_runs.pop(meeting_id, None)
         if outcome is JobOutcome.INTERRUPTED:
             self._requeue(meeting_id, head=True)  # preemption: back at the head
-        elif outcome is JobOutcome.UNSAVED:
-            runs = self._unsaved_runs.get(meeting_id, 0) + 1
-            if runs >= _MAX_SAVE_ATTEMPTS:
-                self._unsaved_runs.pop(meeting_id, None)
+        elif storage_trouble:
+            what = "saved" if outcome is JobOutcome.UNSAVED else "read"
+            runs = self._storage_runs.get(meeting_id, 0) + 1
+            delays = self._config.storage_retry_delays_seconds
+            if runs > len(delays):  # one retry per delay: len(delays) + 1 runs at most
+                self._storage_runs.pop(meeting_id, None)
                 logger.error(
-                    "Meeting '%s' could not be saved %d times; giving up. It stays resumable on "
+                    "Meeting '%s' could not be %s in %d runs; giving up. It stays resumable on "
                     "disk and runs again at the next resume.",
                     meeting_id,
+                    what,
                     runs,
                 )
+                self._notify_storage_failed(
+                    meeting_id, f"The meeting could not be {what} after {runs} runs."
+                )
                 return
-            self._unsaved_runs[meeting_id] = runs
-            logger.error("Meeting '%s' could not be saved (run %d); requeued.", meeting_id, runs)
-            self._requeue(meeting_id, head=False)
+            self._storage_runs[meeting_id] = runs
+            logger.warning(
+                "Meeting '%s' could not be %s (run %d); retrying in %.0f s.",
+                meeting_id,
+                what,
+                runs,
+                delays[runs - 1],
+            )
+            self._delay(meeting_id, delays[runs - 1])
+
+    def _delay(self, meeting_id: str, seconds: float) -> None:
+        """Park the job until its retry is due; the queue keeps serving other jobs meanwhile."""
+        with self._condition:
+            if self._stopping:
+                return
+            self._delayed.append((self._monotonic() + seconds, meeting_id))
+            self._condition.notify_all()
+
+    def _notify_storage_failed(self, meeting_id: str, reason: str) -> None:
+        try:
+            self._events.storage_failed(meeting_id, reason)
+        except Exception:
+            logger.warning(
+                "Processing observer failed for meeting '%s'.", meeting_id, exc_info=True
+            )
 
     def _requeue(self, meeting_id: str, *, head: bool) -> None:
         """Shutdown leaves the job on disk for the next start instead."""

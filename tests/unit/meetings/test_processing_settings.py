@@ -12,6 +12,7 @@ _VARS = (
     "PROCESSING_WORKER_MIN_TIMEOUT_SECONDS",
     "PROCESSING_WORKER_KILL_GRACE_SECONDS",
     "PROCESSING_NOTIFY",
+    "PROCESSING_STORAGE_RETRY_DELAYS_SECONDS",
 )
 
 
@@ -31,6 +32,7 @@ def test_defaults_follow_the_spec() -> None:
     assert settings.worker_min_timeout_seconds == 900
     assert settings.worker_kill_grace_seconds == 5
     assert settings.notify is True
+    assert settings.storage_retry_delays_seconds == (2.0, 8.0, 30.0)
 
 
 def test_env_override_with_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -47,6 +49,12 @@ def test_env_override_with_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.notify is False
 
 
+def test_storage_retry_delays_come_from_a_json_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROCESSING_STORAGE_RETRY_DELAYS_SECONDS", "[1, 5.5]")
+
+    assert ProcessingSettings().storage_retry_delays_seconds == (1.0, 5.5)
+
+
 @pytest.mark.parametrize(
     ("variable", "value"),
     [
@@ -54,6 +62,8 @@ def test_env_override_with_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
         ("PROCESSING_WORKER_TIMEOUT_FACTOR", "0"),
         ("PROCESSING_WORKER_MIN_TIMEOUT_SECONDS", "0"),
         ("PROCESSING_WORKER_KILL_GRACE_SECONDS", "0"),
+        ("PROCESSING_STORAGE_RETRY_DELAYS_SECONDS", "[2, 0]"),
+        ("PROCESSING_STORAGE_RETRY_DELAYS_SECONDS", "[]"),
     ],
 )
 def test_invalid_values_fail_at_load(

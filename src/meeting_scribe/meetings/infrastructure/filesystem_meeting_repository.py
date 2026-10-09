@@ -9,7 +9,11 @@ from pathlib import Path
 from pydantic import ValidationError
 from returns.result import Failure, Result, Success
 
-from meeting_scribe.meetings.domain.errors import MeetingSchemaUnsupportedError, MeetingStorageError
+from meeting_scribe.meetings.domain.errors import (
+    MeetingCorruptError,
+    MeetingSchemaUnsupportedError,
+    MeetingStorageError,
+)
 from meeting_scribe.meetings.domain.meeting import NULL_MEETING, SCHEMA_VERSION, Meeting
 
 logger = logging.getLogger(__name__)
@@ -83,12 +87,14 @@ class FilesystemMeetingRepository:
     ) -> Result[Meeting, MeetingStorageError | MeetingSchemaUnsupportedError]:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as error:
+        except OSError as error:  # transient as far as we can tell: the caller may retry
             return Failure(MeetingStorageError(f"Cannot read meeting '{meeting_id}': {error}"))
+        except ValueError as error:  # bad JSON or bad UTF-8: the file itself is damaged
+            return Failure(MeetingCorruptError(f"Cannot parse meeting '{meeting_id}': {error}"))
         version = data.get("schema_version") if isinstance(data, dict) else None
         if type(version) is not int or version < 1:
             return Failure(
-                MeetingStorageError(f"Meeting '{meeting_id}' has a corrupt {_FILE_NAME}.")
+                MeetingCorruptError(f"Meeting '{meeting_id}' has a corrupt {_FILE_NAME}.")
             )
         if version > SCHEMA_VERSION:
             return Failure(
@@ -96,15 +102,20 @@ class FilesystemMeetingRepository:
                     f"Meeting '{meeting_id}' uses schema {version}; supported: {SCHEMA_VERSION}."
                 )
             )
+        return self._validate(meeting_id, data, path)
+
+    def _validate(
+        self, meeting_id: str, data: dict[str, object], path: Path
+    ) -> Result[Meeting, MeetingCorruptError]:
         if data.get("id") != meeting_id:
             return Failure(
-                MeetingStorageError(f"Meeting '{meeting_id}' has a corrupt {_FILE_NAME}.")
+                MeetingCorruptError(f"Meeting '{meeting_id}' has a corrupt {_FILE_NAME}.")
             )
         try:
             return Success(Meeting.model_validate({**data, "directory": path.parent}))
         except ValidationError as error:
             return Failure(
-                MeetingStorageError(f"Meeting '{meeting_id}' has an invalid {_FILE_NAME}: {error}")
+                MeetingCorruptError(f"Meeting '{meeting_id}' has an invalid {_FILE_NAME}: {error}")
             )
 
     def _is_folder_name(self, meeting_id: str) -> bool:

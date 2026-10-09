@@ -1,4 +1,6 @@
 import logging
+import threading
+import time
 from datetime import timedelta
 
 import pytest
@@ -11,7 +13,9 @@ from meeting_scribe.meetings.application.processing_controller import (
     ProcessingController,
 )
 from meeting_scribe.meetings.domain.errors import (
+    MeetingCorruptError,
     MeetingProcessingActiveError,
+    MeetingSchemaUnsupportedError,
     MeetingStorageError,
     WorkerCrashedError,
     WorkerReportedError,
@@ -35,6 +39,7 @@ from tests.unit.meetings.fakes import (
     T0,
     FakeAudioInspector,
     FakeClock,
+    FakeMonotonic,
     InMemoryMeetingRepository,
     OnEvent,
     RecordingEvents,
@@ -72,7 +77,9 @@ class Fixture:
             worker_timeout_factor=1.0,
             worker_min_timeout_seconds=900.0,
             params=PARAMS,
+            storage_retry_delays_seconds=(2.0, 8.0, 30.0),
         )
+        self.monotonic = FakeMonotonic()
         self.controller = ProcessingController(
             repository=self.repository,
             runner=self.runner,
@@ -81,6 +88,7 @@ class Fixture:
             meetings_dir=ROOT,
             config=self.config,
             events=self.events,
+            monotonic=self.monotonic,
         )
 
     def seed(self, meeting_id: str, minutes: int, state: str) -> Meeting:
@@ -103,6 +111,9 @@ class Fixture:
 
     def state(self, meeting_id: str) -> str:
         return self.repository.meetings[meeting_id].processing.state
+
+    def advance(self, seconds: float) -> None:
+        self.monotonic.advance(seconds)
 
     def run_all(self) -> None:
         while self.controller.run_next():
@@ -334,6 +345,9 @@ def test_a_failing_events_observer_never_changes_the_job() -> None:
         def finished(self, meeting: Meeting) -> None:
             raise RuntimeError("boom")
 
+        def storage_failed(self, meeting_id: str, reason: str) -> None:
+            raise RuntimeError("boom")
+
     fx.controller._events = Exploding()
     fx.controller.enqueue("m1", RECORDING).unwrap()
     fx.run_all()
@@ -368,6 +382,7 @@ def test_a_save_failure_mid_job_requeues_the_job_instead_of_stranding_it(
     assert any(r.levelno == logging.ERROR for r in caplog.records)
 
     fx.repository.fail_saves = False
+    fx.advance(2.0)
     fx.run_all()
 
     assert fx.state("m1") == "DONE"
@@ -384,8 +399,15 @@ def test_a_job_that_cannot_start_because_of_a_save_failure_is_requeued() -> None
     assert fx.runner.calls == []
     assert fx.controller.queued_ids() == ("m1",)
     fx.repository.fail_saves = False
+    fx.advance(2.0)
     fx.run_all()
     assert fx.state("m1") == "DONE"
+
+
+def _run_until_given_up(fx: Fixture) -> None:
+    for delay in (0.0, 2.0, 8.0, 30.0):  # first run, then one run per retry delay
+        fx.advance(delay)
+        fx.run_all()
 
 
 def test_a_job_that_keeps_failing_to_save_is_given_up_but_stays_resumable(
@@ -396,15 +418,147 @@ def test_a_job_that_keeps_failing_to_save_is_given_up_but_stays_resumable(
     fx.repository.fail_saves = True
 
     with caplog.at_level(logging.ERROR):
-        fx.run_all()  # terminates: the retries are bounded
+        _run_until_given_up(fx)
 
     assert fx.controller.queued_ids() == ()
-    assert "giving up" in caplog.text
+    assert len([r for r in caplog.records if "giving up" in r.getMessage()]) == 1
+    assert len(fx.runner.calls) == 0
     assert fx.state("m1") == "QUEUED"
     fx.repository.fail_saves = False
     assert fx.controller.resume().unwrap() == 1
     fx.run_all()
     assert fx.state("m1") == "DONE"
+
+
+def test_a_storage_retry_waits_for_its_delay_and_the_delays_grow() -> None:
+    fx = Fixture()
+    fx.controller.enqueue("m1", RECORDING).unwrap()
+    fx.repository.fail_saves = True
+
+    assert fx.controller.run_next() is True  # run 1 fails
+    fx.repository.fail_saves = False
+    assert fx.controller.queued_ids() == ("m1",)  # waiting, still known
+    fx.advance(1.9)
+    assert fx.controller.run_next() is False  # not due yet
+    fx.advance(0.1)
+    fx.repository.fail_saves = True
+    assert fx.controller.run_next() is True  # run 2 fails
+    fx.advance(7.9)
+    assert fx.controller.run_next() is False  # second delay is 8 s
+    fx.advance(0.1)
+    assert fx.controller.run_next() is True  # run 3 fails
+    assert len(fx.repository.saves) == 1  # only the enqueue save ever succeeded
+
+
+def test_a_waiting_retry_never_blocks_other_jobs() -> None:
+    fx = Fixture()
+    fx.controller.enqueue("m1", RECORDING).unwrap()
+    fx.controller.enqueue("m2", RECORDING).unwrap()
+    fx.repository.fail_saves_for.add("m1")
+
+    fx.run_all()  # m1 fails to save and waits; m2 runs meanwhile
+
+    assert fx.state("m2") == "DONE"
+    assert fx.controller.queued_ids() == ("m1",)
+    fx.repository.fail_saves_for.clear()
+    fx.advance(2.0)
+    fx.run_all()
+    assert fx.state("m1") == "DONE"
+
+
+def test_giving_up_tells_the_observers_so_the_ui_can_show_it() -> None:
+    fx = Fixture()
+    fx.controller.enqueue("m1", RECORDING).unwrap()
+    fx.repository.fail_saves = True
+
+    _run_until_given_up(fx)
+
+    assert [m for m, _ in fx.events.storage_failures] == ["m1"]
+    assert "saved" in fx.events.storage_failures[0][1]
+
+
+def test_a_transient_read_failure_is_its_own_outcome_and_backs_off(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    fx = Fixture()
+    fx.seed("m1", 0, "QUEUED")
+    fx.controller.resume()
+    fx.repository.get_failures["m1"] = MeetingStorageError("input/output error")
+
+    with caplog.at_level(logging.WARNING):
+        fx.run_all()
+
+    assert "could not be read" in caplog.text
+    assert "could not be saved" not in caplog.text
+    assert fx.runner.calls == []
+    assert fx.controller.queued_ids() == ("m1",)
+    del fx.repository.get_failures["m1"]
+    fx.run_all()
+    assert fx.controller.queued_ids() == ("m1",)  # still waiting
+    fx.advance(2.0)
+    fx.run_all()
+    assert fx.state("m1") == "DONE"
+
+
+def test_a_read_failure_that_never_clears_is_reported_after_the_budget() -> None:
+    fx = Fixture()
+    fx.seed("m1", 0, "QUEUED")
+    fx.controller.resume()
+    fx.repository.get_failures["m1"] = MeetingStorageError("input/output error")
+
+    _run_until_given_up(fx)
+
+    assert fx.controller.queued_ids() == ()
+    assert [m for m, _ in fx.events.storage_failures] == ["m1"]
+    assert "read" in fx.events.storage_failures[0][1]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        MeetingSchemaUnsupportedError("schema 2"),
+        MeetingCorruptError("corrupt meeting.json"),
+    ],
+)
+def test_a_permanent_read_failure_is_reported_and_skipped_without_retries(
+    error: MeetingStorageError | MeetingSchemaUnsupportedError,
+) -> None:
+    fx = Fixture()
+    fx.seed("m1", 0, "QUEUED")
+    fx.seed("m2", 1, "QUEUED")
+    fx.controller.resume()
+    fx.repository.get_failures["m1"] = error
+
+    fx.run_all()
+
+    assert fx.controller.queued_ids() == ()
+    assert fx.state("m2") == "DONE"
+    assert fx.runner.stages_for("m1") == []
+    assert [m for m, _ in fx.events.storage_failures] == ["m1"]
+    fx.advance(100.0)
+    assert fx.controller.run_next() is False
+
+
+def test_serve_forever_wakes_up_for_a_waiting_retry() -> None:
+    fx = Fixture()
+    fx.config = fx.config.model_copy(update={"storage_retry_delays_seconds": (0.3, 0.3)})
+    fx.controller._config = fx.config
+    fx.controller._monotonic = time.monotonic  # the one wiring test uses a real (tiny) delay
+    fx.controller.enqueue("m1", RECORDING).unwrap()
+    fx.repository.fail_saves_for.add("m1")
+    worker = threading.Thread(target=fx.controller.serve_forever, daemon=True)
+    worker.start()
+    deadline = time.monotonic() + 5
+    while fx.controller._storage_runs.get("m1") != 1 and time.monotonic() < deadline:
+        time.sleep(0.01)  # until the first run has failed and a retry waits
+    fx.repository.fail_saves_for.clear()
+    while fx.state("m1") != "DONE" and time.monotonic() < deadline:
+        time.sleep(0.01)
+    fx.controller.shutdown()
+    worker.join(timeout=5)
+
+    assert fx.state("m1") == "DONE"
+    assert not worker.is_alive()
 
 
 def test_a_save_failure_that_still_lets_the_failure_be_recorded_fails_the_job() -> None:
@@ -451,9 +605,26 @@ def test_processing_config_validates_its_values(device: str, factor: float, floo
             device=device,  # type: ignore[arg-type]
             worker_timeout_factor=factor,
             worker_min_timeout_seconds=floor,
+            params=PARAMS,
+            storage_retry_delays_seconds=(1.0,),
         )
 
 
 def test_processing_config_has_no_defaults_of_its_own() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as raised:
         ProcessingConfig()  # type: ignore[call-arg]
+
+    missing = {e["loc"][0] for e in raised.value.errors() if e["type"] == "missing"}
+    assert missing == set(ProcessingConfig.model_fields)  # every field, params included
+
+
+@pytest.mark.parametrize("delays", [(0.0,), (-1.0,), (2.0, -1.0)])
+def test_processing_config_rejects_non_positive_retry_delays(delays: tuple[float, ...]) -> None:
+    with pytest.raises(ValidationError):
+        ProcessingConfig(
+            device="cpu",
+            worker_timeout_factor=1.0,
+            worker_min_timeout_seconds=60.0,
+            params=PARAMS,
+            storage_retry_delays_seconds=delays,
+        )

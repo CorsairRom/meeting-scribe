@@ -46,16 +46,20 @@ class InMemoryMeetingRepository:
         self.meetings: dict[str, Meeting] = {}
         self.saves: list[tuple[str, str]] = []
         self.fail_saves = False
+        self.fail_saves_for: set[str] = set()
+        self.get_failures: dict[str, MeetingStorageError | MeetingSchemaUnsupportedError] = {}
 
     def get(
         self, meeting_id: str
     ) -> Result[Meeting, MeetingStorageError | MeetingSchemaUnsupportedError]:
+        if meeting_id in self.get_failures:
+            return Failure(self.get_failures[meeting_id])
         return Success(self.meetings.get(meeting_id, NULL_MEETING))
 
     def save(
         self, meeting: Meeting
     ) -> Result[Meeting, MeetingStorageError | MeetingSchemaUnsupportedError]:
-        if self.fail_saves:
+        if self.fail_saves or meeting.id in self.fail_saves_for:
             return Failure(MeetingStorageError("disk full"))
         self.meetings[meeting.id] = meeting
         self.saves.append((meeting.id, meeting.processing.state))
@@ -73,6 +77,19 @@ class FakeClock:
     def now(self) -> datetime:
         self.current += timedelta(seconds=1)
         return self.current
+
+
+class FakeMonotonic:
+    """A manually advanced monotonic clock: retry delays are tested without sleeping."""
+
+    def __init__(self) -> None:
+        self.current = 1_000.0
+
+    def __call__(self) -> float:
+        return self.current
+
+    def advance(self, seconds: float) -> None:
+        self.current += seconds
 
 
 class FakeAudioInspector:
@@ -101,6 +118,7 @@ class RecordingEvents:
         self._repository = repository
         self.state_changes: list[tuple[str, str, str]] = []
         self.finished_ids: list[str] = []
+        self.storage_failures: list[tuple[str, str]] = []
 
     def state_changed(self, meeting: Meeting) -> None:
         stored = self._repository.meetings[meeting.id].processing.state
@@ -108,6 +126,9 @@ class RecordingEvents:
 
     def finished(self, meeting: Meeting) -> None:
         self.finished_ids.append(meeting.id)
+
+    def storage_failed(self, meeting_id: str, reason: str) -> None:
+        self.storage_failures.append((meeting_id, reason))
 
 
 def speakers() -> tuple[SpeakerEntry, ...]:

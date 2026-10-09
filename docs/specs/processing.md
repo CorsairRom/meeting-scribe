@@ -662,6 +662,7 @@ Each class inherits `MeetingScribeSettings`, lives in its domain's `infrastructu
 | `PROCESSING_WORKER_TIMEOUT_FACTOR` | `ProcessingSettings` | `1.0` | Stage timeout as a multiple of the audio length |
 | `PROCESSING_WORKER_MIN_TIMEOUT_SECONDS` | `ProcessingSettings` | `900` | Lower bound of the stage timeout |
 | `PROCESSING_WORKER_KILL_GRACE_SECONDS` | `ProcessingSettings` | `5` | SIGTERM to SIGKILL grace |
+| `PROCESSING_STORAGE_RETRY_DELAYS_SECONDS` | `ProcessingSettings` | `[2, 8, 30]` | Delay before each retry after a storage failure (JSON list) |
 | `PROCESSING_NOTIFY` | `ProcessingSettings` | `true` | Send desktop notifications |
 
 All numeric settings are validated (`gt`/`ge`), and an invalid value fails at load, like `RECORDING_*`.
@@ -691,6 +692,7 @@ Same bus name and object path as `Recording1` (CR-011). The contract moves into
 |---|---|---|
 | `EntityNotFoundError(detail_code="MEETING")` | `ENTITY_NOT_FOUND_MEETING` | meetings |
 | `MeetingStorageError` | `MEETING_STORAGE_FAILED` | meetings |
+| `MeetingCorruptError` | `MEETING_CORRUPT` | meetings |
 | `MeetingSchemaUnsupportedError` | `MEETING_SCHEMA_UNSUPPORTED` | meetings |
 | `MeetingProcessingActiveError` (subclass of `InvalidStateTransitionError`) | `MEETING_PROCESSING_ACTIVE` | meetings |
 | `MeetingAudioMissingError` | `MEETING_AUDIO_MISSING` | meetings |
@@ -864,5 +866,12 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
   its `result`/`error` event is terminated and the event kept (GO-034). `ProcessingConfig` and the runner's kill
   grace take their values from `ProcessingSettings` (no second set of defaults). `enqueue` on a `DONE`/`FAILED`
   meeting reprocesses it.
+- 2026-10-09 (F3.1d): a storage retry waits for its delay (`PROCESSING_STORAGE_RETRY_DELAYS_SECONDS`, 2 s, 8 s,
+  30 s) without blocking other queued jobs, so a job runs at most `len(delays) + 1` times in a row (4 by default; this
+  supersedes the "3 runs" of F3.1c). When the budget is spent the job is not dropped silently: the controller logs one
+  ERROR and calls `ProcessingEvents.storage_failed`, and the meeting stays resumable on disk. A read failure is its own
+  outcome (`UNLOADED`) and follows the same backoff; a corrupt `meeting.json` or a newer schema (`UNREADABLE`) is
+  reported through the same event at once and never retried. A `result` received before the stage deadline is kept even
+  if the deadline passes during the post-result grace (GO-034). `ProcessingConfig.params` has no default either.
 - 2026-10-09: one worker process per GPU stage instead of one per job — guarantees Whisper and pyannote are never
   resident together without relying on CTranslate2 freeing memory on `del` (ADR-007).
