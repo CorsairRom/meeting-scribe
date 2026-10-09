@@ -27,6 +27,7 @@ ml = [
     "numpy>=2.5.3",
     "nvidia-cublas-cu12>=12.9.2.10",
     "nvidia-cudnn-cu12==9.*",
+    "pyannote-audio>=4.0.7",
 ]
 
 [project.scripts]
@@ -137,13 +138,15 @@ source_modules = [
 forbidden_modules = ["meeting_scribe.main", "meeting_scribe.settings"]
 
 [[tool.importlinter.contracts]]
-name = "The service never imports ML libraries (only the transcribe backend does, in the worker)"
+name = "The service never imports ML libraries (only the two backends do, in the worker)"
 type = "forbidden"
 source_modules = ["meeting_scribe"]
 forbidden_modules = ["faster_whisper", "ctranslate2", "torch", "torchaudio", "pyannote"]
 ignore_imports = [
     "meeting_scribe.transcription.infrastructure.faster_whisper_backend -> faster_whisper",
     "meeting_scribe.transcription.infrastructure.faster_whisper_backend -> ctranslate2",
+    "meeting_scribe.speakers.infrastructure.pyannote_backend -> torch",
+    "meeting_scribe.speakers.infrastructure.pyannote_backend -> pyannote",
 ]
 
 [[tool.importlinter.contracts]]
@@ -153,4 +156,5 @@ source_modules = ["meeting_scribe.main"]
 forbidden_modules = [
     "meeting_scribe.worker",
     "meeting_scribe.transcription.infrastructure.faster_whisper_backend",
+    "meeting_scribe.speakers.infrastructure.pyannote_backend",
 ]
