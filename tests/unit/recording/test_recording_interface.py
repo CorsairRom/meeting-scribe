@@ -177,6 +177,24 @@ def test_stop_if_active_is_a_noop_when_idle() -> None:
     assert rig.capture.stop_calls == 0
 
 
+def test_stop_if_active_still_stops_when_status_raises(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = Rig()
+    asyncio.run(rig.interface.start())
+
+    def unreadable_status() -> None:
+        raise OSError("ffmpeg.log unreadable")
+
+    monkeypatch.setattr(rig.controller, "status", unreadable_status)
+    with caplog.at_level(logging.ERROR):
+        outcome = asyncio.run(rig.interface.stop_if_active())
+
+    assert isinstance(outcome, Success)
+    assert rig.capture.stop_calls == 1  # ffmpeg is not orphaned
+    assert any("status" in r.getMessage() for r in caplog.records if r.levelno == logging.ERROR)
+
+
 def test_stop_if_active_returns_and_logs_the_failure_with_its_code(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
