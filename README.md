@@ -47,7 +47,7 @@ summary says how to remove it later. `make uninstall` removes the whole `meeting
 Configure by creating `~/.config/meeting-scribe/.env` (or `$XDG_CONFIG_HOME/meeting-scribe/.env`; template:
 `.env.example`) with `LOG_LEVEL`, `STORAGE_MEETINGS_DIR` and so on, then `systemctl --user restart meeting-scribe.service`.
 
-Development: `make setup` (dev dependencies), `make check` (ruff, pyrefly, import-linter, pytest, extension tests),
+Development: `make setup` (dev and ML dependencies: faster-whisper and the NVIDIA wheels come from the `ml` extra), `make check` (ruff, pyrefly, import-linter, pytest, extension tests),
 `make run` (foreground service on your session bus, stop the installed one first). `make help` lists all targets.
 
 ## Try the D-Bus API

@@ -2,15 +2,15 @@
 
 import logging
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, Self
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
 from returns.result import Failure, Result, Success
 
 from meeting_scribe.base.domain.audio import Samples
-from meeting_scribe.base.domain.errors import MeetingScribeError
+from meeting_scribe.base.domain.errors import InvalidValueError, MeetingScribeError
 from meeting_scribe.transcription.domain.cache import (
     WORDS_FILE,
     build_cache_key,
@@ -45,10 +45,37 @@ class TranscriptionRequest(BaseModel):
     load_audio: Callable[[], Result[Samples, MeetingScribeError]]
     """Called only on a cache miss: decoding is the expensive part when the cache is valid."""
 
+    @classmethod
+    def from_spec(
+        cls,
+        spec: Mapping[str, JsonValue],
+        device: str,
+        fingerprint: Sequence[tuple[str, int, int]],
+        duration_seconds: float,
+        load_audio: Callable[[], Result[Samples, MeetingScribeError]],
+    ) -> Result[Self, InvalidValueError]:
+        """Build a request from the job spec's ``transcription`` section; never raises."""
+        try:
+            return Success(
+                cls.model_validate(
+                    {
+                        "params": dict(spec),
+                        "device": device,
+                        "fingerprint": fingerprint,
+                        "duration_seconds": duration_seconds,
+                        "load_audio": load_audio,
+                    }
+                )
+            )
+        except ValidationError as error:
+            fields = ", ".join(".".join(str(part) for part in e["loc"]) for e in error.errors())
+            return Failure(InvalidValueError(f"Invalid transcription job spec: {fields}."))
+
 
 class TranscriptionOutcome(BaseModel):
     model_config = ConfigDict(frozen=True)
 
+    artifact: str = WORDS_FILE
     detected_language: str
     word_count: int
     cached: bool

@@ -381,8 +381,20 @@ own meeting, without reading its content into the repo or logs.
       when the deadline passes during the post-result grace. GREEN 454 python. Pending for the user:
       `.env.example` is blocked by the permission settings for agents → add
       `PROCESSING_STORAGE_RETRY_DELAYS_SECONDS=[2,8,30]` by hand.
-- [ ] F3.2 `transcription` domain + faster-whisper adapter (CUDA lib preload with logging, WAV
+- [x] F3.2 `transcription` domain + faster-whisper adapter (CUDA lib preload with logging, WAV
       decode without PyAV, word timestamps, params-keyed cache).
+      Evidence — integrated #60 (F3.1d, review `review-38ba44f658d2bbc7` approved). F3.2 (delegated):
+      `c5ea0f3` review fixes (deduped delayed retries, pure `_can_start` + `_promote_due_retries`,
+      `storage_failed` carries id + code only); `01ef76a` transcription domain, params, cache key
+      (params + audio fingerprint), TranscriptionSettings; `4268263` faster-whisper worker stage (lazy
+      imports, CUDA preload 17 libs logged, cuda default → `GPU_UNAVAILABLE` without CPU fallback,
+      wave+numpy decode, per-segment progress, cache hit), `ml` extra (faster-whisper 1.2.1,
+      ctranslate2 4.8.2, cublas 12.9.2.10, cudnn 9.27.0.42; no torch yet), 2 new import contracts
+      (8 kept; both proved to bite). GREEN 517 python (2 GPU deselected). Opt-in GPU test on synthetic
+      audio: VRAM 457 → 2516 → 457 MiB after exit; 4.2 s first run (load 2.5 s), 0.2 s cache hit
+      (A-1 partly, A-3/A-4 confirmed for Whisper). New env vars for the user's `.env.example`:
+      TRANSCRIPTION_MODEL/LANGUAGE/COMPUTE_TYPE/CPU_COMPUTE_TYPE/BEAM_SIZE/VAD_FILTER/
+      CONDITION_ON_PREVIOUS_TEXT.
 - [ ] F3.3 `speakers` domain + pyannote adapter (exclusive diarization), word→speaker assignment,
       utterance grouping, renumbering, "Me" by per-turn mic/system energy dominance, voice samples.
 - [ ] F3.4 Wiring: Stop enqueues processing; D-Bus `Meetings1` (list/get, processing state,

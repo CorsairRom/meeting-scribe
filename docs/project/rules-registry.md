@@ -155,6 +155,7 @@ ai_instructions:
 - **Symptom**: CTranslate2 cannot find cuBLAS/cuDNN.
 - **Cause**: `nvidia-cublas-cu12` and `nvidia-cudnn-cu12` live in `site-packages/nvidia/*/lib` and are not on `LD_LIBRARY_PATH`.
 - **Solution**: `ctypes.CDLL` each `.so` before importing `faster_whisper`. Log failures; do not swallow `OSError` silently (prototype did).
+- **Implemented (F3.2)**: `transcription/infrastructure/cuda_preload.py` loads every `nvidia/*/lib/*.so*` with `RTLD_GLOBAL` in a stable order, logs each failure at WARNING with the library name and a summary at INFO; it runs only for `device == cuda`, before `ctranslate2` or `faster_whisper` is imported. On this machine all 17 libraries load.
 
 ### GO-002 — torch cu130 and ctranslate2 cu12 coexist
 - **Date**: 2026-10-09
@@ -165,7 +166,7 @@ ai_instructions:
 - **Date**: 2026-10-09
 - **Status**: active
 - **Symptom**: `TypeError` from `av.open(..., metadata_errors=...)`.
-- **Solution**: decode our own 16 kHz s16 WAV chunks with stdlib `wave` + numpy and pass a float32 array to `model.transcribe`.
+- **Solution**: decode our own 16 kHz s16 WAV chunks with stdlib `wave` + numpy and pass a float32 array to `model.transcribe` (see GO-039 for the reader). `av` 19.0.1 is installed with faster-whisper but never used.
 
 ### GO-004 — pyannote models are gated; never print the HF token
 - **Date**: 2026-10-09
@@ -333,6 +334,21 @@ ai_instructions:
 - **Status**: active
 - **Detail**: `_Job.run` returns a `JobOutcome` (`DONE`, `FAILED`, `INTERRUPTED`, `UNSAVED`, `UNLOADED`, `UNREADABLE`, `SKIPPED`), never a bool. When a state change cannot be saved (disk full), the job first tries to record a failure; if that also cannot be saved the outcome is `UNSAVED`: the disk keeps the last good state, nothing is signalled (persist-before-signal, GO-035), the job is parked and retried after a delay from `PROCESSING_STORAGE_RETRY_DELAYS_SECONDS` (2 s, 8 s, 30 s) while other jobs keep running, so at most `len(delays) + 1` runs in a row. After that the controller logs "giving up" once at ERROR, calls `ProcessingEvents.storage_failed(meeting_id, error_code)` (never the repository error text, which can quote `meeting.json` content) so a UI can show it, and drops the job from memory only: it is still unfinished on disk, so the next `resume()` picks it up. A repository read failure is `UNLOADED` (same backoff, log wording "could not be read"); a corrupt file (`MeetingCorruptError`, code `MEETING_CORRUPT`, raised by the filesystem repository for bad JSON/UTF-8, a missing or mismatched id, or an invalid model) or a newer schema (`MeetingSchemaUnsupportedError`) is `UNREADABLE`: reported through `storage_failed` and never retried. `ProcessingConfig` has no defaults at all (`params` included) and validates `gt=0`; `ProcessingSettings` is the single source and the composition root copies it. `enqueue` on a `DONE`/`FAILED` meeting reprocesses it (documented on the method; the passed recording is ignored).
 
+### GO-037 — The worker process exit is what frees the GPU (measured)
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: measured with the opt-in GPU test (`uv run pytest -m gpu -s`, synthetic audio, RTX 5060 Laptop 8 GB, `large-v3-turbo` float16): `nvidia-smi` memory used was 457 MiB before the worker, peaked at 2516 MiB while it ran (about 2.0 GB for the model plus the CUDA context) and was back at 457 MiB after the process exited. The model is loaded about 2.5 s after the process starts and a whole stage of 11 s of audio took 4.2 s of wall time; a cache-hit run takes 0.2 s because it never imports or loads a model. The test asserts the release against the baseline with a 200 MiB tolerance (a desktop session moves the baseline by itself). Releasing the model in-process (`del`, `gc.collect()`) was not measured: ADR-007 relies on the process exit only.
+
+### GO-038 — The ML-isolation contract counts lazy imports, so one backend module holds them all
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: import-linter (grimp) sees an `import faster_whisper` inside a function exactly like a top-level one. The contract "The service never imports ML libraries" therefore lists the one module that may (`transcription/infrastructure/faster_whisper_backend.py`) under `ignore_imports`, and a second contract forbids `meeting_scribe.main` from reaching that module or `meeting_scribe.worker` at all, so the exception cannot leak into the service through a chain. Everything else (`faster_whisper_transcriber.py`, `cuda_preload.py`, the worker) talks to the library through the `WhisperBackend` port, which also lets the tests inject a fake model. Both contracts were checked to bite with a temporary violation (BROKEN, then reverted). The next ML adapter (pyannote, F3.3) adds its own backend module to the ignore list.
+
+### GO-039 — Decode a chunk by the timeline's frame count, with the handle `wave` leaves at the first sample
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: a chunk left by a crashed ffmpeg can carry a data size of 0 or `0xFFFFFFFF`, so `wave`'s own frame count is wrong. `WavMixReader` opens the file itself, lets `wave.open(handle)` parse the header only (it does not close a handle it did not open), reads `handle.tell()` as the data offset and then reads exactly the frames the timeline recovered from the file size. The mix is `(ch0 + ch1) / 2` scaled by `0.5 / 32768` into one preallocated float32 array (no `concatenate`); a chunk that shrank after inspection is `MEETING_STORAGE_FAILED`, never a silent zero tail.
+
 ---
 
 ## Anti-Patterns (AP)
@@ -365,11 +381,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 36 | 0 | 0 |
+| GO | 39 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-036 — 2026-10-09
-**Next available IDs**: BR-005, CR-014, GO-037, AP-005
+**Last rule added**: GO-039 — 2026-10-09
+**Next available IDs**: BR-005, CR-014, GO-040, AP-005
 
 ---
 
