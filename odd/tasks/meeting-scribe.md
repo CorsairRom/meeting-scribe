@@ -299,6 +299,25 @@ extension in the user's session, or running the nested shell, only with the user
       state opens the drop-down; Start/Stop are explicit menu actions. Inline TDD in a worktree:
       RED 5 failing → GREEN 75; guard test "no state starts a recording on a plain click".
       Merged as #44 (78 lines, under budget). Supersedes the 2026-10-09 one-click-start decision.
+- [x] F2 real-session verification (user, 2026-10-09): `make install` run by the orchestrator with the
+      user's go (exit 0: uv tool at `~/.local/bin/meeting-scribe`, unit enabled + active, activation
+      file installed, extension reinstalled + enabled; service answered `IDLE`). After one
+      logout/login the user confirmed the menu-only indicator and recorded successfully.
+- [x] F2.7 Installer polish (Gentle AI review `review-a96ff3aaa6a272a2`): versioned tool install with
+      an atomic switch so a recording that starts mid-reinstall never runs on a swapped venv; extension
+      pack/install failures keep the summary; log-out hint and start-failure cause reflect the real
+      state; one FORCE contract shared by install/uninstall; escaped ExecStart rendering + assertion;
+      tests for the untested reinstall branches; CR-013 notes the toggle hook is now a kept extension
+      point. Branch `f2/fix-installer-polish`.
+      Route: delegated writer. `fbe11c4` (+403/-50): versions under `~/.local/share/meeting-scribe/
+      versions/<ts>-<pid>/{tools,bin}` via `UV_TOOL_DIR`/`UV_TOOL_BIN_DIR` (verified with uv 0.10.9),
+      `current` symlink switched with `mv -T`, ExecStart stable at `current/bin`, prune after a
+      successful restart only, migration uninstalls the legacy uv tool after the new unit is active;
+      extension failures keep the summary; truthful hints; shared FORCE scope; ExecStart rendered in
+      bash and checked with `grep -Fx`. `7578713` CR-013 note. RED 49 → GREEN 88 install tests.
+      Orchestrator fix: uninstall removed the whole `~/.local/share/meeting-scribe` (future caches)
+      → now only `versions/` + `current` (RED test → GREEN; `rmdir` added to the sandbox whitelist).
+      `make check` → 262 python / 75 extension.
 ### F3 Processing — pending
 ### F4 Review UI — pending
 ### F5 Summaries — pending
@@ -396,4 +415,4 @@ it (F1.4). Items below kept for traceability.
 F0 merged to `main` (#2, squash). F1 complete on integration branch `feat/recording`: F1.1–F1.5
 integrated (#14, #16–#31; packaging/runbook #28–#30, smoke test #31). Final tail review
 `review-0b5874936265a288` approved. Tracker #15 is ready for the owner to merge into `main`.
-F1 merged to `main` (#15, merge commit 7301d96). F2 started on `feat/gnome-extension`; current: F2.4 done; F2.1–F2.3 integrated (#33–#34, #36–#40); pending: manual check in a shell (needs consent).
+F1 merged to `main` (#15, merge commit 7301d96). F2 started on `feat/gnome-extension`; current: F2.4 done; F2.1–F2.3 integrated (#33–#34, #36–#40); verified in the real session; next: F2.7 polish, then tracker #35 ready.
