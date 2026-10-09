@@ -102,6 +102,7 @@ export class FakeRecordingService {
         this.ElapsedSeconds = 0.0;
         this.Directory = '';
         this.FailureReason = '';
+        this.hangCalls = false;
     }
 
     /** Export the object and own the name; resolves once the name is acquired. */
@@ -125,6 +126,8 @@ export class FakeRecordingService {
     }
 
     StartAsync(_params, invocation) {
+        if (this.hangCalls)
+            return; // never answer: simulates a stuck service
         if (this.State === 'RECORDING') {
             invocation.return_dbus_error(`${ERROR_PREFIX}RECORDING_ALREADY_ACTIVE`, 'already');
             return;
@@ -134,6 +137,8 @@ export class FakeRecordingService {
     }
 
     StopAsync(_params, invocation) {
+        if (this.hangCalls)
+            return;
         if (this.State !== 'RECORDING') {
             invocation.return_dbus_error(`${ERROR_PREFIX}NO_ACTIVE_RECORDING`, 'nothing recording');
             return;

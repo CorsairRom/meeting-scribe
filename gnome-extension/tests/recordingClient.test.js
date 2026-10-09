@@ -1,7 +1,7 @@
 import GLib from 'gi://GLib';
 
 import {test, assertEqual, assertDeepEqual} from './harness.js';
-import {RecordingClient} from '../meeting-scribe@meetingscribe.dev/lib/recordingClient.js';
+import {RecordingClient, getProperty as defaultGetProperty} from '../meeting-scribe@meetingscribe.dev/lib/recordingClient.js';
 import {PrivateBus, FakeRecordingService} from './privateBus.js';
 
 const BUS_NAME = 'dev.meetingscribe.Service';
@@ -38,7 +38,7 @@ function until(changes, condition, description) {
 }
 
 /** Private bus + fake service + client with a controllable clock; always cleaned up. */
-async function withFixture(body, {appear = true} = {}) {
+async function withFixture(body, {appear = true, clientOptions = {}} = {}) {
     const bus = await PrivateBus.start();
     let client = null;
     let fake = null;
@@ -57,6 +57,7 @@ async function withFixture(body, {appear = true} = {}) {
                 changes.listeners.slice().forEach(listener => listener());
             },
             now: () => clock.now,
+            ...clientOptions,
         });
         await body({bus, client, fake, changes, clock, until: c => until(changes, c)});
     } finally {
@@ -244,5 +245,75 @@ test('destroy() leaves no handlers: no onChange after it, and it is idempotent',
         await sleep(150);
         assertEqual(changes.snapshots.length, before);
         assertEqual(client.snapshot.available, false);
+    });
+});
+
+test('a late ElapsedSeconds reply from a previous recording never seeds the next one', async () => {
+    // Hold the first ElapsedSeconds reply (recording A) until after B has started.
+    let release = () => {};
+    const gate = new Promise(resolve => {
+        release = resolve;
+    });
+    let held = 0;
+    let reachedResolve = () => {};
+    const reached = new Promise(resolve => {
+        reachedResolve = resolve;
+    });
+    const getProperty = async (...args) => {
+        const value = await defaultGetProperty(...args);
+        if (args[3] === 'ElapsedSeconds' && held++ === 0) {
+            reachedResolve();
+            await gate;
+        }
+        return value;
+    };
+    await withFixture(async ({client, fake, until}) => {
+        client.connect();
+        await until(() => client.snapshot.available);
+        fake.ElapsedSeconds = 100.0; // recording A, as the service reports it
+        await client.start();
+        await reached; // A's reply was produced by the service but is still in flight
+        fake.ElapsedSeconds = 5.0; // recording B starts from zero on the service
+        await client.stop();
+        await until(() => client.snapshot.state === 'STOPPED');
+        await client.start();
+        await until(() => client.snapshot.state === 'RECORDING' &&
+            Math.floor(client.snapshot.elapsedSeconds) === 5);
+        release();
+        await sleep(150); // let A's stale reply land
+        assertEqual(Math.floor(client.snapshot.elapsedSeconds), 5);
+    }, {clientOptions: {getProperty}});
+});
+
+test('a call the service never answers rejects within the call timeout', async () => {
+    await withFixture(async ({client, fake, until}) => {
+        client.connect();
+        await until(() => client.snapshot.available);
+        fake.hangCalls = true;
+        const startedAt = GLib.get_monotonic_time();
+        let error = null;
+        try {
+            await client.start();
+        } catch (e) {
+            error = e;
+        }
+        const waitedMs = (GLib.get_monotonic_time() - startedAt) / 1000;
+        assertEqual(error !== null, true, 'the call must fail: ');
+        assertEqual(waitedMs < 2500, true, `waited ${waitedMs} ms: `);
+        assertEqual(client.snapshot.busy, false);
+    }, {clientOptions: {callTimeoutMs: 400}});
+});
+
+test('FAILED is never reported without its failure reason', async () => {
+    await withFixture(async ({client, fake, changes, until}) => {
+        client.connect();
+        await until(() => client.snapshot.available);
+        await client.start();
+        fake.crash('capture exited unexpectedly');
+        await until(() => client.snapshot.state === 'FAILED' &&
+            client.snapshot.failureReason === 'capture exited unexpectedly');
+        await sleep(100);
+        const bare = changes.snapshots.filter(s => s.state === 'FAILED' && s.failureReason === '');
+        assertEqual(bare.length, 0, 'a FAILED snapshot had no reason: ');
     });
 });
