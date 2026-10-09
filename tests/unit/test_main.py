@@ -5,9 +5,34 @@ from pathlib import Path
 import pytest
 
 from meeting_scribe import main as main_module
-from meeting_scribe.main import Application, RecordingAdapters, create_app, run
+from meeting_scribe.main import (
+    Application,
+    ProcessingAdapters,
+    RecordingAdapters,
+    _real_processing_adapters,
+    build_processing_config,
+    create_app,
+    run,
+)
+from meeting_scribe.meetings.application.processing_controller import ProcessingController
+from meeting_scribe.meetings.infrastructure.processing_settings import ProcessingSettings
+from meeting_scribe.meetings.infrastructure.subprocess_worker_runner import SubprocessWorkerRunner
 from meeting_scribe.recording.application.recording_controller import RecordingController
 from meeting_scribe.settings import Settings, StorageSettings, get_settings
+from meeting_scribe.speakers.domain.params import AssemblyParams, DiarizationParams
+from meeting_scribe.speakers.infrastructure.speakers_settings import SpeakersSettings
+from meeting_scribe.transcription.domain.params import TranscriptionParams
+from meeting_scribe.transcription.infrastructure.transcription_settings import (
+    TranscriptionSettings,
+)
+from tests.unit.meetings.fakes import (
+    FakeAudioInspector,
+    InMemoryMeetingRepository,
+    ScriptedRunner,
+)
+from tests.unit.meetings.fakes import (
+    FakeClock as FakeMeetingsClock,
+)
 from tests.unit.recording.fakes import (
     FakeAudioCapture,
     FakeClock,
@@ -154,3 +179,131 @@ def test_create_app_logs_injected_settings_without_resolving_env_files(
     messages = [r.getMessage() for r in main_records if r.levelno == logging.INFO]
     assert any("settings injected by caller" in m for m in messages)
     assert not any(str(env_file) in m for m in messages)
+
+
+def _every_field_changed() -> Settings:
+    """Each field of the three settings classes that feed a job gets a non-default value."""
+    return Settings(
+        processing=ProcessingSettings(
+            device="cpu",
+            worker_timeout_factor=2.5,
+            worker_min_timeout_seconds=60,
+            worker_kill_grace_seconds=1.5,
+            notify=False,
+            storage_retry_delays_seconds=(1.0, 4.0),
+        ),
+        transcription=TranscriptionSettings(
+            model="tiny",
+            language="AUTO",
+            compute_type="int8_float16",
+            cpu_compute_type="float32",
+            beam_size=2,
+            vad_filter=False,
+            condition_on_previous_text=True,
+        ),
+        speakers=SpeakersSettings(
+            pipeline="org/other-pipeline",
+            num_speakers=3,
+            min_speakers=2,
+            max_speakers=4,
+            utterance_gap_seconds=7.5,
+            me_dominance_db=4.0,
+            me_noise_margin_db=12.0,
+            me_min_turn_seconds=0.8,
+            sample_max_clips=2,
+            sample_target_seconds=10.0,
+            sample_min_clip_seconds=2.0,
+            sample_max_clip_seconds=5.0,
+        ),
+    )
+
+
+def test_the_processing_config_carries_every_setting_into_the_job() -> None:
+    config = build_processing_config(_every_field_changed())
+
+    assert config.device == "cpu"
+    assert (config.worker_timeout_factor, config.worker_min_timeout_seconds) == (2.5, 60)
+    assert config.storage_retry_delays_seconds == (1.0, 4.0)  # the retry budget, every delay
+    assert config.params.transcription == {
+        "model": "tiny",
+        "language": "auto",
+        "compute_type": "int8_float16",
+        "cpu_compute_type": "float32",
+        "beam_size": 2,
+        "vad_filter": False,
+        "condition_on_previous_text": True,
+    }
+    assert config.params.speakers == {
+        "pipeline": "org/other-pipeline",
+        "num_speakers": 3,
+        "min_speakers": 2,
+        "max_speakers": 4,
+        "utterance_gap_seconds": 7.5,
+        "me_dominance_db": 4.0,
+        "me_noise_margin_db": 12.0,
+        "me_min_turn_seconds": 0.8,
+        "sample_max_clips": 2,
+        "sample_target_seconds": 10.0,
+        "sample_min_clip_seconds": 2.0,
+        "sample_max_clip_seconds": 5.0,
+    }
+
+
+def test_no_setting_of_the_three_job_classes_is_left_out_of_the_job_spec() -> None:
+    params = build_processing_config(Settings()).params
+
+    assert set(params.transcription) == set(TranscriptionSettings.model_fields)
+    assert set(params.speakers) == set(SpeakersSettings.model_fields)
+
+
+def test_the_job_spec_is_accepted_by_the_worker_side_models() -> None:
+    params = build_processing_config(_every_field_changed()).params
+
+    assert TranscriptionParams.model_validate(params.transcription).language == "auto"
+    assert DiarizationParams.model_validate(params.speakers).pipeline == "org/other-pipeline"
+    assert AssemblyParams.model_validate(params.speakers).sample_max_clips == 2
+
+
+def test_the_real_runner_gets_its_kill_grace_from_the_processing_settings() -> None:
+    adapters = _real_processing_adapters(_every_field_changed())
+
+    assert isinstance(adapters.runner, SubprocessWorkerRunner)
+    assert adapters.runner._grace == 1.5
+
+
+def test_create_app_builds_the_processing_controller_without_starting_anything() -> None:
+    app = create_app(Settings())
+
+    assert isinstance(app.processing, ProcessingController)
+    assert app.processing.queued_ids() == ()  # nothing resumed or queued before serve()
+
+
+def test_a_recording_on_the_wired_app_holds_back_processing_and_enqueues_on_stop(
+    tmp_path: Path,
+) -> None:
+    repository = InMemoryMeetingRepository()
+    runner = ScriptedRunner()
+    app = create_app(
+        Settings(storage=StorageSettings(meetings_dir=tmp_path)),
+        recording_adapters=RecordingAdapters(
+            clock=FakeClock(),
+            device_resolver=FakeDeviceResolver(),
+            capture=FakeAudioCapture(),
+            storage=FakeRecordingStorage(),
+        ),
+        processing_adapters=ProcessingAdapters(
+            repository=repository,
+            runner=runner,
+            audio=FakeAudioInspector(),
+            clock=FakeMeetingsClock(),
+        ),
+    )
+
+    session = app.recording.start().unwrap()
+    assert app.processing.run_next() is False  # recording: the loop may not start a worker
+    app.recording.stop().unwrap()
+
+    assert repository.meetings[session.id].processing.state == "QUEUED"
+    assert app.processing.run_next() is True  # released by the stop
+    assert repository.meetings[session.id].processing.state == "DONE"
+    assert runner.stages_for(session.id) == ["transcribe", "diarize"]

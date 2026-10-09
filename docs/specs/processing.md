@@ -243,7 +243,7 @@ AND meeting.json still says TRANSCRIBING, so the job resumes at the next start
 
 **Test**: `tests/unit/meetings/test_processing_queue.py::test_shutdown_terminates_worker_and_keeps_job_resumable`
 
-### AC-17: No GPU work while recording (pending OQ-3)
+### AC-17: No GPU work while recording (OQ-3)
 
 ```gherkin
 GIVEN a job in DIARIZING with a running worker
@@ -310,7 +310,7 @@ THEN meeting_scribe.main imports none of torch, torchaudio, faster_whisper, ctra
 | Case | Expected behavior |
 |---|---|
 | Recording stopped with no chunk or only 0-frame chunks | Job FAILED with `MEETING_AUDIO_MISSING`; notification says so |
-| Recording ended `FAILED` (capture crash) with chunks on disk | Enqueued like a clean stop (pending OQ-1) |
+| Recording ended `FAILED` (capture crash) with chunks on disk | Enqueued like a clean stop (OQ-1) |
 | Last chunk truncated by a crash (header frame count wrong or zero) | Frames recovered from the file size (`(size - header) // block_align`); logged at WARNING |
 | Gap in chunk indices (`chunk_00003.wav` missing) | Chunks are concatenated in index order, a WARNING names the missing index; timing stays frame-exact for the chunks present |
 | Chunk is mono, another sample rate or not 16-bit (prototype folder) | Job FAILED with `MEETING_AUDIO_UNSUPPORTED` |
@@ -365,7 +365,7 @@ sequenceDiagram
 **Hand-off from recording.** `recording` cannot import `meetings` (CR-001). The recording domain gets a
 `RecordingListener` port (`on_started(session)`, `on_finished(session)`), injected into `RecordingController` by the
 composition root, which adapts it to `ProcessingController.enqueue(...)` and `ProcessingController.preempt()`.
-`on_finished` fires after a clean stop (`STOPPED`) and, pending OQ-1, after a `FAILED` session. It runs on the
+`on_finished` fires after a clean stop (`STOPPED`) and, per OQ-1, after a `FAILED` session. It runs on the
 controller's worker thread (GO-024), so it only persists `meeting.json` and wakes the loop with
 `loop.call_soon_threadsafe`.
 
@@ -614,7 +614,7 @@ ambient login in the Hugging Face cache (GO-004).
   the worker the same way and leaves the job in its in-progress state for resume (AC-16). The worst case (14 s
   recording stop plus 7 s worker stop) fits systemd's default 90 s stop timeout; `KillMode=mixed` then reaps any
   leftover process in the unit's cgroup.
-- **Preemption** (pending OQ-3, following ADR-003 "no GPU work during recording"): `on_started` terminates a running
+- **Preemption** (OQ-3, approved; following ADR-003 "no GPU work during recording"): `on_started` terminates a running
   worker and puts its job back at the head of the queue; the loop starts no worker while a recording is active.
 
 #### 6.4 Device policy, CUDA libraries, CPU fallback
@@ -938,3 +938,9 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
   `commit` and `discard`: every output goes to `.assembling/` and `commit` swaps `samples/` in whole and replaces
   `utterances.json` and `transcript.md`, so a failure keeps the previous run's outputs (GO-044). The progress
   throttle never drops the terminal 1.0 update.
+- 2026-10-09 (F3.4a, wiring): `RecordingListener` lives in `recording/domain/ports.py`; `meeting_scribe/handoff.py`
+  adapts it to `ProcessingController` (`on_started` -> `preempt`, `on_finished` -> `enqueue` then `release`, a `FAILED`
+  capture included, OQ-1). `on_finished` fires once per started session; a failed `Start` fires nothing. `serve()`
+  resumes, runs the loop in a daemon thread and, at shutdown, stops the recording, then the loop with a bounded
+  join (`shutdown_timeout`, 20 s by default); exceeding it is logged at ERROR and keeps the exit code, because the
+  job is still resumable. GO-045.

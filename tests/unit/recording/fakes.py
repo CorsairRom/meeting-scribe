@@ -87,3 +87,21 @@ class FakeRecordingStorage:
             return Failure(self.error)
         self.prepared.append(session)
         return Success(session)
+
+
+class FakeListener:
+    """Records the lifecycle notifications of ``RecordingController`` in order."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str, str]] = []  # (hook, session id, state at that time)
+        self.error: Exception | None = None
+
+    def on_started(self, session: RecordingSession) -> None:
+        self.events.append(("started", session.id, session.state))
+        if self.error is not None:
+            raise self.error
+
+    def on_finished(self, session: RecordingSession) -> None:
+        self.events.append(("finished", session.id, session.state))
+        if self.error is not None:
+            raise self.error

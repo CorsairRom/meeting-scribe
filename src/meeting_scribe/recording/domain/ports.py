@@ -41,3 +41,28 @@ class RecordingStorage(Protocol):
     def prepare(self, session: RecordingSession) -> Result[RecordingSession, RecordingStorageError]:
         """Create the session folder with its ``audio/`` subfolder."""
         ...
+
+
+class RecordingListener(Protocol):
+    """Told when a recording really starts and when it ends, however it ends.
+
+    Called from the controller's worker thread, so it must be quick and must not call back into
+    the controller. An exception is logged and ignored: a listener never changes a recording.
+    The composition root implements it (``recording`` knows nothing about who listens).
+    """
+
+    def on_started(self, session: RecordingSession) -> None:
+        """Capture is running (``RECORDING``). Not called when ``Start`` fails."""
+        ...
+
+    def on_finished(self, session: RecordingSession) -> None:
+        """A session that had started is now ``STOPPED`` or ``FAILED``; once per session."""
+        ...
+
+
+class NullRecordingListener:
+    def on_started(self, session: RecordingSession) -> None:  # noqa: ARG002
+        return None
+
+    def on_finished(self, session: RecordingSession) -> None:  # noqa: ARG002
+        return None

@@ -19,6 +19,7 @@ from tests.unit.recording.fakes import (
     FakeAudioCapture,
     FakeClock,
     FakeDeviceResolver,
+    FakeListener,
     FakeRecordingStorage,
 )
 
@@ -31,6 +32,7 @@ class Rig:
         self.resolver = FakeDeviceResolver()
         self.capture = FakeAudioCapture()
         self.storage = FakeRecordingStorage()
+        self.listener = FakeListener()
 
     def controller(self) -> RecordingController:
         return RecordingController(
@@ -39,6 +41,7 @@ class Rig:
             capture=self.capture,
             storage=self.storage,
             meetings_dir=MEETINGS,
+            listener=self.listener,
         )
 
 
@@ -266,3 +269,80 @@ def test_failed_state_transitions_are_logged_at_error(
         for record in caplog.records
     )
     assert controller.status().failure_reason == "first"  # never raises, state unchanged
+
+
+ID = "2026-10-09_091500"
+
+
+def test_the_listener_hears_start_once_the_capture_is_running(rig: Rig) -> None:
+    rig.controller().start().unwrap()
+
+    assert rig.listener.events == [("started", ID, "RECORDING")]
+
+
+@pytest.mark.parametrize("failing", ["resolver", "storage", "capture"])
+def test_a_start_that_fails_is_never_announced(rig: Rig, failing: str) -> None:
+    if failing == "resolver":
+        rig.resolver.error = AudioDeviceNotFoundError("no mic")
+    elif failing == "storage":
+        rig.storage.error = RecordingStorageError("disk full")
+    else:
+        rig.capture.start_error = AudioCaptureError("ffmpeg died")
+
+    assert isinstance(rig.controller().start(), Failure)
+
+    assert rig.listener.events == []  # nothing recorded, nothing to process or to preempt for
+
+
+def test_a_clean_stop_is_announced_with_the_stopped_session(rig: Rig) -> None:
+    controller = rig.controller()
+    controller.start().unwrap()
+
+    controller.stop().unwrap()
+
+    assert rig.listener.events[1:] == [("finished", ID, "STOPPED")]
+
+
+def test_a_stop_that_finds_the_capture_dead_is_announced_as_failed(rig: Rig) -> None:
+    controller = rig.controller()
+    controller.start().unwrap()
+    rig.capture.crash("exit 1")
+
+    assert isinstance(controller.stop(), Failure)
+
+    assert rig.listener.events[1:] == [("finished", ID, "FAILED")]
+
+
+def test_a_stop_that_cannot_stop_the_capture_is_announced_as_failed(rig: Rig) -> None:
+    controller = rig.controller()
+    controller.start().unwrap()
+    rig.capture.stop_error = AudioCaptureError("would not die")
+
+    assert isinstance(controller.stop(), Failure)
+
+    assert rig.listener.events[1:] == [("finished", ID, "FAILED")]
+
+
+def test_a_crash_noticed_by_polling_is_announced_exactly_once(rig: Rig) -> None:
+    controller = rig.controller()
+    controller.start().unwrap()
+    rig.capture.crash("segfault")
+
+    controller.status()
+    controller.status()
+    assert isinstance(controller.stop(), Failure)  # refused: the session already failed
+
+    assert rig.listener.events[1:] == [("finished", ID, "FAILED")]
+
+
+def test_a_failing_listener_never_breaks_the_controller(
+    rig: Rig, caplog: pytest.LogCaptureFixture
+) -> None:
+    rig.listener.error = RuntimeError("listener bug")
+    controller = rig.controller()
+
+    assert isinstance(controller.start(), Success)
+    assert isinstance(controller.stop(), Success)
+
+    assert controller.status().state == "STOPPED"
+    assert "listener" in caplog.text.lower()

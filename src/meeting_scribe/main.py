@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import signal
+import threading
 from dataclasses import dataclass
 
 from dbus_fast import NameFlag, RequestNameReply
@@ -11,6 +12,23 @@ from returns.result import Failure
 
 from meeting_scribe.base.infrastructure.dbus.constants import BUS_NAME, OBJECT_PATH
 from meeting_scribe.base.infrastructure.logging import configure_logging
+from meeting_scribe.handoff import ProcessingRecordingListener
+from meeting_scribe.meetings.application.processing_controller import (
+    ProcessingConfig,
+    ProcessingController,
+)
+from meeting_scribe.meetings.domain.meeting import ProcessingParams
+from meeting_scribe.meetings.domain.ports import (
+    AudioInspector,
+    MeetingRepository,
+    WorkerRunner,
+)
+from meeting_scribe.meetings.domain.ports import Clock as MeetingsClock
+from meeting_scribe.meetings.infrastructure.filesystem_meeting_repository import (
+    FilesystemMeetingRepository,
+)
+from meeting_scribe.meetings.infrastructure.subprocess_worker_runner import SubprocessWorkerRunner
+from meeting_scribe.meetings.infrastructure.wav_chunk_inspector import WavChunkInspector
 from meeting_scribe.recording.application.recording_controller import RecordingController
 from meeting_scribe.recording.domain.ports import (
     AudioCapture,
@@ -37,6 +55,9 @@ EXIT_NAME_TAKEN = 1
 EXIT_STOP_FAILED = 2
 EXIT_BUS_DISCONNECTED = 3
 
+SHUTDOWN_TIMEOUT_SECONDS = 20.0
+"""How long ``serve`` waits for the processing loop to stop its worker (SIGTERM, grace, SIGKILL)."""
+
 
 @dataclass(frozen=True)
 class RecordingAdapters:
@@ -49,11 +70,22 @@ class RecordingAdapters:
 
 
 @dataclass(frozen=True)
+class ProcessingAdapters:
+    """The ports behind ``ProcessingController``; tests inject fakes, never the real ones."""
+
+    repository: MeetingRepository
+    runner: WorkerRunner
+    audio: AudioInspector
+    clock: MeetingsClock
+
+
+@dataclass(frozen=True)
 class Application:
     """Wired application. Later phases add controllers and adapters here."""
 
     settings: Settings
     recording: RecordingController
+    processing: ProcessingController
 
 
 def _real_recording_adapters(settings: Settings) -> RecordingAdapters:
@@ -72,8 +104,43 @@ def _real_recording_adapters(settings: Settings) -> RecordingAdapters:
     )
 
 
+def _real_processing_adapters(settings: Settings) -> ProcessingAdapters:
+    """Construct the production adapters. No process is spawned until a job runs."""
+    return ProcessingAdapters(
+        repository=FilesystemMeetingRepository(settings.storage.meetings_dir),
+        runner=SubprocessWorkerRunner(
+            kill_grace_seconds=settings.processing.worker_kill_grace_seconds
+        ),
+        audio=WavChunkInspector(),
+        clock=SystemClock(),
+    )
+
+
+def build_processing_config(settings: Settings) -> ProcessingConfig:
+    """Every value a job needs, copied from the settings (the worker reads none, spec 6.2).
+
+    The two params dicts are the settings classes' own fields: the transcription snapshot is the
+    cache-key source, and the speakers section holds the diarization knobs and the assembly
+    thresholds (each worker-side model picks its fields and ignores the rest).
+    """
+    processing = settings.processing
+    return ProcessingConfig(
+        device=processing.device,
+        worker_timeout_factor=processing.worker_timeout_factor,
+        worker_min_timeout_seconds=processing.worker_min_timeout_seconds,
+        params=ProcessingParams(
+            transcription=settings.transcription.params().model_dump(),
+            speakers=settings.speakers.model_dump(),
+        ),
+        storage_retry_delays_seconds=processing.storage_retry_delays_seconds,
+    )
+
+
 def create_app(
-    settings: Settings | None = None, *, recording_adapters: RecordingAdapters | None = None
+    settings: Settings | None = None,
+    *,
+    recording_adapters: RecordingAdapters | None = None,
+    processing_adapters: ProcessingAdapters | None = None,
 ) -> Application:
     injected = settings is not None
     settings = settings or get_settings()
@@ -85,14 +152,51 @@ def create_app(
     else:
         logger.info("config source: no .env file found, using process environment and defaults")
     adapters = recording_adapters or _real_recording_adapters(settings)
+    processing_ports = processing_adapters or _real_processing_adapters(settings)
+    processing = ProcessingController(
+        repository=processing_ports.repository,
+        runner=processing_ports.runner,
+        audio=processing_ports.audio,
+        clock=processing_ports.clock,
+        meetings_dir=settings.storage.meetings_dir,
+        config=build_processing_config(settings),
+    )
     recording = RecordingController(
         clock=adapters.clock,
         device_resolver=adapters.device_resolver,
         capture=adapters.capture,
         storage=adapters.storage,
         meetings_dir=settings.storage.meetings_dir,
+        listener=ProcessingRecordingListener(processing),
     )
-    return Application(settings=settings, recording=recording)
+    return Application(settings=settings, recording=recording, processing=processing)
+
+
+def _start_processing(processing: ProcessingController) -> threading.Thread:
+    """Resume unfinished jobs, then run the loop in its own thread (it blocks on workers)."""
+    resumed = processing.resume()
+    if isinstance(resumed, Failure):
+        logger.error(
+            "Could not list meetings to resume processing: [%s]", resumed.failure().error_code
+        )
+    else:
+        logger.info("Processing resumed %d unfinished meeting(s).", resumed.unwrap())
+    thread = threading.Thread(target=processing.serve_forever, name="processing", daemon=True)
+    thread.start()
+    return thread
+
+
+async def _stop_processing(
+    processing: ProcessingController, thread: threading.Thread, wait_seconds: float
+) -> None:
+    """Stop the loop and its worker, bounded; the job stays resumable on disk (AC-16)."""
+    processing.shutdown()
+    await asyncio.to_thread(thread.join, wait_seconds)
+    if thread.is_alive():
+        logger.error(
+            "The processing loop did not stop within %.0f s; a worker process may be left over.",
+            wait_seconds,
+        )
 
 
 async def _wait_for_stop_or_disconnect(stop: asyncio.Event, bus: MessageBus) -> bool:
@@ -119,6 +223,7 @@ async def serve(
     stop: asyncio.Event | None = None,
     *,
     poll_interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
+    shutdown_timeout: float = SHUTDOWN_TIMEOUT_SECONDS,
 ) -> int:
     """Export the D-Bus API and run until ``stop`` (or SIGINT/SIGTERM when not given).
 
@@ -141,15 +246,20 @@ async def serve(
         if reply != RequestNameReply.PRIMARY_OWNER:
             logger.error("D-Bus name %s is already owned: another instance is running.", BUS_NAME)
             return EXIT_NAME_TAKEN
+        processing_thread = _start_processing(app.processing)
         recording.start_monitor()
         logger.info("meeting-scribe serving %s on the D-Bus session bus.", BUS_NAME)
         if ready is not None:
             ready.set()
         disconnected = False
         try:
-            disconnected = await _wait_for_stop_or_disconnect(stop, bus)
+            try:
+                disconnected = await _wait_for_stop_or_disconnect(stop, bus)
+            finally:
+                # first: stopping the recording queues its meeting for the next start
+                outcome = await recording.shutdown()
         finally:
-            outcome = await recording.shutdown()
+            await _stop_processing(app.processing, processing_thread, shutdown_timeout)
         if disconnected:
             return EXIT_BUS_DISCONNECTED
         if isinstance(outcome, Failure):
