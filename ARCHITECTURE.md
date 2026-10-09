@@ -1,0 +1,201 @@
+---
+type: architecture
+status: draft
+last_updated: 2026-10-09
+ai_instructions:
+  - "This is the system-level view. Sections marked (planned) describe decided-but-unbuilt parts; everything else reflects code that exists."
+  - "If you change a contract in pyproject.toml [tool.importlinter] or a settings variable, update this file in the same commit."
+  - "Decisions and their reasoning live in docs/decisions/ (ADRs); do not duplicate them here, link them."
+---
+
+# Architecture — meeting-scribe
+
+Local, GPU-accelerated meeting assistant for GNOME. Product context: [`PRD.md`](PRD.md).
+
+---
+
+## 1. System context
+
+```mermaid
+flowchart LR
+  subgraph Desktop["GNOME desktop (Wayland)"]
+    EXT["GNOME extension (GJS)<br/>panel button, timer"]
+    REVIEW["Review app (GTK4 + libadwaita)<br/>system python"]
+  end
+  BUS{{"D-Bus session bus"}}
+  subgraph Service["Python service (systemd --user, Python 3.12 venv)"]
+    API["D-Bus interfaces (dbus-fast)<br/>dev.meetingscribe.Service"]
+    APP["Domains: recording, transcription,<br/>speakers, summaries, meetings"]
+    API --> APP
+  end
+  AUDIO["ffmpeg + PipeWire<br/>mic + system monitor"]
+  GPU["GPU models<br/>faster-whisper, pyannote"]
+  FS[("Meetings dir<br/>one folder per meeting")]
+  LLM_L["Ollama (local)"]
+  LLM_C["DeepSeek (cloud, opt-in)"]
+
+  EXT -- "methods, signals" --> BUS
+  REVIEW -- "methods, signals" --> BUS
+  BUS --> API
+  APP --> AUDIO
+  APP --> GPU
+  APP --> FS
+  APP -- "OpenAI-compatible" --> LLM_L
+  APP -. "explicit action only" .-> LLM_C
+```
+
+| Element | Technology | Status |
+|---|---|---|
+| Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root exists (`create_app`, `run`); D-Bus interfaces in F1, unit file and activation in F6 |
+| GNOME extension | GJS, thin client, no ML | planned (F2), [ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md) |
+| Capture | ffmpeg on PipeWire, 2-channel 30 s chunks | planned (F1), [ADR-002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) |
+| Transcription | faster-whisper `large-v3-turbo`, float16, CUDA | planned (F3) |
+| Diarization | pyannote `speaker-diarization-community-1` | planned (F3) |
+| Review UI | Native GTK4 + libadwaita app on system python, thin D-Bus client | planned (F4), [ADR-005](docs/decisions/005-review-ui-native-gtk-app.md) |
+| Summaries | `SummaryProvider` port, OpenAI-compatible adapter | planned (F5), [ADR-006](docs/decisions/006-summary-provider-openai-compatible.md) |
+| Storage | folder per meeting + versioned `meeting.json` | planned (F3), [ADR-004](docs/decisions/004-folder-per-meeting-json-storage.md) |
+
+---
+
+## 2. Bounded contexts
+
+Source root: `src/meeting_scribe/`. Each package has `domain/`, `application/`, `infrastructure/`.
+
+| Package | Responsibility |
+|---|---|
+| `base/` | Shared kernel: `BaseEntity` (frozen, null-object support), error hierarchy with stable `error_code`, logging setup |
+| `recording/` | Start/stop capture, recording session state, PipeWire/ffmpeg adapter |
+| `transcription/` | Audio to words with timestamps (faster-whisper adapter) |
+| `speakers/` | Diarization (pyannote adapter), voice samples, rename, merge, "Me" labelling |
+| `summaries/` | `SummaryProvider` port and OpenAI-compatible adapter (Ollama / DeepSeek) |
+| `meetings/` | Meeting catalog, `MeetingRepository`, post-recording pipeline orchestration and job queue |
+| `settings.py` | Root `Settings` composed of per-domain settings classes |
+| `main.py` | Composition root: `create_app(settings)`, `run()` |
+
+The GNOME extension lives in `gnome-extension/` (planned, F2) and the GTK review app in a separate top-level directory (planned, F4), both outside the Python package.
+
+---
+
+## 3. Layering rules
+
+Inside every package the dependency direction is `infrastructure` -> `application` -> `domain`.
+
+| Layer | Contains | May import |
+|---|---|---|
+| `domain/` | Entities, value objects, ports, errors | stdlib, pydantic, returns. No framework code. |
+| `application/` | `*_controller.py` returning `Result[T, E]` | its own `domain` |
+| `infrastructure/` | Adapters, `dbus/*_interface.py` (planned, F1), repositories | `application`, `domain`, frameworks |
+
+Cross-package rules: `recording`, `transcription`, `speakers` and `summaries` never import each other. Only
+`meetings` depends on them, and only through their `application` layer. `base` depends on no domain, and no
+package imports `settings` or `main` (settings are injected from the composition root).
+
+### Enforced contracts
+
+Defined in `pyproject.toml` under `[tool.importlinter]` (`root_package = "meeting_scribe"`,
+`include_external_packages = true`) and checked by `make imports` (part of `make lint` and `make check`):
+
+| # | Name | Type | Rule |
+|---|---|---|---|
+| 1 | Domains recording, transcription, speakers and summaries are independent | independence | `recording`, `transcription`, `speakers`, `summaries` do not import each other |
+| 2 | Layers per package: infrastructure > application > domain | layers | In `base`, `recording`, `transcription`, `speakers`, `summaries`, `meetings`: `infrastructure` may import `application` may import `domain`, never the reverse |
+| 3 | meetings only depends on other domains through their application layer | forbidden | `meetings` may not import `<domain>.domain` or `<domain>.infrastructure` of `recording`, `transcription`, `speakers`, `summaries` (`allow_indirect_imports = true`) |
+| 4 | Shared kernel does not depend on domains or the composition root | forbidden | `base` may not import any domain, `meetings`, `settings` or `main` |
+| 5 | Domain layers do not import frameworks | forbidden | every `<package>.domain` (including `base` and `meetings`) may not import `pydantic_settings`, `dbus_fast`, `gi` |
+| 6 | Domain packages do not import settings or the composition root | forbidden | `base` and all domain packages may not import `meeting_scribe.main` or `meeting_scribe.settings` |
+
+---
+
+## 4. Post-recording pipeline
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant API as D-Bus interface
+  participant REC as recording
+  participant MT as meetings (queue)
+  participant TR as transcription
+  participant SP as speakers
+  participant N as Desktop notification
+
+  U->>API: stop recording
+  API->>REC: stop capture (q on ffmpeg stdin)
+  REC-->>MT: recording finished (chunks on disk)
+  MT->>MT: enqueue job
+  MT->>TR: transcribe (GPU: Whisper loaded)
+  TR-->>MT: words with timestamps
+  Note over MT: Whisper released
+  MT->>SP: diarize (GPU: pyannote loaded)
+  SP-->>MT: speaker turns
+  Note over MT: pyannote released
+  MT->>SP: extract voice samples, label "Me"
+  MT->>N: "Done: N speakers"
+```
+
+Orchestration lives in `meetings` (planned, F3). Decision record: [ADR-003](docs/decisions/003-process-after-stop-single-gpu-worker.md).
+
+---
+
+## 5. GPU policy
+
+Target GPU: RTX 5060 Laptop, 8 GB.
+
+- **Lazy load**: a model is loaded when its stage starts, never at service start.
+- **Release between stages**: Whisper is freed before pyannote loads (the prototype kept both resident).
+- **One GPU job at a time**: a single worker drains the queue; recording itself uses no GPU.
+- **Resume**: pending jobs are re-enqueued at service start.
+- **Explicit failures**: CUDA library preload failures are logged; CPU fallback happens only when CUDA is genuinely unavailable and is announced.
+
+---
+
+## 6. D-Bus API (planned, F1)
+
+All clients (extension, review app, e2e tests) use the session bus; there is no HTTP server ([ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md)).
+Names are proposed and renamable until F6. The contract will live in `docs/architecture/api-contracts.md`.
+
+| Item | Value |
+|---|---|
+| Bus name | `dev.meetingscribe.Service` |
+| Object path | `/dev/meetingscribe/Service` |
+| `dev.meetingscribe.Recording1` | `Start`, `Stop`; properties `State`, `ElapsedSeconds`; signal `StateChanged` |
+| `dev.meetingscribe.Meetings1` | list/get; signal `ProcessingFinished` |
+| `dev.meetingscribe.Speakers1` | rename, merge, sample path |
+| `dev.meetingscribe.Summaries1` | generate/read summary |
+| Errors | `dev.meetingscribe.Error.<ERROR_CODE>` (see [error codes](docs/architecture/error-codes-catalog.md)) |
+| Activation | `systemd --user` unit plus D-Bus session activation file (F6) |
+
+Trust boundary: the session bus is per-user and unreachable from websites; any process of the same user can call the
+service, the same boundary as the user's files. The service runs one asyncio loop; ML work runs off the event loop
+so D-Bus stays responsive. The review app runs on system Python ([ADR-005](docs/decisions/005-review-ui-native-gtk-app.md)).
+Tooling: `gdbus call` or `busctl --user`; e2e tests under `dbus-run-session`.
+
+---
+
+## 7. Configuration
+
+`Settings` (root) composes per-domain classes, each with its own `env_prefix`. All read `.env`
+(`extra="ignore"`, `case_sensitive=False`); `get_settings()` is `lru_cache`d. Template: [`.env.example`](.env.example).
+
+| Variable | Settings class | Default | Meaning |
+|---|---|---|---|
+| `LOG_LEVEL` | `Settings.log_level` | `INFO` | stdlib logging level |
+| `STORAGE_MEETINGS_DIR` | `StorageSettings.meetings_dir` | `~/Documents/meetings` | Where meetings are stored |
+
+Known gap: `~` in `STORAGE_MEETINGS_DIR` is not expanded by pydantic; an expanding validator is a F1 follow-up
+(see [`docs/project/backlog.md`](docs/project/backlog.md)). Future per-domain settings (for example `TRANSCRIPTION_`,
+`SUMMARIES_`) live in each domain's `infrastructure/` and are composed into `Settings` by the root.
+
+---
+
+## 8. Decisions (ADRs)
+
+| ADR | Decision |
+|---|---|
+| [001](docs/decisions/001-thin-gnome-extension-dbus-service.md) | Thin GNOME extension + local Python service over the D-Bus session bus |
+| [002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) | Separate mic and system tracks in 2-channel chunks |
+| [003](docs/decisions/003-process-after-stop-single-gpu-worker.md) | Process after stop; single GPU worker |
+| [004](docs/decisions/004-folder-per-meeting-json-storage.md) | Folder per meeting with versioned `meeting.json` |
+| [005](docs/decisions/005-review-ui-native-gtk-app.md) | Review UI as a native GTK4 + libadwaita app |
+| [006](docs/decisions/006-summary-provider-openai-compatible.md) | `SummaryProvider` port, OpenAI-compatible adapter |
+
+Related: [error codes](docs/architecture/error-codes-catalog.md) · [rules registry](docs/project/rules-registry.md) · [scope](docs/project/mvp-scope.md).
