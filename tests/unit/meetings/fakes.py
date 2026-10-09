@@ -127,8 +127,8 @@ class RecordingEvents:
     def finished(self, meeting: Meeting) -> None:
         self.finished_ids.append(meeting.id)
 
-    def storage_failed(self, meeting_id: str, reason: str) -> None:
-        self.storage_failures.append((meeting_id, reason))
+    def storage_failed(self, meeting_id: str, error_code: str) -> None:
+        self.storage_failures.append((meeting_id, error_code))
 
 
 def speakers() -> tuple[SpeakerEntry, ...]:

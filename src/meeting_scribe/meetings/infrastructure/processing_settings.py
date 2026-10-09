@@ -6,6 +6,7 @@ from pydantic import Field, field_validator
 from pydantic_settings import SettingsConfigDict
 
 from meeting_scribe.base.infrastructure.settings import MeetingScribeSettings
+from meeting_scribe.meetings.domain.retry_delays import check_retry_delays
 
 
 class ProcessingSettings(MeetingScribeSettings):
@@ -20,7 +21,5 @@ class ProcessingSettings(MeetingScribeSettings):
 
     @field_validator("storage_retry_delays_seconds")
     @classmethod
-    def _delays_are_positive(cls, delays: tuple[float, ...]) -> tuple[float, ...]:
-        if not delays or any(delay <= 0 for delay in delays):
-            raise ValueError("storage_retry_delays_seconds needs at least one delay, all > 0")
-        return delays
+    def _delays_are_valid(cls, delays: tuple[float, ...]) -> tuple[float, ...]:
+        return check_retry_delays(delays)

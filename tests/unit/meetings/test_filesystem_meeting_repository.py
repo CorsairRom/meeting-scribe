@@ -141,10 +141,14 @@ def test_corrupt_file_is_a_storage_failure_and_is_not_rewritten(
 
 
 def test_an_unreadable_file_is_a_transient_storage_failure_not_a_corrupt_one(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _write(tmp_path, "locked", "{}")
-    (tmp_path / "locked" / "meeting.json").chmod(0)
+
+    def refuse(*_: object, **__: object) -> str:
+        raise PermissionError("input/output error")  # an OSError, whoever runs the suite
+
+    monkeypatch.setattr(Path, "read_text", refuse)
 
     failure = FilesystemMeetingRepository(tmp_path).get("locked").failure()
 

@@ -90,8 +90,11 @@ class ProcessingEvents(Protocol):
         """Called after a job ends ``DONE`` or ``FAILED`` was persisted."""
         ...
 
-    def storage_failed(self, meeting_id: str, reason: str) -> None:
+    def storage_failed(self, meeting_id: str, error_code: str) -> None:
         """Called when a job cannot go on because ``meeting.json`` cannot be read or saved.
+
+        Only the meeting id and a stable ``error_code``: the repository's own error text can quote
+        ``meeting.json`` content, which must never leave the service.
 
         The meeting is left as it is on disk (resumable at the next ``resume()``); nothing in
         its persisted state says so, so this is how a UI learns that the job is stuck.
@@ -106,5 +109,5 @@ class NullProcessingEvents:
     def finished(self, meeting: Meeting) -> None:  # noqa: ARG002
         return None
 
-    def storage_failed(self, meeting_id: str, reason: str) -> None:  # noqa: ARG002
+    def storage_failed(self, meeting_id: str, error_code: str) -> None:  # noqa: ARG002
         return None
