@@ -69,7 +69,7 @@ import-linter, errors as `returns.Result`.
 ## Tooling
 
 - **Package manager**: `uv` (Python ~=3.12). Dev tools are in the `quality-assurance` extra.
-- **Make targets**: `make setup` (install), `make lint` (ruff + pyrefly + import-linter), `make format` (auto-fix), `make imports` (architecture contracts), `make test`, `make test-extension` (extension logic, `gjs -m`), `make check` (lint + test + test-extension), `make run` (start the service). `make install` is reserved for F6.
+- **Make targets**: `make setup` (install), `make lint` (ruff + pyrefly + import-linter), `make format` (auto-fix), `make imports` (architecture contracts), `make test`, `make test-extension` (extension logic and D-Bus client against a private `dbus-daemon`, `gjs -m`), `make check` (lint + test + test-extension), `make run` (start the service). `make install` is reserved for F6.
 - **Linter/formatter**: ruff (`ruff.toml`, line length 100). **Type checker**: pyrefly (`pyrefly.toml`).
 - **Search/read tools**: prefer `rg`, `fd`, `bat`, `eza` over `grep`, `find`, `cat`, `ls`.
 

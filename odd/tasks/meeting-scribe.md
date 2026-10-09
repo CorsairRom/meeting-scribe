@@ -214,8 +214,16 @@ extension in the user's session, or running the nested shell, only with the user
       Fixed inline with TDD: `fill()` expanded `$&`/`$$` from service text (RED garbled failure
       reason → replacer function → GREEN 23 passed); the harness now fails when no tests are
       registered (RED exit 0 → exit 1).
-- [ ] F2.2 D-Bus client (`Gio.DBusProxy`, name watching for service availability,
+- [x] F2.2 D-Bus client (`Gio.DBusProxy`, name watching for service availability,
       `PropertiesChanged`/`StateChanged`), tested against a private bus where practical.
+      Route: delegated writer. Commits `1691884` (async harness, per-test timeout; +30/-5) and
+      `6a32093` (`RecordingClient`, private-bus fixture with a fake Recording1 in GJS; +679/-5,
+      ~330 tests). TDD: async throw passed falsely → fixed; client RED `ImportError` → stub
+      `26/11` → GREEN `37 passed` (3 green runs); no leftover dbus-daemon. Facts (GO-028/029):
+      ElapsedSeconds is not in the proxy cache updates → read once via Properties.Get, then local
+      monotonic clock; read `get_remote_error` before `strip_remote_error`; watcher NONE + proxy
+      DO_NOT_AUTO_START so watching never launches the service. Orchestrator verified tests always
+      inject the private connection.
 - [ ] F2.3 Extension shell (`extension.js`, `metadata.json` shell-version 50, `stylesheet.css`):
       `PanelMenu.Button`, 1 s timer only while recording, full cleanup in `disable()` (EGO rules).
 - [ ] F2.4 Packaging + runbook: `make extension-pack` (`gnome-extensions pack`), runbook for the
@@ -317,4 +325,4 @@ it (F1.4). Items below kept for traceability.
 F0 merged to `main` (#2, squash). F1 complete on integration branch `feat/recording`: F1.1–F1.5
 integrated (#14, #16–#31; packaging/runbook #28–#30, smoke test #31). Final tail review
 `review-0b5874936265a288` approved. Tracker #15 is ready for the owner to merge into `main`.
-F1 merged to `main` (#15, merge commit 7301d96). F2 started on `feat/gnome-extension`; current: F2.2.
+F1 merged to `main` (#15, merge commit 7301d96). F2 started on `feat/gnome-extension`; current: F2.3.
