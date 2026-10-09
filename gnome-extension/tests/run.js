@@ -4,6 +4,7 @@ import System from 'system';
 
 import {runAll, runCleanups} from './harness.js';
 import './indicatorController.test.js';
+import './glibScheduler.test.js';
 import './indicatorModel.test.js';
 import './privateBus.test.js';
 import './recordingClient.test.js';

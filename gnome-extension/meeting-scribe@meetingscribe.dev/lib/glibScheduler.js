@@ -16,7 +16,12 @@ export class GLibScheduler {
      */
     every(seconds, fn) {
         const id = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, seconds, () => {
-            fn();
+            // A throwing callback would make GJS drop the source while it stays tracked here.
+            try {
+                fn();
+            } catch (e) {
+                logError(e, 'meeting-scribe: indicator tick failed');
+            }
             return GLib.SOURCE_CONTINUE;
         });
         this._sources.add(id);

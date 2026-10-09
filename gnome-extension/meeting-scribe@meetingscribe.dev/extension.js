@@ -15,7 +15,7 @@ export default class MeetingScribeExtension extends Extension {
         this._scheduler = new GLibScheduler();
         this._indicator = new PanelIndicator({
             name: _('Meeting Scribe'),
-            onPrimaryClick: () => this._controller?.onPrimaryClick() ?? 'none',
+            onPrimaryClick: options => this._controller?.onPrimaryClick(options) ?? 'none',
             onMenuAction: id => this._controller?.onMenuAction(id),
         });
         this._client = new RecordingClient({
