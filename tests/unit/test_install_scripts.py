@@ -5,6 +5,7 @@ The scripts run in a throwaway HOME with a PATH that holds only fake ``uv``, ``s
 never run. Every fake appends its argv to a log file, which is also the proof the fakes were used.
 """
 
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -52,7 +53,12 @@ esac
 """,
     "systemctl": """
 case "$*" in
-  *is-active*) [ "${FAKE_UNIT_ACTIVE:-0}" = 1 ] && exit 0 || exit 3 ;;
+  *is-active*) [ ! -e "$FAKE_LOG.failed" ] && [ "${FAKE_UNIT_ACTIVE:-0}" = 1 ] \\
+               && exit 0 || exit 3 ;;
+  *enable*|*restart*)
+    case "$*" in
+      *"${FAKE_SYSTEMCTL_FAIL:-@none@}"*) touch "$FAKE_LOG.failed"; echo "Job failed" >&2; exit 1 ;;
+    esac ;;
 esac
 """,
     "gnome-extensions": """
@@ -62,11 +68,23 @@ case "$1" in
 esac
 """,
     "gdbus": """
+mode="${FAKE_GDBUS_MODE:-noowner}"
 case "$*" in
-  *NameHasOwner*) [ "${FAKE_GDBUS_MODE:-noowner}" = noowner ] \\
-                  && echo "(false,)" || echo "(true,)" ;;
-  *Properties.Get*) [ "$FAKE_GDBUS_MODE" = recording ] && echo "(<'RECORDING'>,)" \
-                    || echo "(<'IDLE'>,)" ;;
+  *NameHasOwner*)
+    case "$mode" in
+      owner-fail) echo "Error: timeout" >&2; exit 1 ;;
+      owner-garbage) echo "what" ;;
+      noowner) echo "(false,)" ;;
+      *) echo "(true,)" ;;
+    esac ;;
+  *Properties.Get*)
+    case "$mode" in
+      recording) echo "(<'RECORDING'>,)" ;;
+      get-fail) echo "Error: timeout" >&2; exit 1 ;;
+      get-garbage) echo "what" ;;
+      get-empty) ;;
+      *) echo "(<'IDLE'>,)" ;;
+    esac ;;
 esac
 """,
 }
@@ -138,10 +156,40 @@ def _index(calls: list[str], prefix: str) -> int:
     return next(i for i, line in enumerate(calls) if line.startswith(prefix))
 
 
-def test_fakes_are_the_only_tools_on_path(sandbox: Env) -> None:
-    sandbox.run(INSTALL)
-    assert any(line.startswith("uv ") for line in sandbox.calls())
-    assert sandbox.env["PATH"] == str(sandbox.log.parent / "fakes")  # nothing else is reachable
+TOOLS = ["systemctl", "gnome-extensions", "uv", "gdbus"]
+
+
+def test_scripts_only_reach_the_fakes_never_a_decoy_on_a_normal_path(sandbox: Env) -> None:
+    decoys = sandbox.home / ".local" / "bin"
+    decoys.mkdir(parents=True)
+    marker = sandbox.log.parent / "REAL-CALLED"
+    for tool in TOOLS:
+        decoy = decoys / tool
+        decoy.write_text(f'#!/usr/bin/env bash\necho "{tool}" >> "{marker}"\n')
+        decoy.chmod(0o755)
+    sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_GDBUS_MODE="idle")
+    sandbox.run(UNINSTALL, FAKE_UNIT_ACTIVE="1", FAKE_GDBUS_MODE="idle")
+    called = {line.split()[0] for line in sandbox.calls()}
+    assert set(TOOLS) <= called  # the fakes ran
+    assert not marker.exists()  # the decoys never did
+
+
+def test_sandbox_path_holds_real_files_for_tools_and_only_whitelisted_links(
+    sandbox: Env,
+) -> None:
+    fakes = Path(sandbox.env["PATH"])
+    assert sandbox.env["PATH"] == str(fakes)  # a single directory, nothing inherited
+    for tool in TOOLS:
+        assert not (fakes / tool).is_symlink()
+    links = {p.name for p in fakes.iterdir() if p.is_symlink()}
+    assert links <= set(COREUTILS)
+
+
+@pytest.mark.parametrize("script", sorted(SCRIPTS.glob("*.sh")))
+@pytest.mark.parametrize("tool", TOOLS)
+def test_scripts_never_hardcode_an_absolute_path_to_a_tool(script: Path, tool: str) -> None:
+    pattern = rf"/(?:usr|bin|sbin|opt|nix)[\w./-]*/{re.escape(tool)}\b"
+    assert not re.search(pattern, script.read_text())
 
 
 def test_install_uses_a_python_312_uv_tool_install_of_the_repo(sandbox: Env) -> None:
@@ -183,13 +231,71 @@ def test_reinstall_restarts_the_running_service_when_idle(sandbox: Env) -> None:
     )
 
 
-def test_reinstall_never_restarts_while_recording(sandbox: Env) -> None:
+def test_install_refuses_while_recording_before_touching_anything(sandbox: Env) -> None:
     result = sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_GDBUS_MODE="recording")
-    assert result.returncode == 0, result.stderr
+    assert result.returncode != 0
+    message = (result.stdout + result.stderr).lower()
+    assert "a recording is in progress" in message
+    assert "top-bar menu" in message
+    calls = sandbox.calls()
+    assert not any(line.startswith(("uv tool install", "gnome-extensions")) for line in calls)
+    assert not any(line.startswith("systemctl") and "is-active" not in line for line in calls)
+    assert not sandbox.unit_path.exists()
+    assert not sandbox.activation_path.exists()
+
+
+GDBUS_FAILURES = ["owner-fail", "owner-garbage", "get-fail", "get-garbage", "get-empty"]
+
+
+@pytest.mark.parametrize("mode", GDBUS_FAILURES)
+def test_install_fails_closed_when_the_state_cannot_be_read(sandbox: Env, mode: str) -> None:
+    result = sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_GDBUS_MODE=mode)
+    assert result.returncode != 0
+    assert "could not be read" in (result.stdout + result.stderr).lower()
+    assert not any(line.startswith("uv tool install") for line in sandbox.calls())
     assert not any("restart" in line for line in sandbox.calls())
-    assert "stop the recording" in (result.stdout + result.stderr).lower()
-    assert sandbox.unit_path.exists()  # the rest of the install still ran
+    assert not sandbox.unit_path.exists()
+
+
+@pytest.mark.parametrize("mode", GDBUS_FAILURES)
+def test_uninstall_fails_closed_when_the_state_cannot_be_read(sandbox: Env, mode: str) -> None:
+    _installed(sandbox)
+    result = sandbox.run(UNINSTALL, FAKE_UNIT_ACTIVE="1", FAKE_GDBUS_MODE=mode)
+    assert result.returncode != 0
+    assert "could not be read" in (result.stdout + result.stderr).lower()
+    assert sandbox.unit_path.exists()
+    assert not any("disable" in line or "uninstall" in line for line in sandbox.calls())
+
+
+def test_uninstall_proceeds_with_force_when_the_state_cannot_be_read(sandbox: Env) -> None:
+    _installed(sandbox)
+    result = sandbox.run(UNINSTALL, FAKE_UNIT_ACTIVE="1", FAKE_GDBUS_MODE="get-fail", FORCE="1")
+    assert result.returncode == 0, result.stderr
+    assert not sandbox.unit_path.exists()
+
+
+def test_gdbus_calls_are_bounded_by_a_timeout(sandbox: Env) -> None:
+    sandbox.run(INSTALL, FAKE_GDBUS_MODE="idle")
+    gdbus_calls = [line for line in sandbox.calls() if line.startswith("gdbus ")]
+    assert gdbus_calls
+    assert all("--timeout" in line for line in gdbus_calls)
+
+
+@pytest.mark.parametrize(
+    ("active", "failing"), [("0", "enable"), ("1", "restart")], ids=["first-install", "reinstall"]
+)
+def test_start_failure_still_installs_the_extension_and_explains(
+    sandbox: Env, active: str, failing: str
+) -> None:
+    result = sandbox.run(
+        INSTALL, FAKE_UNIT_ACTIVE=active, FAKE_GDBUS_MODE="idle", FAKE_SYSTEMCTL_FAIL=failing
+    )
+    assert result.returncode != 0
     assert any(line.startswith("gnome-extensions install --force") for line in sandbox.calls())
+    assert "NOT active" in result.stdout
+    assert "make run" in result.stdout
+    assert "Ctrl+C" in result.stdout
+    assert f"systemctl --user restart {UNIT}" in result.stdout
 
 
 def test_install_packs_installs_and_enables_the_extension(sandbox: Env) -> None:
@@ -243,7 +349,7 @@ def test_uninstall_refuses_while_recording(sandbox: Env) -> None:
     _installed(sandbox)
     result = sandbox.run(UNINSTALL, FAKE_UNIT_ACTIVE="1", FAKE_GDBUS_MODE="recording")
     assert result.returncode != 0
-    assert "stop the recording" in (result.stdout + result.stderr).lower()
+    assert "a recording is in progress" in (result.stdout + result.stderr).lower()
     assert sandbox.unit_path.exists()
     assert not any("disable" in line or "uninstall" in line for line in sandbox.calls())
 

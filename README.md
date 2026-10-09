@@ -17,11 +17,14 @@ make install     # everything: service, systemd user unit, D-Bus activation, GNO
 make uninstall   # reverse it (keeps your meetings and your .env)
 ```
 
-You never start the service by hand. `make install` does the following, and is safe to re-run to upgrade:
+You never start the service by hand. `make install` does the following, and is safe to re-run to upgrade. It checks
+the recording first: while a recording is in progress, or its state cannot be read, it changes nothing and exits with an
+error (stop the recording from the top-bar menu, then run it again). If the service fails to start (for example a
+`make run` instance owns the bus name), it still installs the extension, reports the service as NOT active and exits non-zero.
 
 1. Installs the service as a `uv` tool (Python 3.12) from this checkout.
 2. Installs and enables the `systemd --user` unit and the D-Bus activation file, then starts the service
-   (on upgrade it restarts it, but never while a recording is running).
+   (on upgrade it restarts it).
 3. Packs, installs and enables the GNOME extension. On Wayland a brand-new extension is discovered only after you
    log out and back in once; the installer tells you when that is needed.
 
