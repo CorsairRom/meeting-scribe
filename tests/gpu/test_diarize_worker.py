@@ -67,11 +67,16 @@ def _write_chunk(path: Path, left: np.ndarray, right: np.ndarray) -> None:
 
 
 def _synthetic_meeting(root: Path) -> Path:
-    """Silence on the mic; on the system channel two alternating tones (pitch-shifted 'voices')."""
+    """Silence on the mic; on the system channel two alternating tones (pitch-shifted 'voices').
+
+    Each tone is followed by a pause, as real speech is: a channel with sound in every frame has
+    its noise floor at the sound itself and reads as silent (the in-person rule, OQ-4).
+    """
     meeting = root / "2026-10-09_000000"
     seconds = np.arange(20 * RATE) / RATE
-    first = np.sin(2 * np.pi * 180 * seconds) * ((seconds % 8) < 4)
-    second = np.sin(2 * np.pi * 330 * seconds) * ((seconds % 8) >= 4)
+    phase = seconds % 8
+    first = np.sin(2 * np.pi * 180 * seconds) * (phase < 3)
+    second = np.sin(2 * np.pi * 330 * seconds) * ((phase >= 4) & (phase < 7))
     _write_chunk(
         meeting / "audio" / "chunk_00000.wav", np.zeros_like(seconds), 0.3 * (first + second)
     )
