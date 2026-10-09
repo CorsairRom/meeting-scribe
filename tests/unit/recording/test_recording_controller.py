@@ -225,3 +225,44 @@ def test_state_changes_and_failures_are_logged(rig: Rig, caplog: pytest.LogCaptu
     levels = {record.levelno for record in caplog.records}
     assert logging.INFO in levels
     assert logging.WARNING in levels or logging.ERROR in levels
+
+
+def test_status_surfaces_the_exit_detail_of_a_crashed_capture(rig: Rig) -> None:
+    controller = rig.controller()
+    controller.start()
+    rig.capture.crash("ffmpeg exited with code 1: No space left on device")
+
+    status = controller.status()
+
+    assert status.state == "FAILED"
+    assert status.failure_reason == "ffmpeg exited with code 1: No space left on device"
+
+
+def test_stop_after_crash_returns_the_exit_detail(rig: Rig) -> None:
+    controller = rig.controller()
+    controller.start()
+    rig.capture.crash("ffmpeg exited with code 1: Connection reset")
+
+    result = controller.stop()
+
+    assert isinstance(result, Failure)
+    assert str(result.failure()) == "ffmpeg exited with code 1: Connection reset"
+    assert controller.status().failure_reason == "ffmpeg exited with code 1: Connection reset"
+
+
+def test_failed_state_transitions_are_logged_at_error(
+    rig: Rig, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.ERROR)
+    controller = rig.controller()
+    controller.start()
+    controller._fail("first")
+    caplog.clear()
+
+    controller._fail("second")
+
+    assert any(
+        record.levelno == logging.ERROR and "Cannot fail" in record.getMessage()
+        for record in caplog.records
+    )
+    assert controller.status().failure_reason == "first"  # never raises, state unchanged

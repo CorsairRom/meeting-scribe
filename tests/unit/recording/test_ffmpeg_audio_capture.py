@@ -9,6 +9,7 @@ import math
 import os
 import signal
 import stat
+import subprocess
 import time
 import wave
 from collections.abc import Callable, Iterator
@@ -17,9 +18,14 @@ from pathlib import Path
 import pytest
 from returns.result import Failure, Success
 
+from meeting_scribe.recording.application.recording_controller import RecordingController
 from meeting_scribe.recording.domain.audio_devices import AudioDevices
 from meeting_scribe.recording.domain.errors import AudioCaptureError
 from meeting_scribe.recording.infrastructure.ffmpeg_audio_capture import FfmpegAudioCapture
+from meeting_scribe.recording.infrastructure.filesystem_recording_storage import (
+    FilesystemRecordingStorage,
+)
+from tests.unit.recording.fakes import FakeClock, FakeDeviceResolver
 
 DEVICES = AudioDevices(monitor_source="unused.monitor", mic_source="unused-mic")
 HARD_CAP_SECONDS = "15"
@@ -238,4 +244,199 @@ def test_stop_escalates_to_kill_and_reports_failure(
 
     assert isinstance(result, Failure)
     assert "killed" in str(result.failure())
+    assert "terminated" not in str(result.failure())
     assert not capture.is_running()
+
+
+def _term_friendly_binary(tmp_path: Path) -> Path:
+    """Stand-in for ffmpeg that ignores ``q`` but dies on SIGTERM. Opens no device."""
+    script = tmp_path / "term-friendly"
+    script.write_text("#!/bin/sh\nexec sleep 30\n")
+    script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    return script
+
+
+def test_stop_reports_terminated_when_sigterm_was_enough(
+    make_capture: CaptureFactory, tmp_path: Path
+) -> None:
+    capture = make_capture(
+        ffmpeg_binary=str(_term_friendly_binary(tmp_path)),
+        stop_timeout_seconds=0.3,
+        startup_grace_seconds=0.2,
+    )
+    assert isinstance(capture.start(DEVICES, _audio_dir(tmp_path)), Success)
+
+    result = capture.stop()
+
+    assert isinstance(result, Failure)
+    assert "terminated" in str(result.failure())
+    assert "killed" not in str(result.failure())
+    assert not capture.is_running()
+
+
+def test_stop_stays_bounded_when_the_process_cannot_be_reaped(
+    make_capture: CaptureFactory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capture = make_capture(
+        ffmpeg_binary=str(_stubborn_binary(tmp_path)),
+        stop_timeout_seconds=0.2,
+        terminate_grace_seconds=0.2,
+        kill_grace_seconds=0.2,
+        startup_grace_seconds=0.2,
+    )
+    assert isinstance(capture.start(DEVICES, _audio_dir(tmp_path)), Success)
+    pid = capture.pid
+    assert pid is not None
+
+    def never_reaped(_self: subprocess.Popen[bytes], timeout: float | None = None) -> int:
+        raise subprocess.TimeoutExpired("stubborn", timeout or 0)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(subprocess.Popen, "wait", never_reaped)
+        patch.setattr(subprocess.Popen, "kill", lambda _self: None)  # SIGKILL never lands
+        started = time.monotonic()
+        result = capture.stop()
+        elapsed = time.monotonic() - started
+
+    assert elapsed < 3
+    assert isinstance(result, Failure)
+    assert "could not be reaped" in str(result.failure())
+    assert capture.is_running()  # handle kept so a later call can retry
+    assert capture.pid == pid
+
+    os.kill(pid, signal.SIGKILL)  # cleanup: now let the real kill land and reap
+    deadline = time.monotonic() + 2
+    while capture.is_running() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert isinstance(capture.stop(), Failure)  # retry reaps the killed process
+    assert capture.pid is None
+
+
+def test_exit_detail_is_empty_when_never_started_or_running(
+    make_capture: CaptureFactory, tmp_path: Path
+) -> None:
+    capture = make_capture(
+        ffmpeg_binary=str(_term_friendly_binary(tmp_path)), startup_grace_seconds=0.2
+    )
+    assert capture.exit_detail() == ""
+
+    capture.start(DEVICES, _audio_dir(tmp_path))
+
+    assert capture.exit_detail() == ""
+
+
+def _exiting_binary(tmp_path: Path, code: int) -> Path:
+    """Stand-in for ffmpeg that fails late, after the startup grace. Opens no device."""
+    script = tmp_path / "late-exit"
+    script.write_text(f"#!/bin/sh\nsleep 0.6\necho 'pulse: connection lost' >&2\nexit {code}\n")
+    script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    return script
+
+
+def _wait_until_dead(capture: FfmpegAudioCapture, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while capture.is_running() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not capture.is_running()
+
+
+def test_exit_detail_reports_exit_code_and_log_tail_after_late_exit(
+    make_capture: CaptureFactory, tmp_path: Path
+) -> None:
+    capture = make_capture(
+        ffmpeg_binary=str(_exiting_binary(tmp_path, 3)), startup_grace_seconds=0.2
+    )
+    assert isinstance(capture.start(DEVICES, _audio_dir(tmp_path)), Success)
+
+    _wait_until_dead(capture)
+
+    detail = capture.exit_detail()
+    assert "code 3" in detail
+    assert "pulse: connection lost" in detail
+
+
+@pytest.mark.ffmpeg
+def test_exit_detail_mentions_the_signal_exit_code_of_a_killed_process(
+    make_capture: CaptureFactory, tmp_path: Path
+) -> None:
+    capture = make_capture()
+    capture.start(DEVICES, _audio_dir(tmp_path))
+    pid = capture.pid
+    assert pid is not None
+
+    os.kill(pid, signal.SIGKILL)
+    _wait_until_dead(capture, 3)
+
+    assert "code -9" in capture.exit_detail()
+
+
+@pytest.mark.ffmpeg
+def test_exit_detail_includes_log_tail_when_ffmpeg_fails_after_the_grace_period(
+    make_capture: CaptureFactory, tmp_path: Path
+) -> None:
+    def broken(_devices: AudioDevices) -> tuple[list[str], list[str]]:
+        return ["-f", "lavfi", "-i", "nosuchfilter=x=1"], ["-f", "lavfi", "-i", "anullsrc"]
+
+    capture = make_capture(inputs_factory=broken, startup_grace_seconds=0.0)
+
+    assert isinstance(capture.start(DEVICES, _audio_dir(tmp_path)), Success)
+    _wait_until_dead(capture)
+
+    detail = capture.exit_detail()
+    assert "nosuchfilter" in detail
+    assert "code " in detail
+
+
+def test_missing_session_folder_is_reported_as_log_open_failure(
+    make_capture: CaptureFactory, tmp_path: Path
+) -> None:
+    capture = make_capture(ffmpeg_binary=str(_term_friendly_binary(tmp_path)))
+    missing = tmp_path / "gone" / "audio"  # session folder was never created
+
+    result = capture.start(DEVICES, missing)
+
+    assert isinstance(result, Failure)
+    message = str(result.failure())
+    assert "log" in message
+    assert str(missing.parent / "ffmpeg.log") in message
+    assert "ffmpeg not found" not in message
+    assert not capture.is_running()
+
+
+def test_other_os_errors_when_spawning_are_reported_as_cannot_start(
+    make_capture: CaptureFactory, tmp_path: Path
+) -> None:
+    not_executable = tmp_path / "not-executable"
+    not_executable.write_text("#!/bin/sh\n")  # no exec bit: PermissionError
+    capture = make_capture(ffmpeg_binary=str(not_executable))
+
+    result = capture.start(DEVICES, _audio_dir(tmp_path))
+
+    assert isinstance(result, Failure)
+    assert "Cannot start ffmpeg" in str(result.failure())
+    assert "not found" not in str(result.failure())
+    assert not capture.is_running()
+
+
+def test_late_exit_after_successful_start_surfaces_log_tail_in_status(
+    make_capture: CaptureFactory, tmp_path: Path
+) -> None:
+    capture = make_capture(
+        ffmpeg_binary=str(_exiting_binary(tmp_path, 3)), startup_grace_seconds=0.2
+    )
+    controller = RecordingController(
+        clock=FakeClock(),
+        device_resolver=FakeDeviceResolver(),
+        capture=capture,
+        storage=FilesystemRecordingStorage(),
+        meetings_dir=tmp_path / "meetings",
+    )
+    assert isinstance(controller.start(), Success)
+    assert controller.status().state == "RECORDING"
+
+    _wait_until_dead(capture)
+    status = controller.status()
+
+    assert status.state == "FAILED"
+    assert "code 3" in status.failure_reason
+    assert "pulse: connection lost" in status.failure_reason

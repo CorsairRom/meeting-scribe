@@ -5,7 +5,7 @@ import logging
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import IO
+from typing import IO, Literal
 
 from returns.result import Failure, Result, Success
 
@@ -29,7 +29,17 @@ def pulse_inputs(devices: AudioDevices) -> tuple[list[str], list[str]]:
     return pulse_input_args(devices.mic_source), pulse_input_args(devices.monitor_source)
 
 
+type _Escalation = Literal["terminated", "killed", "unreaped"]
+
+
 class FfmpegAudioCapture:
+    """One ffmpeg process. Every wait is bounded (the service runs on one D-Bus event loop).
+
+    Worst-case ``stop()`` time: ``stop_timeout + terminate_grace + kill_grace`` (10 + 2 + 2 = 14 s
+    with the defaults), plus the sub-millisecond ``q`` write. A process that survives SIGKILL
+    (uninterruptible I/O) is reported as a failure and its handle is kept for a later retry.
+    """
+
     def __init__(
         self,
         ffmpeg_binary: str,
@@ -39,6 +49,7 @@ class FfmpegAudioCapture:
         inputs_factory: InputsFactory = pulse_inputs,
         startup_grace_seconds: float = 0.5,
         terminate_grace_seconds: float = 2.0,
+        kill_grace_seconds: float = 2.0,
     ) -> None:
         self._ffmpeg_binary = ffmpeg_binary
         self._chunk_seconds = chunk_seconds
@@ -47,6 +58,7 @@ class FfmpegAudioCapture:
         self._inputs_factory = inputs_factory
         self._startup_grace = startup_grace_seconds
         self._terminate_grace = terminate_grace_seconds
+        self._kill_grace = kill_grace_seconds
         self._process: subprocess.Popen[bytes] | None = None
         self._log: IO[bytes] | None = None
         self._log_path: Path | None = None
@@ -74,6 +86,14 @@ class FfmpegAudioCapture:
         self._log_path = audio_dir.parent / LOG_FILE_NAME
         try:
             self._log = self._log_path.open("ab")
+        except OSError as error:
+            return Failure(
+                AudioCaptureError(
+                    f"Cannot open ffmpeg log '{self._log_path}' "
+                    f"(session folder missing or not writable): {error.strerror or error}"
+                )
+            )
+        try:
             self._process = subprocess.Popen(  # noqa: S603 - argv built by build_ffmpeg_command
                 command,
                 stdin=subprocess.PIPE,
@@ -103,7 +123,21 @@ class FfmpegAudioCapture:
         try:
             return self._stop(process)
         finally:
-            self._release()
+            if process.poll() is not None:  # keep the handle of an unreaped process for a retry
+                self._release()
+
+    def exit_detail(self) -> str:
+        """Empty while running or never started; else the exit code plus the ffmpeg.log tail."""
+        process = self._process
+        if process is None:
+            return ""
+        code = process.poll()
+        if code is None:
+            return ""
+        tail = self._log_tail()
+        return (
+            f"ffmpeg exited with code {code}: {tail}" if tail else f"ffmpeg exited with code {code}"
+        )
 
     def _stop(self, process: subprocess.Popen[bytes]) -> Result[None, AudioCaptureError]:
         if process.poll() is None:
@@ -111,9 +145,7 @@ class FfmpegAudioCapture:
             try:
                 process.wait(timeout=self._stop_timeout)
             except subprocess.TimeoutExpired:
-                self._force_exit(process)
-                logger.error("ffmpeg did not stop on 'q' and was killed.")
-                return Failure(AudioCaptureError("ffmpeg did not stop in time and was killed."))
+                return self._escalate(process)
         code = process.returncode
         if code != 0:
             logger.error("ffmpeg exited with code %s.", code)
@@ -121,13 +153,31 @@ class FfmpegAudioCapture:
         logger.info("ffmpeg capture stopped cleanly.")
         return Success(None)
 
-    def _force_exit(self, process: subprocess.Popen[bytes]) -> None:
+    def _escalate(self, process: subprocess.Popen[bytes]) -> Result[None, AudioCaptureError]:
+        outcome = self._force_exit(process)
+        if outcome == "unreaped":
+            message = (
+                f"ffmpeg (pid {process.pid}) did not stop in time and could not be reaped "
+                "after SIGKILL; it may be stuck in uninterruptible I/O."
+            )
+        else:
+            signal_name = "SIGTERM" if outcome == "terminated" else "SIGKILL"
+            message = f"ffmpeg did not stop in time and was {outcome} ({signal_name})."
+        logger.error(message)
+        return Failure(AudioCaptureError(message))
+
+    def _force_exit(self, process: subprocess.Popen[bytes]) -> _Escalation:
         process.terminate()
         try:
             process.wait(timeout=self._terminate_grace)
         except subprocess.TimeoutExpired:
             process.kill()
-            process.wait()
+            try:
+                process.wait(timeout=self._kill_grace)
+            except subprocess.TimeoutExpired:
+                return "unreaped"
+            return "killed"
+        return "terminated"
 
     @staticmethod
     def _send_quit(process: subprocess.Popen[bytes]) -> None:

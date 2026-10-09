@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 from returns.result import Failure, Result, Success
 
-from meeting_scribe.base.domain.errors import MeetingScribeError
+from meeting_scribe.base.domain.errors import InvalidStateTransitionError, MeetingScribeError
 from meeting_scribe.recording.domain.errors import (
     AudioCaptureError,
     NoActiveRecordingError,
@@ -85,16 +85,16 @@ class RecordingController:
         if self._session.state != "RECORDING" or self._session.is_null:
             return Failure(NoActiveRecordingError("No recording is in progress."))
         if not self._capture.is_running():
-            self._detect_crash()
+            reason = self._fail_crashed()
             self._capture.stop()  # best effort: reap the dead process, the session already failed
-            return Failure(AudioCaptureError(CAPTURE_CRASHED_REASON))
+            return Failure(AudioCaptureError(reason))
         match self._capture.stop():
             case Failure(error):
                 self._fail(str(error))
                 logger.error("Recording '%s' failed to stop: %s", self._session.id, error)
                 return Failure(error)
             case _:
-                self._session = self._session.stop(self._clock.now()).value_or(self._session)
+                self._apply(self._session.stop(self._clock.now()))
                 logger.info("Recording '%s' stopped.", self._session.id)
                 return Success(self._session)
 
@@ -114,12 +114,28 @@ class RecordingController:
         )
 
     def _fail(self, reason: str) -> None:
-        self._session = self._session.fail(reason, self._clock.now()).value_or(self._session)
+        self._apply(self._session.fail(reason, self._clock.now()))
+
+    def _apply(self, transition: Result[RecordingSession, InvalidStateTransitionError]) -> None:
+        """Adopt a transition; an invalid one is logged (never raised) and the session is kept."""
+        match transition:
+            case Success(session):
+                self._session = session
+            case Failure(error):
+                logger.error(
+                    "Recording '%s': state transition ignored: %s", self._session.id, error
+                )
 
     def _detect_crash(self) -> None:
         if self._session.state == "RECORDING" and not self._capture.is_running():
-            self._fail(CAPTURE_CRASHED_REASON)
-            logger.error("Recording '%s': %s.", self._session.id, CAPTURE_CRASHED_REASON)
+            self._fail_crashed()
+
+    def _fail_crashed(self) -> str:
+        """Fail the session with the real exit cause (generic text if the adapter has none)."""
+        reason = self._capture.exit_detail() or CAPTURE_CRASHED_REASON
+        self._fail(reason)
+        logger.error("Recording '%s': %s", self._session.id, reason)
+        return reason
 
     @staticmethod
     def _log_start_failure(failure: Failure[MeetingScribeError]) -> Failure[MeetingScribeError]:

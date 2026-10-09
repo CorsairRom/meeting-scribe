@@ -32,6 +32,10 @@ class AudioCapture(Protocol):
 
     def is_running(self) -> bool: ...
 
+    def exit_detail(self) -> str:
+        """Empty while running or never started, else the exit code and log tail."""
+        ...
+
 
 class RecordingStorage(Protocol):
     def prepare(self, session: RecordingSession) -> Result[RecordingSession, RecordingStorageError]:

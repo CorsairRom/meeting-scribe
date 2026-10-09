@@ -61,7 +61,12 @@ class RecordingSession(BaseEntity):
 
 
 class _NullRecordingSession(RecordingSession):
-    """Represents 'no session'."""
+    """Represents 'no session'.
+
+    ``state`` must be one of the real states, so the null object reports ``STOPPED``, the only
+    terminal state with no failure reason: ``stop``/``fail`` are refused on it. It is therefore
+    indistinguishable from a real stopped session by state alone: callers must check ``is_null``.
+    """
 
     _is_null_object: ClassVar[bool] = True
     id: str = ""
