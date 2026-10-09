@@ -328,6 +328,11 @@ ai_instructions:
 - **Status**: active
 - **Detail**: `Meeting.resume(now, params)` moves an interrupted job (`TRANSCRIBING`, `DIARIZING`, `EXTRACTING_SAMPLES`) to `TRANSCRIBING` keeping `queued_at` and `attempt`; the transcribe worker answers `cache_hit` when its cache key matches (spec 4), so a meeting stored in `DIARIZING` skips transcription without the service guessing cache validity. Nothing is rewritten at `resume()` time: the disk keeps the old in-progress state until the loop picks the job up (AC-16). `ProcessingEvents.state_changed` fires only after `save` succeeded; recording the worker's device is a silent save (same state, no signal). Observer exceptions are logged at WARNING and never change the job (AC-18).
 
+### GO-036 — A job's end is an explicit outcome, and a save failure never strands it
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `_Job.run` returns a `JobOutcome` (`DONE`, `FAILED`, `INTERRUPTED`, `UNSAVED`, `SKIPPED`), never a bool. When a state change cannot be saved (disk full), the job first tries to record a failure; if that also cannot be saved the outcome is `UNSAVED`: the disk keeps the last good state, nothing is signalled (persist-before-signal, GO-035), an ERROR is logged and the job goes to the queue tail, at most 3 runs in a row. After that the controller logs "giving up" and drops it from memory only: it is still unfinished on disk, so the next `resume()` picks it up. `ProcessingConfig` has no defaults and validates `gt=0`; `ProcessingSettings` is the single source and the composition root copies it. `enqueue` on a `DONE`/`FAILED` meeting reprocesses it (documented on the method; the passed recording is ignored).
+
 ---
 
 ## Anti-Patterns (AP)
@@ -360,11 +365,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 35 | 0 | 0 |
+| GO | 36 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-035 — 2026-10-09
-**Next available IDs**: BR-005, CR-014, GO-036, AP-005
+**Last rule added**: GO-036 — 2026-10-09
+**Next available IDs**: BR-005, CR-014, GO-037, AP-005
 
 ---
 

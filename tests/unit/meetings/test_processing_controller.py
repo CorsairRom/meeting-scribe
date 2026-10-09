@@ -1,5 +1,8 @@
+import logging
 from datetime import timedelta
 
+import pytest
+from pydantic import ValidationError
 from returns.result import Failure, Result, Success
 
 from meeting_scribe.base.domain.errors import MeetingScribeError
@@ -9,6 +12,7 @@ from meeting_scribe.meetings.application.processing_controller import (
 )
 from meeting_scribe.meetings.domain.errors import (
     MeetingProcessingActiveError,
+    MeetingStorageError,
     WorkerCrashedError,
     WorkerReportedError,
 )
@@ -63,7 +67,12 @@ class Fixture:
         self.runner = ScriptedRunner()
         self.audio = FakeAudioInspector()
         self.events = RecordingEvents(self.repository)
-        self.config = ProcessingConfig(device="cuda", params=PARAMS)
+        self.config = ProcessingConfig(
+            device="cuda",
+            worker_timeout_factor=1.0,
+            worker_min_timeout_seconds=900.0,
+            params=PARAMS,
+        )
         self.controller = ProcessingController(
             repository=self.repository,
             runner=self.runner,
@@ -330,3 +339,119 @@ def test_a_failing_events_observer_never_changes_the_job() -> None:
     fx.run_all()
 
     assert fx.state("m1") == "DONE"
+
+
+def _disk_fills_during_transcription(fx: Fixture):
+    def behaviour(
+        job: WorkerJob, on_event: OnEvent, cancel: CancelSignal
+    ) -> Result[ResultEvent, MeetingScribeError]:
+        fx.repository.fail_saves = True
+        del fx.runner.behaviours[("m1", "transcribe")]  # only the first attempt
+        return Success(ResultEvent())
+
+    return behaviour
+
+
+def test_a_save_failure_mid_job_requeues_the_job_instead_of_stranding_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    fx = Fixture()
+    fx.runner.behaviours[("m1", "transcribe")] = _disk_fills_during_transcription(fx)
+    fx.controller.enqueue("m1", RECORDING).unwrap()
+
+    with caplog.at_level(logging.ERROR):
+        fx.controller.run_next()
+
+    assert fx.state("m1") == "TRANSCRIBING"  # disk still says what is true
+    assert fx.controller.queued_ids() == ("m1",)
+    assert fx.events.finished_ids == []
+    assert any(r.levelno == logging.ERROR for r in caplog.records)
+
+    fx.repository.fail_saves = False
+    fx.run_all()
+
+    assert fx.state("m1") == "DONE"
+    assert fx.events.finished_ids == ["m1"]
+
+
+def test_a_job_that_cannot_start_because_of_a_save_failure_is_requeued() -> None:
+    fx = Fixture()
+    fx.controller.enqueue("m1", RECORDING).unwrap()
+    fx.repository.fail_saves = True
+
+    fx.controller.run_next()
+
+    assert fx.runner.calls == []
+    assert fx.controller.queued_ids() == ("m1",)
+    fx.repository.fail_saves = False
+    fx.run_all()
+    assert fx.state("m1") == "DONE"
+
+
+def test_a_job_that_keeps_failing_to_save_is_given_up_but_stays_resumable(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    fx = Fixture()
+    fx.controller.enqueue("m1", RECORDING).unwrap()
+    fx.repository.fail_saves = True
+
+    with caplog.at_level(logging.ERROR):
+        fx.run_all()  # terminates: the retries are bounded
+
+    assert fx.controller.queued_ids() == ()
+    assert "giving up" in caplog.text
+    assert fx.state("m1") == "QUEUED"
+    fx.repository.fail_saves = False
+    assert fx.controller.resume().unwrap() == 1
+    fx.run_all()
+    assert fx.state("m1") == "DONE"
+
+
+def test_a_save_failure_that_still_lets_the_failure_be_recorded_fails_the_job() -> None:
+    fx = Fixture()
+    flaky = fx.repository.save
+    saves = {"count": 0}
+
+    def save_failing_once(meeting: Meeting):
+        saves["count"] += 1
+        if saves["count"] == 4:  # enqueue, start, device record, then transcription_done fails
+            return Failure(MeetingStorageError("disk full"))
+        return flaky(meeting)
+
+    fx.repository.save = save_failing_once  # type: ignore[method-assign]
+    fx.controller.enqueue("m1", RECORDING).unwrap()
+
+    fx.run_all()
+
+    failure = fx.repository.meetings["m1"].processing.failure
+    assert fx.state("m1") == "FAILED"
+    assert failure is not None
+    assert failure.error_code == "MEETING_STORAGE_FAILED"
+    assert fx.events.finished_ids == ["m1"]
+
+
+def test_enqueue_of_a_finished_meeting_reprocesses_it_and_ignores_the_recording() -> None:
+    fx = Fixture()
+    fx.seed("m1", 0, "DONE")
+    other = RecordingInfo(started_at=T0, stopped_at=T0 + timedelta(minutes=1))
+
+    meeting = fx.controller.enqueue("m1", other).unwrap()
+
+    assert (meeting.processing.state, meeting.processing.attempt) == ("QUEUED", 2)
+    assert meeting.recording != other
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [{"worker_timeout_factor": 0}, {"worker_min_timeout_seconds": 0}, {"device": "tpu"}],
+)
+def test_processing_config_validates_its_values(overrides: dict[str, object]) -> None:
+    values = {"device": "cpu", "worker_timeout_factor": 1.0, "worker_min_timeout_seconds": 60.0}
+
+    with pytest.raises(ValidationError):
+        ProcessingConfig(**{**values, **overrides})
+
+
+def test_processing_config_has_no_defaults_of_its_own() -> None:
+    with pytest.raises(ValidationError):
+        ProcessingConfig()  # type: ignore[call-arg]
