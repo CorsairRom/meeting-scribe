@@ -70,6 +70,7 @@ lint.ignore = [
 "tests/unit/meetings/test_worker_stage_runner.py" = ["E402"]
 "tests/unit/meetings/test_wav_channel_reader.py" = ["E402"]
 "tests/unit/meetings/test_worker_diarize_stage.py" = ["E402"]
+"tests/unit/speakers/test_filesystem_transcript_files.py" = ["E402"]
 
 # D-Bus member names are PascalCase by convention (api-contracts.md).
 "src/**/infrastructure/dbus/*_interface.py" = ["N802"]

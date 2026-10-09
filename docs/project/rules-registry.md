@@ -394,6 +394,11 @@ ai_instructions:
 - **Status**: active
 - **Detail**: the diarized channel (`system`, or `mic` for an in-person meeting, OQ-4) is part of the `turns.json` key, so the stage computes both 100 ms energy envelopes first (`WavChannelReader.read_energies`, one channel decoded at a time, about 230 MB transient per hour) and applies `choose_diarization_channel` with `SPEAKERS_ME_NOISE_MARGIN_DB`; only on a miss does it decode the chosen channel again and load pyannote. The cache holds only what the model produced (`diarization` and `exclusive_diarization` turns); "Me", assignment, grouping and samples are recomputed on every run and never cached (spec 4), so changing their thresholds needs no model run. The key is `{params: {pipeline, num/min/max_speakers, device, channel}, engines: {pyannote.audio, torch}, audio: fingerprint}`; the noise margin enters the key only through the channel it selects. Engine versions come from package metadata, so a cache hit imports no ML library. A test fixture needs quiet frames: the activity threshold is relative to the channel's own noise floor, so a constant tone looks like "no speech" (see GO-041).
 
+### GO-044 — The extraction step is cheap CPU work that re-runs every time, and it needs words, turns and both envelopes
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: after pyannote (`DIARIZING`) the same worker process runs `AssembleTranscript` without a model resident: "Me" detection over the two envelopes (skipped when the mic was diarized, in person), `merge_turns` (Me wins its overlaps), `assign_speakers`, `group_utterances`, `number_speakers`, then it emits the `stage` event `EXTRACTING_SAMPLES` and writes the samples, `utterances.json` and `transcript.md`. `words.json` is read first, before any GPU work, and any file under its own key is accepted (`LoadWords`): a missing file fails the job with `TRANSCRIPTION_FAILED` instead of yielding an empty meeting. Samples: remote speakers (and every speaker in an in-person meeting) are cut from the diarized channel using the regular, overlapping annotation's clean turns; "Me" and "Unknown" from the microphone using only turns during which the system channel is quiet (`me_turns_with_quiet_system`). Each source channel is decoded at most once, only when somebody needs a sample from it. Files are written atomically (`.<name>.tmp` then `replace`); `samples/` is emptied first so a speaker that disappeared between runs leaves no stale file; a sample is peak-normalized to -3 dBFS and clips are 0.4 s apart. `turns.json` gets `bleed`, `me_turns` and `unknown_turns` added to its `data` after every run (the key does not change, so the cache still hits). `utterances.json` lists `{speaker, start, end, text}` with the stable speaker id (`ME`, `S1`...), never the pyannote label. A speaker is listed only when it owns an utterance; `talk_seconds` is the sum of its utterance durations.
+
 ---
 
 ## Statistics (keep updated)
@@ -402,11 +407,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 43 | 0 | 0 |
+| GO | 44 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-043 — 2026-10-09
-**Next available IDs**: BR-005, CR-014, GO-044, AP-005
+**Last rule added**: GO-044 — 2026-10-09
+**Next available IDs**: BR-005, CR-014, GO-045, AP-005
 
 ---
 

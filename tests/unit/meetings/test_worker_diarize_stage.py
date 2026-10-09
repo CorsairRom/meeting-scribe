@@ -10,8 +10,19 @@ np = pytest.importorskip("numpy")
 from meeting_scribe.worker import build_diarize_stage, main
 from tests.unit.speakers.fakes import PARAMS, FakeBackend
 
+SPEAKERS = {
+    **PARAMS.model_dump(),
+    "utterance_gap_seconds": 5.0,
+    "me_dominance_db": 6.0,
+    "me_min_turn_seconds": 0.5,
+    "sample_max_clips": 3,
+    "sample_target_seconds": 15.0,
+    "sample_min_clip_seconds": 1.5,
+    "sample_max_clip_seconds": 6.0,
+}
 
-def _meeting(tmp_path: Path, system_amplitude: float) -> Path:
+
+def _meeting(tmp_path: Path, system_amplitude: float, words: bool = True) -> Path:
     """Four seconds on the system channel: a tone from 1 s to 3 s (or silence: in person).
 
     The activity test is relative to the channel's own noise floor, so some frames must be quiet.
@@ -26,7 +37,21 @@ def _meeting(tmp_path: Path, system_amplitude: float) -> Path:
         writer.setsampwidth(2)
         writer.setframerate(16_000)
         writer.writeframes(pcm.tobytes())
+    if words:
+        _words(tmp_path, [(1.2, 1.6, "hola"), (1.7, 2.1, "mundo")])
     return tmp_path
+
+
+def _words(meeting: Path, words: list[tuple[float, float, str]]) -> None:
+    document = {
+        "cache_version": 1,
+        "key": {},
+        "data": {
+            "detected_language": "es",
+            "words": [{"start": a, "end": b, "text": t, "probability": 1.0} for a, b, t in words],
+        },
+    }
+    (meeting / "words.json").write_text(json.dumps(document), encoding="utf-8")
 
 
 def _spec(meeting: Path, device: str = "cuda") -> str:
@@ -37,7 +62,7 @@ def _spec(meeting: Path, device: str = "cuda") -> str:
             "meeting_dir": str(meeting),
             "device": device,
             "transcription": {},
-            "speakers": PARAMS.model_dump(),
+            "speakers": SPEAKERS,
         }
     )
 
@@ -57,20 +82,38 @@ def test_the_diarize_stage_runs_end_to_end_with_a_fake_pipeline(tmp_path: Path) 
     meeting = _meeting(tmp_path, 0.5)
     backend = FakeBackend()
     backend.steps = (("segmentation", 2, 1),)
+    backend.turns = backend.exclusive  # nobody overlaps: every turn is clean
 
     code, events = _drive(meeting, backend)
 
     assert code == 0
-    assert [e["event"] for e in events] == ["started", "progress", "result"]
+    assert [e["event"] for e in events] == ["started", "progress", "stage", "result"]
     assert events[0]["device"] == "cuda"
     assert events[1]["stage"] == "diarize"
-    assert events[-1]["artifacts"] == {"turns": "turns.json"}
+    assert events[2]["state"] == "EXTRACTING_SAMPLES"
+    result = events[-1]
+    assert result["artifacts"] == {
+        "turns": "turns.json",
+        "utterances": "utterances.json",
+        "transcript": "transcript.md",
+    }
+    assert result["detected_language"] == "es"
+    assert [(s["id"], s["label"], s["utterance_count"]) for s in result["speakers"]] == [
+        ("S1", "Speaker 1", 1)
+    ]
     cache = json.loads((meeting / "turns.json").read_text(encoding="utf-8"))
     assert cache["key"]["params"]["channel"] == "system"
     assert [t["speaker"] for t in cache["data"]["exclusive_diarization"]] == [
         "SPEAKER_00",
         "SPEAKER_01",
     ]
+    assert (meeting / "transcript.md").read_text(encoding="utf-8") == (
+        "[00:00:01] **Speaker 1:** hola mundo\n"
+    )
+    assert result["speakers"][0]["sample"] == "samples/S1.wav"
+    with wave.open(str(meeting / "samples" / "S1.wav")) as sample:
+        assert (sample.getnchannels(), sample.getframerate()) == (1, 16_000)
+        assert sample.getnframes() / 16_000 == pytest.approx(3.0)  # the clean 0-3 s turn
     waveform = backend.calls[0][0]["waveform"]
     assert waveform.shape == (64_000,)  # type: ignore[union-attr]
 
@@ -93,7 +136,7 @@ def test_a_second_run_is_a_cache_hit_and_never_builds_a_pipeline(tmp_path: Path)
     code, events = _drive(meeting, backend)
 
     assert code == 0
-    assert [e["event"] for e in events] == ["cache_hit", "result"]
+    assert [e["event"] for e in events] == ["cache_hit", "stage", "result"]
     assert backend.events == []
 
 

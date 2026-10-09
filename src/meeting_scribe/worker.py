@@ -109,7 +109,13 @@ def build_diarize_stage(backend: PyannoteBackend | None = None) -> StageRunner:
     from meeting_scribe.meetings.infrastructure.wav_chunk_inspector import (  # noqa: PLC0415
         WavChunkInspector,
     )
+    from meeting_scribe.speakers.application.assemble_transcript import (  # noqa: PLC0415
+        AssembleTranscript,
+    )
     from meeting_scribe.speakers.application.diarize_audio import DiarizeAudio  # noqa: PLC0415
+    from meeting_scribe.speakers.infrastructure.filesystem_transcript_files import (  # noqa: PLC0415
+        FilesystemTranscriptFiles,
+    )
     from meeting_scribe.speakers.infrastructure.json_turns_cache import (  # noqa: PLC0415
         JsonTurnsCache,
     )
@@ -119,12 +125,24 @@ def build_diarize_stage(backend: PyannoteBackend | None = None) -> StageRunner:
     from meeting_scribe.speakers.infrastructure.pyannote_diarizer import (  # noqa: PLC0415
         PyannoteDiarizer,
     )
+    from meeting_scribe.transcription.application.load_words import LoadWords  # noqa: PLC0415
+    from meeting_scribe.transcription.infrastructure.json_words_cache import (  # noqa: PLC0415
+        JsonWordsCache,
+    )
 
-    service = DiarizeAudio(PyannoteDiarizer(backend or RealPyannoteBackend()), JsonTurnsCache())
+    turns = JsonTurnsCache()
+    diarize = DiarizeAudio(PyannoteDiarizer(backend or RealPyannoteBackend()), turns)
+    assemble = AssembleTranscript(turns, FilesystemTranscriptFiles())
 
     def run(job: WorkerJob, emit: Emit) -> Result[ResultEvent, MeetingScribeError]:
         return run_diarize_stage(
-            job, audio=WavChunkInspector(), channels=WavChannelReader(), diarize=service, emit=emit
+            job,
+            audio=WavChunkInspector(),
+            channels=WavChannelReader(),
+            words=LoadWords(JsonWordsCache()),
+            diarize=diarize,
+            assemble=assemble,
+            emit=emit,
         )
 
     return run

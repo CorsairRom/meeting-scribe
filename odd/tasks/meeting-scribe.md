@@ -395,7 +395,7 @@ own meeting, without reading its content into the repo or logs.
       (A-1 partly, A-3/A-4 confirmed for Whisper). New env vars for the user's `.env.example`:
       TRANSCRIPTION_MODEL/LANGUAGE/COMPUTE_TYPE/CPU_COMPUTE_TYPE/BEAM_SIZE/VAD_FILTER/
       CONDITION_ON_PREVIOUS_TEXT.
-- [ ] F3.3 `speakers` domain + pyannote adapter (exclusive diarization), word→speaker assignment,
+- [x] F3.3 `speakers` domain + pyannote adapter (exclusive diarization), word→speaker assignment,
       utterance grouping, renumbering, "Me" by per-turn mic/system energy dominance, voice samples.
       F3.3a (delegated): `3952db1` lazy worker stage build (refused invocations import no adapters
       or numpy) + JsonWordsCache and load-audio failure tests; `3f521f2` assignment (max overlap,
@@ -405,6 +405,17 @@ own meeting, without reading its content into the repo or logs.
       selection (3 clips, 15 s, 1.5–6 s) — pure Python over precomputed frame energies (speakers
       domain never imports numpy). RED per module → GREEN 587 python; bleed mutation (k=0) fails 3
       tests. New env vars SPEAKERS_* for the user's `.env.example`.
+      F3.3a integrated (#64–#66; review `review-2e02a0efe5b00027` approved). F3.3b (delegated; the
+      first run died with the previous session and was resumed): `7472173` settings/Me-turn fixes from
+      the F3.3a review; `82b2803` pyannote worker stage (pyannote.audio 4.0.7, torch 2.14.1 from PyPI;
+      `PYANNOTE_METRICS_ENABLED=false` (telemetry is ON by default, A-8); gated/401/403/no-token →
+      `DIARIZATION_MODEL_ACCESS_DENIED` with `hf auth login` hint (A-11); OOM → `GPU_OUT_OF_MEMORY`;
+      quiet progress hook (A-12)); `d984381` samples + `transcript.md` + `utterances.json`;
+      `e47daa9` contract-7 row (caught by the new drift test after rebasing onto #67).
+      TDD DEVIATION: the writer wrote code before tests and recorded RED afterwards by stashing `src`
+      (14 failures / collection errors) — not strict TDD; noted for future briefs. GREEN 672 python.
+      The model was NOT downloaded/loaded (user's HF login not authorized yet): the real GPU test
+      `tests/gpu/test_diarize_worker.py` (A-5) runs in F3.5 with consent.
 - [ ] F3.4 Wiring: Stop enqueues processing; D-Bus `Meetings1` (list/get, processing state,
       `ProcessingFinished`); desktop notification; extension shows processing state.
 - [ ] F3.5 Install/packaging update (ML deps in the versioned install), runbook, real-recording

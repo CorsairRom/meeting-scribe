@@ -11,18 +11,24 @@ from pathlib import Path
 from returns.result import Failure, Result, Success
 
 from meeting_scribe.base.domain.errors import MeetingScribeError
-from meeting_scribe.meetings.domain.meeting import AudioInfo
+from meeting_scribe.meetings.domain.meeting import AudioInfo, SpeakerEntry
 from meeting_scribe.meetings.domain.ports import AudioChannelReader, AudioInspector
 from meeting_scribe.meetings.domain.timeline import Timeline, audio_fingerprint
 from meeting_scribe.meetings.domain.worker import (
     CacheHitEvent,
     ProgressEvent,
     ResultEvent,
+    StageEvent,
     StartedEvent,
     WorkerEvent,
     WorkerJob,
 )
+from meeting_scribe.speakers.application.assemble_transcript import (
+    AssembleTranscript,
+    AssemblyRequest,
+)
 from meeting_scribe.speakers.application.diarize_audio import DiarizationRequest, DiarizeAudio
+from meeting_scribe.transcription.application.load_words import LoadWords
 
 type Emit = Callable[[WorkerEvent], None]
 
@@ -48,13 +54,18 @@ class _EventReporter:
             )
         )
 
+    def extracting_samples(self) -> None:
+        self._emit(StageEvent(state="EXTRACTING_SAMPLES"))
 
-def run_diarize_stage(
+
+def run_diarize_stage(  # noqa: PLR0911 - one early return per failing step
     job: WorkerJob,
     *,
     audio: AudioInspector,
     channels: AudioChannelReader,
+    words: LoadWords,
     diarize: DiarizeAudio,
+    assemble: AssembleTranscript,
     emit: Emit,
 ) -> Result[ResultEvent, MeetingScribeError]:
     meeting_dir = Path(job.meeting_dir)
@@ -62,6 +73,9 @@ def run_diarize_stage(
     if isinstance(inspected, Failure):
         return inspected
     timeline = inspected.unwrap()
+    transcription = words.run(meeting_dir)  # before any GPU work: no words, nothing to do
+    if isinstance(transcription, Failure):
+        return transcription
     energies = channels.read_energies(meeting_dir, timeline)
     if isinstance(energies, Failure):
         return energies
@@ -75,11 +89,33 @@ def run_diarize_stage(
     )
     if isinstance(request, Failure):
         return request
-    outcome = diarize.run(meeting_dir, request.unwrap(), _EventReporter(emit))
-    if isinstance(outcome, Failure):
-        return outcome
+    reporter = _EventReporter(emit)
+    diarized = diarize.run(meeting_dir, request.unwrap(), reporter)
+    if isinstance(diarized, Failure):
+        return diarized
+    done = diarized.unwrap()
+    assembly = AssemblyRequest.from_spec(
+        job.speakers,
+        transcription.unwrap().words,
+        done.result,
+        done.channel,
+        energies.unwrap().mic,
+        energies.unwrap().system,
+        lambda channel: channels.read_channel(meeting_dir, timeline, channel),
+    )
+    if isinstance(assembly, Failure):
+        return assembly
+    assembled = assemble.run(meeting_dir, assembly.unwrap(), reporter)
+    if isinstance(assembled, Failure):
+        return assembled
+    result = assembled.unwrap()
     return Success(
-        ResultEvent(artifacts={"turns": outcome.unwrap().artifact}, audio=_audio_info(timeline))
+        ResultEvent(
+            artifacts={"turns": done.artifact, **result.artifacts},
+            speakers=tuple(SpeakerEntry(**speaker.model_dump()) for speaker in result.speakers),
+            detected_language=transcription.unwrap().detected_language,
+            audio=_audio_info(timeline),
+        )
     )
 
 
