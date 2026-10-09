@@ -35,3 +35,16 @@ class SampleParams(BaseModel):
         if self.target_seconds < self.min_clip_seconds:
             raise ValueError("target_seconds must be at least min_clip_seconds")
         return self
+
+
+class DiarizationParams(BaseModel):
+    """What selects and steers the pyannote pipeline (part of the ``turns.json`` cache key)."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    pipeline: str = Field(min_length=1)
+    num_speakers: int | None = Field(default=None, ge=1)
+    min_speakers: int | None = Field(default=None, ge=1)
+    max_speakers: int | None = Field(default=None, ge=1)
+    me_noise_margin_db: float = Field(ge=0)
+    """Not a pipeline knob: the margin that decides the in-person (mic) channel choice."""

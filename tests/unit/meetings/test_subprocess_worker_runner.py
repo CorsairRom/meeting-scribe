@@ -101,6 +101,16 @@ def test_the_job_spec_reaches_the_worker_on_stdin(harness: Harness) -> None:
     assert harness.events == [CacheHitEvent(artifact="transcribe:1")]
 
 
+def test_the_child_environment_opts_out_of_every_telemetry(harness: Harness) -> None:
+    names = ["HF_HUB_DISABLE_TELEMETRY", "PYANNOTE_METRICS_ENABLED"]
+
+    harness.run([{"echo_env": names}, {"emit": RESULT}])
+
+    assert harness.events == [
+        CacheHitEvent(artifact="HF_HUB_DISABLE_TELEMETRY=1,PYANNOTE_METRICS_ENABLED=false")
+    ]
+
+
 def test_an_error_event_with_exit_1_is_the_workers_own_failure(harness: Harness) -> None:
     result = harness.run(
         [

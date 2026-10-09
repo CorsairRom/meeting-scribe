@@ -252,7 +252,7 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | `TRANSCRIPTION_BEAM_SIZE` | `TranscriptionSettings.beam_size` | `5` | Beam size (>= 1) |
 | `TRANSCRIPTION_VAD_FILTER` | `TranscriptionSettings.vad_filter` | `true` | Silero VAD pre-filter |
 | `TRANSCRIPTION_CONDITION_ON_PREVIOUS_TEXT` | `TranscriptionSettings.condition_on_previous_text` | `false` | Feed the previous text back as a prompt (off avoids repetition loops on long audio) |
-| `SPEAKERS_PIPELINE` | `SpeakersSettings.pipeline` | `pyannote/speaker-diarization-community-1` | pyannote pipeline id (not empty); used from F3.3b |
+| `SPEAKERS_PIPELINE` | `SpeakersSettings.pipeline` | `pyannote/speaker-diarization-community-1` | pyannote pipeline id (not empty) |
 | `SPEAKERS_NUM_SPEAKERS` | `SpeakersSettings.num_speakers` | unset | Exact remote speaker count (>= 1), or unset for automatic |
 | `SPEAKERS_MIN_SPEAKERS` / `SPEAKERS_MAX_SPEAKERS` | `SpeakersSettings.min_speakers` / `max_speakers` | unset | Bounds when the count is automatic (min must not exceed max) |
 | `SPEAKERS_UTTERANCE_GAP_SECONDS` | `SpeakersSettings.utterance_gap_seconds` | `5.0` | Same-speaker silence that still joins an utterance (>= 0) |

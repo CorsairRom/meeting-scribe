@@ -46,7 +46,7 @@ _POLL_SECONDS = 0.05
 _REAP_SECONDS = 5.0
 _RESULT_EXIT_GRACE_SECONDS = 10.0  # how long a worker may linger after its final event
 _STDERR_TAIL_CHARS = 1000
-_CHILD_ENV = {"HF_HUB_DISABLE_TELEMETRY": "1"}
+_CHILD_ENV = {"HF_HUB_DISABLE_TELEMETRY": "1", "PYANNOTE_METRICS_ENABLED": "false"}
 
 type _OnEvent = Callable[[ProgressOrNotice], Result[None, MeetingScribeError]]
 
