@@ -8,10 +8,11 @@ import logging
 import threading
 from collections import deque
 from collections.abc import Callable
+from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from returns.result import Failure, Result, Success
 
 from meeting_scribe.base.domain.errors import EntityNotFoundError, MeetingScribeError
@@ -22,6 +23,7 @@ from meeting_scribe.meetings.domain.errors import (
     WorkerProtocolError,
 )
 from meeting_scribe.meetings.domain.meeting import (
+    UNFINISHED_STATES,
     AudioInfo,
     Meeting,
     ProcessingDevice,
@@ -48,17 +50,31 @@ from meeting_scribe.meetings.domain.worker import (
 
 logger = logging.getLogger(__name__)
 
-_RESUMABLE = ("QUEUED", "TRANSCRIBING", "DIARIZING", "EXTRACTING_SAMPLES")
+_MAX_SAVE_ATTEMPTS = 3  # a job whose state cannot be saved is retried this many times in a row
+
+
+class JobOutcome(StrEnum):
+    """How one run of a job ended; the loop acts on it (never a bare bool)."""
+
+    DONE = "done"
+    FAILED = "failed"  # the failure is recorded on disk
+    INTERRUPTED = "interrupted"  # preempted or shut down; resumable
+    UNSAVED = "unsaved"  # the repository refused a state change; disk still holds the old state
+    SKIPPED = "skipped"  # nothing to do (gone, or no longer unfinished)
 
 
 class ProcessingConfig(BaseModel):
-    """What the service decides for every job; the worker reads no settings (spec 6.2)."""
+    """What the service decides for every job; the worker reads no settings (spec 6.2).
+
+    No defaults: ``ProcessingSettings`` is the single source of the tuning values and the
+    composition root copies them here.
+    """
 
     model_config = ConfigDict(frozen=True)
 
-    device: Literal["cuda", "cpu"] = "cuda"
-    worker_timeout_factor: float = 1.0
-    worker_min_timeout_seconds: float = 900.0
+    device: Literal["cuda", "cpu"]
+    worker_timeout_factor: float = Field(gt=0)
+    worker_min_timeout_seconds: float = Field(gt=0)
     params: ProcessingParams = ProcessingParams()
 
     def stage_timeout(self, audio_seconds: float) -> float:
@@ -88,13 +104,19 @@ class ProcessingController:
         self._recording_active = False
         self._stopping = False
         self._cancel = threading.Event()  # belongs to the running job; replaced per job
+        self._unsaved_runs: dict[str, int] = {}
 
     # -- commands (any thread) ------------------------------------------------------------
 
     def enqueue(
         self, meeting_id: str, recording: RecordingInfo
     ) -> Result[Meeting, MeetingScribeError]:
-        """Create ``meeting.json`` QUEUED for a stopped (or crashed, OQ-1) recording."""
+        """Queue a stopped (or crashed, OQ-1) recording for processing.
+
+        Three cases, by what is on disk: nothing -> create ``meeting.json`` QUEUED from
+        ``recording``; an unfinished meeting -> queue it as it is; a ``DONE`` or ``FAILED``
+        meeting -> **reprocess** it (``recording`` is ignored, the attempt is bumped).
+        """
         existing = self._repository.get(meeting_id)
         if isinstance(existing, Failure):
             return existing
@@ -104,7 +126,7 @@ class ProcessingController:
                 meeting_id, self._meetings_dir / meeting_id, recording, self._clock.now()
             )
             return self._persist(fresh).map(self._push)
-        if meeting.processing.state in _RESUMABLE:
+        if meeting.processing.state in UNFINISHED_STATES:
             return Success(self._push(meeting))
         return self.reprocess(meeting_id)
 
@@ -114,7 +136,7 @@ class ProcessingController:
         if isinstance(listed, Failure):
             return listed
         pending = sorted(
-            (m for m in listed.unwrap() if m.processing.state in _RESUMABLE),
+            (m for m in listed.unwrap() if m.processing.state in UNFINISHED_STATES),
             key=lambda m: (m.processing.queued_at or m.recording.started_at, m.id),
         )
         for meeting in pending:
@@ -175,9 +197,11 @@ class ProcessingController:
             meeting_id = self._queue.popleft()
             self._cancel = cancel = threading.Event()
         try:
-            self._run_job(meeting_id, cancel)
+            outcome = self._run_job(meeting_id, cancel)
         except Exception:
             logger.exception("Processing of meeting '%s' crashed unexpectedly.", meeting_id)
+            return True
+        self._settle(meeting_id, outcome)
         return True
 
     # -- internals ------------------------------------------------------------------------
@@ -216,16 +240,19 @@ class ProcessingController:
                 "Processing observer failed for meeting '%s'.", meeting.id, exc_info=True
             )
 
-    def _run_job(self, meeting_id: str, cancel: threading.Event) -> None:
+    def _run_job(self, meeting_id: str, cancel: threading.Event) -> JobOutcome:
         loaded = self._repository.get(meeting_id)
-        if isinstance(loaded, Failure) or loaded.unwrap().processing.state not in _RESUMABLE:
+        if isinstance(loaded, Failure):
+            logger.error("Cannot load meeting '%s': %s", meeting_id, loaded.failure())
+            return JobOutcome.UNSAVED  # storage trouble is retried, then given up
+        if loaded.unwrap().processing.state not in UNFINISHED_STATES:
             logger.error("Meeting '%s' cannot be processed; skipped.", meeting_id)
-            return
+            return JobOutcome.SKIPPED
         meeting = loaded.unwrap()
         timeline = self._audio.inspect(meeting.directory)
         if isinstance(timeline, Failure):
-            self._fail(meeting, timeline.failure())
-            return
+            recorded = self._fail(meeting, timeline.failure())
+            return JobOutcome.FAILED if recorded else JobOutcome.UNSAVED
         meeting = meeting.with_audio(_audio_info(timeline.unwrap()))
         now = self._clock.now()
         transition = (
@@ -236,7 +263,7 @@ class ProcessingController:
         started = self._commit(transition)
         if isinstance(started, Failure):
             logger.error("Cannot start meeting '%s': %s", meeting_id, started.failure())
-            return
+            return JobOutcome.UNSAVED
         job = _Job(
             started.unwrap(),
             runner=self._runner,
@@ -249,17 +276,42 @@ class ProcessingController:
             fail=self._fail,
             finished=lambda m: self._notify(self._events.finished, m),
         )
-        if job.run():
-            return
-        self._after_interruption(meeting_id)
+        return job.run()
 
-    def _after_interruption(self, meeting_id: str) -> None:
-        """Preemption puts the job back at the head; shutdown leaves it for the next start."""
+    def _settle(self, meeting_id: str, outcome: JobOutcome) -> None:
+        """Act on how a job ended: requeue what is resumable, bound what keeps failing to save."""
+        if outcome is not JobOutcome.UNSAVED:
+            self._unsaved_runs.pop(meeting_id, None)
+        if outcome is JobOutcome.INTERRUPTED:
+            self._requeue(meeting_id, head=True)  # preemption: back at the head
+        elif outcome is JobOutcome.UNSAVED:
+            runs = self._unsaved_runs.get(meeting_id, 0) + 1
+            if runs >= _MAX_SAVE_ATTEMPTS:
+                self._unsaved_runs.pop(meeting_id, None)
+                logger.error(
+                    "Meeting '%s' could not be saved %d times; giving up. It stays resumable on "
+                    "disk and runs again at the next resume.",
+                    meeting_id,
+                    runs,
+                )
+                return
+            self._unsaved_runs[meeting_id] = runs
+            logger.error("Meeting '%s' could not be saved (run %d); requeued.", meeting_id, runs)
+            self._requeue(meeting_id, head=False)
+
+    def _requeue(self, meeting_id: str, *, head: bool) -> None:
+        """Shutdown leaves the job on disk for the next start instead."""
         with self._condition:
-            if not self._stopping:
+            if self._stopping:
+                return
+            if head:
                 self._queue.appendleft(meeting_id)
+            else:
+                self._queue.append(meeting_id)
+            self._condition.notify_all()
 
-    def _fail(self, meeting: Meeting, error: MeetingScribeError) -> None:
+    def _fail(self, meeting: Meeting, error: MeetingScribeError) -> bool:
+        """Record the failure; False when even that could not be saved."""
         failure = ProcessingFailure(
             stage=meeting.processing.state, error_code=error.error_code, message=str(error)
         )
@@ -269,10 +321,9 @@ class ProcessingController:
         failed = self._commit(meeting.fail(failure, self._clock.now()))
         if isinstance(failed, Success):
             self._notify(self._events.finished, failed.unwrap())
-        else:
-            logger.error(
-                "Cannot record the failure of meeting '%s': %s", meeting.id, failed.failure()
-            )
+            return True
+        logger.error("Cannot record the failure of meeting '%s': %s", meeting.id, failed.failure())
+        return False
 
 
 class _Job:
@@ -289,7 +340,7 @@ class _Job:
         cancel: threading.Event,
         persist: Callable[[Meeting], Result[Meeting, MeetingScribeError]],
         save_silently: Callable[[Meeting], Result[Meeting, MeetingScribeError]],
-        fail: Callable[[Meeting, MeetingScribeError], None],
+        fail: Callable[[Meeting, MeetingScribeError], bool],
         finished: Callable[[Meeting], None],
     ) -> None:
         self.meeting = meeting
@@ -303,19 +354,21 @@ class _Job:
         self._fail = fail
         self._finished = finished
 
-    def run(self) -> bool:
-        """True when the job ended (done or failed); False when interrupted on request."""
+    def run(self) -> JobOutcome:
         for stage in ("transcribe", "diarize"):
             outcome = self._stage(stage)
             if isinstance(outcome, Failure):
                 error = outcome.failure()
                 if isinstance(error, WorkerCancelledError):
-                    return False
-                self._fail(self.meeting, error)
-                return True
-            if not self._apply_result(stage, outcome.unwrap()):
-                return True
-        return True
+                    return JobOutcome.INTERRUPTED
+                return self._failed(error)
+            if (ended := self._apply_result(stage, outcome.unwrap())) is not None:
+                return ended
+        return JobOutcome.DONE
+
+    def _failed(self, error: MeetingScribeError) -> JobOutcome:
+        recorded = self._fail(self.meeting, error)
+        return JobOutcome.FAILED if recorded else JobOutcome.UNSAVED
 
     def _stage(
         self, stage: Literal["transcribe", "diarize"]
@@ -353,22 +406,23 @@ class _Job:
         if isinstance(self._save_silently(updated), Success):  # same state: no signal
             self.meeting = updated
 
-    def _apply_result(self, stage: str, result: ResultEvent) -> bool:
+    def _apply_result(self, stage: str, result: ResultEvent) -> JobOutcome | None:
+        """Persist what the stage produced; ``None`` means the job goes on."""
         if stage == "transcribe":
-            return isinstance(self._move(self.meeting.transcription_done()), Success)
+            moved = self._move(self.meeting.transcription_done())
+            return self._failed(moved.failure()) if isinstance(moved, Failure) else None
         if self.meeting.processing.state != "EXTRACTING_SAMPLES":
-            self._fail(
-                self.meeting,
-                WorkerProtocolError("The diarize worker ended without its stage event."),
+            return self._failed(
+                WorkerProtocolError("The diarize worker ended without its stage event.")
             )
-            return False
         done = self.meeting.complete(
             self._clock.now(), result.speakers, result.artifacts, result.detected_language
         )
-        if isinstance(self._move(done), Failure):
-            return False
+        moved = self._move(done)
+        if isinstance(moved, Failure):
+            return self._failed(moved.failure())
         self._finished(self.meeting)
-        return True
+        return None
 
     def _move(
         self, transition: Result[Meeting, MeetingScribeError]

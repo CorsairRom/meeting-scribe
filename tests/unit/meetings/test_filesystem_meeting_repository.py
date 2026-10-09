@@ -248,3 +248,39 @@ def test_audio_and_device_survive_a_save_get_round_trip(tmp_path: Path) -> None:
     assert stored.processing.audio is not None
     assert stored.processing.audio.chunk_count == 3
     assert stored.processing.device.transcription == "cpu/int8"
+
+
+@pytest.mark.parametrize("meeting_id", ["../escape", "a/b", "..", "."])
+def test_save_refuses_an_id_that_is_not_a_bare_folder_name(tmp_path: Path, meeting_id: str) -> None:
+    root = tmp_path / "meetings"
+    root.mkdir()
+    recording = RecordingInfo(started_at=T0, stopped_at=T0 + timedelta(minutes=5))
+    meeting = Meeting.enqueue(meeting_id, root / meeting_id, recording, T0)
+
+    result = FilesystemMeetingRepository(root).save(meeting)
+
+    assert isinstance(result.failure(), MeetingStorageError)
+    assert not (tmp_path / "escape").exists()
+    assert not (root / "a").exists()
+
+
+def test_a_directory_fsync_failure_after_the_rename_still_saves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    real_fsync = os.fsync
+
+    def fsync(fd: int) -> None:
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            raise OSError(22, "Invalid argument")
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    repo = FilesystemMeetingRepository(tmp_path)
+    meeting = _meeting(tmp_path)
+
+    with caplog.at_level(logging.WARNING):
+        saved = repo.save(meeting)
+
+    assert saved.unwrap() == meeting
+    assert repo.get(meeting.id).unwrap() == meeting
+    assert "durable" in caplog.text

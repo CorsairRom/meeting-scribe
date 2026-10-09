@@ -311,7 +311,7 @@ ai_instructions:
 ### GO-032 — `meeting.json` round-trips unknown keys through `extra="allow"`, and an entity needs its folder
 - **Date**: 2026-10-09
 - **Status**: active
-- **Detail**: The spec requires unknown keys to survive a rewrite (forward compatibility). Every `meetings` model (the `Meeting` entity and its nested sections) sets pydantic `extra="allow"`, which keeps unknown keys through `model_validate`, `model_copy` and `model_dump`; a plain model would silently drop them on the first save. `Meeting.directory` is `Field(exclude=True)`: it is derived from the folder the repository read, never serialized. The schema check runs before validation (newer `schema_version` -> `MEETING_SCHEMA_UNSUPPORTED`, listed as `UNSUPPORTED` and never rewritten; missing, non-int or id-mismatched -> corrupt, skipped by list). `get` rejects ids that are not a bare folder name (path traversal), returning the null object. The atomic write uses a temp file in the same folder (`mkstemp`), `fsync`, then `Path.replace` (ruff PTH105 forbids `os.replace`; it calls it) so a crash or `OSError` never leaves a torn file, then `fsync`s the folder so the rename itself is durable (a power loss cannot revert the new state). `save` refuses a meeting whose `directory` is not exactly `<root>/<id>` (`MEETING_STORAGE_FAILED`): `get` rejects an id that differs from its folder name, so such a write would be unreadable.
+- **Detail**: The spec requires unknown keys to survive a rewrite (forward compatibility). Every `meetings` model (the `Meeting` entity and its nested sections) sets pydantic `extra="allow"`, which keeps unknown keys through `model_validate`, `model_copy` and `model_dump`; a plain model would silently drop them on the first save. `Meeting.directory` is `Field(exclude=True)`: it is derived from the folder the repository read, never serialized. The schema check runs before validation (newer `schema_version` -> `MEETING_SCHEMA_UNSUPPORTED`, listed as `UNSUPPORTED` and never rewritten; missing, non-int or id-mismatched -> corrupt, skipped by list). `get` rejects ids that are not a bare folder name (path traversal), returning the null object. The atomic write uses a temp file in the same folder (`mkstemp`), `fsync`, then `Path.replace` (ruff PTH105 forbids `os.replace`; it calls it) so a crash or `OSError` never leaves a torn file, then `fsync`s the folder so the rename itself is durable (a power loss cannot revert the new state). That last `fsync` runs after the file is already visible, so an `OSError` from it (some FUSE/CIFS mounts reject directory `fsync`) is logged at WARNING and the save still succeeds. `save` refuses a meeting whose `directory` is not exactly `<root>/<id>` or whose id is not a bare folder name (`MEETING_STORAGE_FAILED`), so a `../` id can never write outside the meetings root. `WavChunkInspector` maps header truncation (`struct.error`, `EOFError`) to `MEETING_STORAGE_FAILED` like any other unreadable chunk.
 
 ### GO-033 — A worker is stopped through a per-job cancel signal, not a `terminate()` call
 - **Date**: 2026-10-09
@@ -321,12 +321,17 @@ ai_instructions:
 ### GO-034 — Stopping a worker: process group by id, bounded, and the stderr tail starts at this run
 - **Date**: 2026-10-09
 - **Status**: active
-- **Detail**: `SubprocessWorkerRunner` starts the worker with `start_new_session=True` and signals the group (`os.killpg(pid, ...)`, never by pattern, GO-007): SIGTERM, `PROCESSING_WORKER_KILL_GRACE_SECONDS`, SIGKILL, then a bounded reap. A reader thread queues stdout lines so timeout and cancellation are honoured while the worker is silent. `processing.log` is appended by every stage, so the crash reason records the file size before the spawn and reads only the bytes this run wrote. Exit rules: 0 needs a `result`, 1 with an `error` event is the worker's own failure (`WorkerReportedError` keeps the worker's code), anything else is `WORKER_CRASHED`; a bad line, an unknown event or an event after the final one is `WORKER_PROTOCOL_ERROR` and stops the worker at once.
+- **Detail**: `SubprocessWorkerRunner` starts the worker with `start_new_session=True` and signals the group (`os.killpg(pid, ...)`, never by pattern, GO-007): SIGTERM, `PROCESSING_WORKER_KILL_GRACE_SECONDS`, SIGKILL, then a bounded reap. A reader thread queues stdout lines so timeout and cancellation are honoured while the worker is silent. `processing.log` is appended by every stage, so the crash reason records the file size before the spawn and reads only the bytes this run wrote. Exit rules: 0 needs a `result`, 1 with an `error` event is the worker's own failure (`WorkerReportedError` keeps the worker's code), anything else is `WORKER_CRASHED`; a bad line, an unknown event or an event after the final one is `WORKER_PROTOCOL_ERROR` and stops the worker at once. A worker that stays alive more than `result_exit_grace_seconds` (10 s) after its `result` or `error` event is terminated and that final event is kept (the result is not discarded as a timeout). If the job spec cannot be written to stdin (an `OSError` other than a broken pipe) the just-spawned worker is terminated before `WORKER_CRASHED` is returned. `kill_grace_seconds` has no default: it comes from `ProcessingSettings`.
 
 ### GO-035 — Resume restarts at the first worker, and observers hear only persisted states
 - **Date**: 2026-10-09
 - **Status**: active
 - **Detail**: `Meeting.resume(now, params)` moves an interrupted job (`TRANSCRIBING`, `DIARIZING`, `EXTRACTING_SAMPLES`) to `TRANSCRIBING` keeping `queued_at` and `attempt`; the transcribe worker answers `cache_hit` when its cache key matches (spec 4), so a meeting stored in `DIARIZING` skips transcription without the service guessing cache validity. Nothing is rewritten at `resume()` time: the disk keeps the old in-progress state until the loop picks the job up (AC-16). `ProcessingEvents.state_changed` fires only after `save` succeeded; recording the worker's device is a silent save (same state, no signal). Observer exceptions are logged at WARNING and never change the job (AC-18).
+
+### GO-036 — A job's end is an explicit outcome, and a save failure never strands it
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `_Job.run` returns a `JobOutcome` (`DONE`, `FAILED`, `INTERRUPTED`, `UNSAVED`, `SKIPPED`), never a bool. When a state change cannot be saved (disk full), the job first tries to record a failure; if that also cannot be saved the outcome is `UNSAVED`: the disk keeps the last good state, nothing is signalled (persist-before-signal, GO-035), an ERROR is logged and the job goes to the queue tail, at most 3 runs in a row. After that the controller logs "giving up" and drops it from memory only: it is still unfinished on disk, so the next `resume()` picks it up. `ProcessingConfig` has no defaults and validates `gt=0`; `ProcessingSettings` is the single source and the composition root copies it. `enqueue` on a `DONE`/`FAILED` meeting reprocesses it (documented on the method; the passed recording is ignored).
 
 ---
 
@@ -360,11 +365,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 35 | 0 | 0 |
+| GO | 36 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-035 — 2026-10-09
-**Next available IDs**: BR-005, CR-014, GO-036, AP-005
+**Last rule added**: GO-036 — 2026-10-09
+**Next available IDs**: BR-005, CR-014, GO-037, AP-005
 
 ---
 

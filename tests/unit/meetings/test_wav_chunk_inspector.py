@@ -8,6 +8,7 @@ import pytest
 from meeting_scribe.meetings.domain.errors import (
     MeetingAudioMissingError,
     MeetingAudioUnsupportedError,
+    MeetingStorageError,
 )
 from meeting_scribe.meetings.infrastructure.wav_chunk_inspector import WavChunkInspector
 
@@ -68,3 +69,22 @@ def test_files_that_are_not_chunks_are_ignored(tmp_path: Path) -> None:
     (tmp_path / "audio" / "notes.txt").write_text("x", encoding="utf-8")
 
     assert len(WavChunkInspector().inspect(tmp_path).unwrap().chunks) == 1
+
+
+@pytest.mark.parametrize("keep", [5, 14, 20, 30, 40])
+def test_a_chunk_cut_inside_its_header_is_a_storage_failure_not_a_crash(
+    tmp_path: Path, keep: int
+) -> None:
+    path = _chunk(tmp_path, 0, 100)
+    path.write_bytes(path.read_bytes()[:keep])
+
+    failure = WavChunkInspector().inspect(tmp_path).failure()
+
+    assert isinstance(failure, MeetingStorageError)
+
+
+def test_a_garbage_chunk_is_a_storage_failure(tmp_path: Path) -> None:
+    (tmp_path / "audio").mkdir()
+    (tmp_path / "audio" / "chunk_00000.wav").write_bytes(b"RIFF\x00\x00\x00\x00WAVE" + b"\xff" * 7)
+
+    assert isinstance(WavChunkInspector().inspect(tmp_path).failure(), MeetingStorageError)

@@ -44,6 +44,7 @@ LOG_NAME = "processing.log"
 DEFAULT_COMMAND = (sys.executable, "-m", "meeting_scribe.worker")
 _POLL_SECONDS = 0.05
 _REAP_SECONDS = 5.0
+_RESULT_EXIT_GRACE_SECONDS = 10.0  # how long a worker may linger after its final event
 _STDERR_TAIL_CHARS = 1000
 _CHILD_ENV = {"HF_HUB_DISABLE_TELEMETRY": "1"}
 
@@ -53,12 +54,15 @@ type _OnEvent = Callable[[ProgressOrNotice], Result[None, MeetingScribeError]]
 class SubprocessWorkerRunner:
     def __init__(
         self,
+        kill_grace_seconds: float,
+        result_exit_grace_seconds: float = _RESULT_EXIT_GRACE_SECONDS,
         command: Sequence[str] = DEFAULT_COMMAND,
-        kill_grace_seconds: float = 5.0,
         extra_env: Mapping[str, str] | None = None,
     ) -> None:
+        """``kill_grace_seconds`` comes from ``ProcessingSettings`` (single source of defaults)."""
         self._command = tuple(command)
         self._grace = kill_grace_seconds
+        self._result_exit_grace = result_exit_grace_seconds
         self._env = {**os.environ, **_CHILD_ENV, **(extra_env or {})}
 
     def run(
@@ -113,6 +117,9 @@ class SubprocessWorkerRunner:
                 process.stdin.close()
             except BrokenPipeError:
                 pass  # the worker died early; its exit status explains why
+            except OSError:
+                self._terminate(process)  # alive and unsupervised otherwise
+                raise
         except OSError as error:
             return Failure(WorkerCrashedError(f"Cannot start the {job.stage} worker: {error}"))
         return Success((process, log_offset))
@@ -133,6 +140,14 @@ class SubprocessWorkerRunner:
             interruption = _interruption(job, deadline, cancel)
             if interruption is not None:
                 return self._stopped(process, interruption)
+            if run.lingering(self._result_exit_grace):
+                logger.warning(
+                    "Worker pid %d outlived its final event by %.1f s; stopping it.",
+                    process.pid,
+                    self._result_exit_grace,
+                )
+                self._terminate(process)
+                return self._conclude(run)
             if run.eof:
                 if process.poll() is not None:
                     break
@@ -142,6 +157,14 @@ class SubprocessWorkerRunner:
             if failure is not None:
                 return self._stopped(process, failure)
         return self._outcome(job, process.returncode, run, log_path, log_offset)
+
+    @staticmethod
+    def _conclude(run: "_Run") -> Result[ResultEvent, MeetingScribeError]:
+        """The worker said its last word and then hung: keep what it said."""
+        if run.result is not None:
+            return Success(run.result)
+        assert run.reported is not None  # noqa: S101 - lingering() needs a final event
+        return Failure(WorkerReportedError(run.reported.error_code, run.reported.message))
 
     def _outcome(
         self,
@@ -195,6 +218,10 @@ class _Run:
         self.result: ResultEvent | None = None
         self.reported: WorkerErrorEvent | None = None
         self.eof = False
+        self.final_at: float | None = None  # when the result or error event arrived
+
+    def lingering(self, grace: float) -> bool:
+        return self.final_at is not None and time.monotonic() - self.final_at > grace
 
 
 def _interruption(
@@ -226,8 +253,10 @@ def _pump(
         return WorkerProtocolError("The worker sent an event after its final event.")
     if isinstance(event, ResultEvent):
         run.result = event
+        run.final_at = time.monotonic()
     elif isinstance(event, WorkerErrorEvent):
         run.reported = event
+        run.final_at = time.monotonic()
     elif isinstance(handled := on_event(event), Failure):
         return handled.failure()
     return None

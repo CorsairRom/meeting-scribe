@@ -28,8 +28,12 @@ type ProcessingState = Literal[
 ]
 """``UNSUPPORTED`` is not a pipeline state: it marks a ``meeting.json`` from a newer schema."""
 
-_IN_PROGRESS: tuple[ProcessingState, ...] = ("TRANSCRIBING", "DIARIZING", "EXTRACTING_SAMPLES")
-_ACTIVE: tuple[ProcessingState, ...] = ("QUEUED", *_IN_PROGRESS)
+IN_PROGRESS_STATES: tuple[ProcessingState, ...] = (
+    "TRANSCRIBING",
+    "DIARIZING",
+    "EXTRACTING_SAMPLES",
+)
+UNFINISHED_STATES: tuple[ProcessingState, ...] = ("QUEUED", *IN_PROGRESS_STATES)
 _TERMINAL: tuple[ProcessingState, ...] = ("DONE", "FAILED")
 
 
@@ -137,7 +141,7 @@ class Meeting(BaseEntity):
 
         Keeps ``queued_at`` (queue position) and ``attempt``: it is the same attempt.
         """
-        return self._move(_IN_PROGRESS, "TRANSCRIBING", {"started_at": now, "params": params})
+        return self._move(IN_PROGRESS_STATES, "TRANSCRIBING", {"started_at": now, "params": params})
 
     def transcription_done(self) -> Result[Self, InvalidStateTransitionError]:
         return self._move(("TRANSCRIBING",), "DIARIZING", {})
@@ -164,10 +168,10 @@ class Meeting(BaseEntity):
     def fail(
         self, failure: ProcessingFailure, now: datetime
     ) -> Result[Self, InvalidStateTransitionError]:
-        return self._move(_ACTIVE, "FAILED", {"finished_at": now, "failure": failure})
+        return self._move(UNFINISHED_STATES, "FAILED", {"finished_at": now, "failure": failure})
 
     def reprocess(self, now: datetime) -> Result[Self, InvalidStateTransitionError]:
-        if self.processing.state in _ACTIVE:
+        if self.processing.state in UNFINISHED_STATES:
             return Failure(
                 MeetingProcessingActiveError(
                     f"Meeting '{self.id}' is {self.processing.state}; wait for it to finish."
