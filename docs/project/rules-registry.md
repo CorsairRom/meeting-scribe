@@ -308,6 +308,11 @@ ai_instructions:
 - **Status**: active
 - **Detail**: `extension.js` and `lib/panelIndicator.js` import `resource:///org/gnome/shell/...`, which plain `gjs` cannot load. `gnome-extension/tests/shellGlue.test.js` parses them with `node --check --input-type=module -` (source piped through stdin, so no scratch file; `node` is required to run `make test-extension`), checks that relative imports exist and that other imports are `gi://` or Shell modules, keeps `lib/indicatorModel.js` and `lib/indicatorController.js` free of `gi://` and Shell imports (CR-012), and validates `metadata.json`. The same test feeds deliberately broken source to the checker to prove it fails on a syntax error. This catches syntax and wiring mistakes only; Shell API use is verified manually in F2.4.
 
+### GO-032 — `meeting.json` round-trips unknown keys through `extra="allow"`, and an entity needs its folder
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: The spec requires unknown keys to survive a rewrite (forward compatibility). Every `meetings` model (the `Meeting` entity and its nested sections) sets pydantic `extra="allow"`, which keeps unknown keys through `model_validate`, `model_copy` and `model_dump`; a plain model would silently drop them on the first save. `Meeting.directory` is `Field(exclude=True)`: it is derived from the folder the repository read, never serialized. The schema check runs before validation (newer `schema_version` -> `MEETING_SCHEMA_UNSUPPORTED`, listed as `UNSUPPORTED` and never rewritten; missing, non-int or id-mismatched -> corrupt, skipped by list). `get` rejects ids that are not a bare folder name (path traversal), returning the null object. The atomic write uses a temp file in the same folder (`mkstemp`), `fsync`, then `Path.replace` (ruff PTH105 forbids `os.replace`; it calls it) so a crash or `OSError` never leaves a torn file.
+
 ---
 
 ## Anti-Patterns (AP)
@@ -340,11 +345,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 31 | 0 | 0 |
+| GO | 32 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-031 — 2026-10-09
-**Next available IDs**: BR-005, CR-014, GO-032, AP-005
+**Last rule added**: GO-032 — 2026-10-09
+**Next available IDs**: BR-005, CR-014, GO-033, AP-005
 
 ---
 
