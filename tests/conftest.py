@@ -19,10 +19,11 @@ def restore_root_logger() -> Iterator[None]:
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Skip ``@pytest.mark.ffmpeg`` tests when ffmpeg is not installed."""
-    if shutil.which("ffmpeg") is not None:
-        return
-    skip = pytest.mark.skip(reason="ffmpeg is not on PATH")
-    for item in items:
-        if "ffmpeg" in item.keywords:
-            item.add_marker(skip)
+    """Skip ``ffmpeg`` / ``dbus`` marked tests when their binary is not installed."""
+    for marker, binary in (("ffmpeg", "ffmpeg"), ("dbus", "dbus-daemon")):
+        if shutil.which(binary) is not None:
+            continue
+        skip = pytest.mark.skip(reason=f"{binary} is not on PATH")
+        for item in items:
+            if marker in item.keywords:
+                item.add_marker(skip)
