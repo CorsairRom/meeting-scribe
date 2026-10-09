@@ -7,7 +7,7 @@ ai_instructions:
   - "If a deliverable is not in 'IN SCOPE', do NOT build it now even if it appears in the PRD."
   - "When you complete a deliverable, update its status and add date + commit."
   - "If the PRD and this doc conflict, THIS doc wins for v1."
-  - "Work phase by phase: F1 starts only after the F0 review is approved by the user."
+  - "Work phase by phase. The phase table below is machine-checked by tests/unit/test_docs_sync.py: status is done, in progress or pending, with exactly one in progress."
 ---
 
 # MVP Scope — v1
@@ -29,16 +29,16 @@ and generate a summary — all running locally on the developer's machine.
 
 | Phase | Deliverable | User can... | Status |
 |---|---|---|---|
-| F0 Foundations | Repo scaffold, tooling, import-linter contracts, shared kernel, AGENTS.md, PRD, scope, ADRs 001-006, ARCHITECTURE.md | review decisions before any feature code | in progress |
-| F1 Recording | `recording` domain, D-Bus `Recording1` interface (`Start`/`Stop`, `State`), systemd user service (ADR-001) | record via `gdbus call` | pending |
-| F2 GNOME extension | Panel button with a drop-down menu to start/stop, timer, status | start/stop from the top-bar menu | pending |
-| F3 Processing | Queued transcription + diarization on stop, per-speaker voice samples, "Me" auto-label, desktop notification | get "Done: N speakers" | pending |
+| F0 Foundations | Repo scaffold, tooling, import-linter contracts, shared kernel, AGENTS.md, PRD, scope, ADRs 001-007, ARCHITECTURE.md | review decisions before any feature code | done |
+| F1 Recording | `recording` domain, D-Bus `Recording1` interface (`Start`/`Stop`, `State`), systemd user service (ADR-001) | record via `gdbus call` | done |
+| F2 GNOME extension | Panel button with a drop-down menu to start/stop, timer, status | start/stop from the top-bar menu | done |
+| F3 Processing | Queued transcription + diarization on stop, per-speaker voice samples, "Me" auto-label, desktop notification | get "Done: N speakers" | in progress |
 | F4 Review app | Native GTK4 + libadwaita app opened from the extension menu: listen per speaker, rename, merge, view transcript (ADR-005) | do speaker review in a native window | pending |
 | F5 Summaries | "Generate summary" button, Ollama/DeepSeek choice, export `.md` | complete the end-to-end flow | pending |
-| F2.5 Install | `make install` / `make uninstall`: service as a `uv` tool, systemd user unit, D-Bus activation, extension enabled; idempotent | install everything with one command, never start the service by hand | in progress |
+| F2.5 Install | `make install` / `make uninstall`: service as a `uv` tool, systemd user unit, D-Bus activation, extension enabled; idempotent | install everything with one command, never start the service by hand | done |
 | F6 Hardening | Install runbook (update, troubleshoot), resilience checks | use it daily | pending |
 
-**Status**: in progress, done, blocked, pending.
+**Status**: done, in progress, pending (checked by `tests/unit/test_docs_sync.py`).
 
 ---
 
@@ -66,15 +66,15 @@ and generate a summary — all running locally on the developer's machine.
 
 | PRD requirement | Deliverable | Code | Test |
 |---|---|---|---|
-| NFR local-first: no network listener, D-Bus session bus only (transport arrives in F1) | F0 scaffold | `src/meeting_scribe/main.py`, `src/meeting_scribe/settings.py` | `tests/unit/test_main.py`, `tests/unit/test_settings.py` |
+| NFR local-first: no network listener, D-Bus session bus only  | F0 scaffold | `src/meeting_scribe/main.py`, `src/meeting_scribe/settings.py` | `tests/unit/test_main.py`, `tests/unit/test_settings.py` |
 | NFR stable error codes | F0 shared kernel | `src/meeting_scribe/base/domain/errors.py` | `tests/unit/base/test_errors.py` |
 | Immutable entities, null-object support | F0 shared kernel | `src/meeting_scribe/base/domain/entity.py` | `tests/unit/base/test_entity.py` |
 | Domains independent, layering enforced | F0 import-linter | `pyproject.toml` (`[tool.importlinter]`) | `make imports` |
 | Configurable log level | F0 scaffold | `src/meeting_scribe/base/infrastructure/logging.py` | `tests/unit/base/test_logging.py` |
-| FR-1 start/stop recording | F1 | pending | pending |
-| FR-2 panel button | F2 | pending | pending |
-| FR-3 transcribe + diarize after stop | F3 | pending | pending |
-| FR-4 voice samples, notification | F3 | pending | pending |
+| FR-1 start/stop recording | F1 | `src/meeting_scribe/recording/`, `src/meeting_scribe/main.py` | `tests/unit/recording/`, `tests/e2e/` |
+| FR-2 panel button | F2 | `gnome-extension/meeting-scribe@meetingscribe.dev/` | `gnome-extension/tests/` (`make test-extension`), `tests/unit/test_extension_pack.py` |
+| FR-3 transcribe + diarize after stop | F3 (in progress) | `src/meeting_scribe/meetings/`, `src/meeting_scribe/transcription/`, `src/meeting_scribe/speakers/`, `src/meeting_scribe/worker.py` | `tests/unit/meetings/`, `tests/unit/transcription/`, `tests/unit/speakers/` |
+| FR-4 voice samples, notification | F3 (in progress) | `src/meeting_scribe/speakers/` (samples); notification pending F3.4 | `tests/unit/speakers/` |
 | FR-5 review: listen, rename, merge | F4 | pending | pending |
 | FR-6 summary via LLM provider | F5 | pending | pending |
 | FR-7 install | F2.5 (runbook in F6) | `scripts/install.sh`, `scripts/uninstall.sh` | `tests/unit/test_install_scripts.py` |
@@ -88,3 +88,4 @@ and generate a summary — all running locally on the developer's machine.
 | Date | Change |
 |---|---|
 | 2026-10-09 | Initial draft from the F0 handoff brief. |
+| 2026-10-09 | Phase status brought in line with the code: F0, F1, F2, F2.5 done, F3 in progress; traceability filled for FR-1 to FR-4. |

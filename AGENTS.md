@@ -45,8 +45,8 @@ import-linter, errors as `returns.Result`.
 | Know what is in/out of scope         | `docs/project/mvp-scope.md`                                    |
 | See what work remains                | `docs/project/backlog.md` and `odd/tasks/meeting-scribe.md`    |
 | Check rules, gotchas, anti-patterns  | `docs/project/rules-registry.md`                               |
-| Know why something was decided       | `docs/decisions/` (ADR 001-006)                                |
-| Change the D-Bus API                 | `docs/architecture/api-contracts.md` (from F1) + ADR-001        |
+| Know why something was decided       | `docs/decisions/` (ADR 001-007)                                |
+| Change the D-Bus API                 | `docs/architecture/api-contracts.md` + ADR-001        |
 | Add an error code                    | `docs/architecture/error-codes-catalog.md` + `src/meeting_scribe/base/domain/errors.py` |
 | Add a setting                        | `src/meeting_scribe/settings.py` + `.env.example` + `ARCHITECTURE.md` section 7 |
 | Wire a new D-Bus interface or adapter | `src/meeting_scribe/main.py` (composition root)               |
@@ -64,13 +64,13 @@ import-linter, errors as `returns.Result`.
 - **Work-unit commits**: each commit is one reviewable unit with its tests and docs. Branch per phase from `main` (for example `f1/feat-recording`).
 - **No push, no PR, no merge without asking.**
 - **Doc sync**: follow `docs/project/doc-sync-protocol.md`; update docs in the same commit as the code.
-- **Phase gate**: F1 starts only after the user approves the F0 review (PRD, scope, ADRs).
+- **Current phase**: F3 Processing (in progress); the phase table in `docs/project/mvp-scope.md` is the source of truth and a drift test keeps this line in sync.
 - **Bug fix**: do not refactor unrelated code or widen scope.
 
 ## Tooling
 
 - **Package manager**: `uv` (Python ~=3.12). Dev tools are in the `quality-assurance` extra.
-- **Make targets**: `make setup` (install), `make lint` (ruff + pyrefly + import-linter), `make format` (auto-fix), `make imports` (architecture contracts), `make test`, `make test-extension` (extension logic and D-Bus client against a private `dbus-daemon`, `gjs -m`), `make check` (lint + test + test-extension), `make install` / `make uninstall` (one-command plug-and-play install of service + extension; agents never run them), `make run` (development only, foreground service), `make extension-pack` (build the extension zip into `dist/`), `make extension-install` (install it, does not enable).
+- **Make targets**: `make setup` (`uv sync --extra ml --extra quality-assurance`), `make lint` (ruff + pyrefly + import-linter), `make format` (auto-fix), `make imports` (architecture contracts), `make test` (`pytest -m 'not gpu'`; GPU tests only with `uv run pytest -m gpu`), `make test-extension` (extension logic and D-Bus client against a private `dbus-daemon`, `gjs -m`), `make check` (lint + test + test-extension), `make install` / `make uninstall` (one-command plug-and-play install of service + extension; agents run them only on the user's explicit go), `make run` (development only, foreground service), `make extension-pack` (build the extension zip into `dist/`), `make extension-install` (install it, does not enable).
 - **Linter/formatter**: ruff (`ruff.toml`, line length 100). **Type checker**: pyrefly (`pyrefly.toml`).
 - **Search/read tools**: prefer `rg`, `fd`, `bat`, `eza` over `grep`, `find`, `cat`, `ls`.
 

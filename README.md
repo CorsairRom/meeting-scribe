@@ -5,7 +5,9 @@ get a transcript with speakers told apart, name or merge speakers in a native GN
 with a local (Ollama) or opt-in cloud (DeepSeek) LLM. Everything runs on your machine; nothing leaves it
 unless you explicitly ask for a cloud summary.
 
-**Status**: F1 in progress — recording is exposed over the D-Bus session bus (`dev.meetingscribe.Recording1`); no UI yet. See the [scope](docs/project/mvp-scope.md).
+**Status**: F0, F1, F2 and F2.5 are done: recording over the D-Bus session bus (`dev.meetingscribe.Recording1`), a GNOME panel extension to start and stop, and `make install`. F3 (processing) is in progress: transcription, speaker assignment, the "Me" label and voice samples are built as worker stages, but the service does not queue processing after a recording yet and there is no review app. See the [scope](docs/project/mvp-scope.md).
+
+What exists today: record from the top-bar menu or `gdbus`, audio saved in 2-channel chunks. Processing needs the `ml` extra (`make setup`) and an NVIDIA GPU; it is not wired to Stop yet.
 
 ## Quickstart
 
@@ -45,7 +47,7 @@ directory; a hand-edited unit is left alone). If the restart was skipped (record
 summary says how to remove it later. `make uninstall` removes the whole `meeting-scribe/` versions tree.
 
 Configure by creating `~/.config/meeting-scribe/.env` (or `$XDG_CONFIG_HOME/meeting-scribe/.env`; template:
-`.env.example`) with `LOG_LEVEL`, `STORAGE_MEETINGS_DIR` and so on, then `systemctl --user restart meeting-scribe.service`.
+`.env.example`) (every variable and its default is listed in [`ARCHITECTURE.md`](ARCHITECTURE.md) section 7), then `systemctl --user restart meeting-scribe.service`.
 
 Development: `make setup` (dev and ML dependencies: faster-whisper and the NVIDIA wheels come from the `ml` extra), `make check` (ruff, pyrefly, import-linter, pytest, extension tests),
 `make run` (foreground service on your session bus, stop the installed one first). `make help` lists all targets.

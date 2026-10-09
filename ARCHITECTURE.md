@@ -47,13 +47,13 @@ flowchart LR
 | Element | Technology | Status |
 |---|---|---|
 | Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root serves the `Recording1` D-Bus interface (`create_app`, `serve`, `run`); more interfaces in later phases, unit file and activation installed by `make install` (F2.5) |
-| GNOME extension | GJS, thin client, no ML | planned (F2), [ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md) |
-| Capture | ffmpeg on PipeWire, 2-channel 30 s chunks | adapter built (F1.3), wiring planned (F1.4), [ADR-002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) |
-| Transcription | faster-whisper `large-v3-turbo`, float16, CUDA, in a short-lived worker process | planned (F3), [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) (proposed) |
-| Diarization | pyannote `speaker-diarization-community-1` on the system channel, in a short-lived worker process | planned (F3), [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) (proposed) |
+| GNOME extension | GJS, thin client, no ML | done (F2), [ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md) |
+| Capture | ffmpeg on PipeWire, 2-channel 30 s chunks | adapter built (F1.3) and wired in `main.py` (F1.4), [ADR-002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) |
+| Transcription | faster-whisper `large-v3-turbo`, float16, CUDA, in a short-lived worker process | built (F3.1-F3.3), not yet wired into `main.py`; [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
+| Diarization | pyannote `speaker-diarization-community-1` on the system channel, in a short-lived worker process | built (F3.1-F3.3), not yet wired into `main.py`; [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
 | Review UI | Native GTK4 + libadwaita app on system python, thin D-Bus client | planned (F4), [ADR-005](docs/decisions/005-review-ui-native-gtk-app.md) |
 | Summaries | `SummaryProvider` port, OpenAI-compatible adapter | planned (F5), [ADR-006](docs/decisions/006-summary-provider-openai-compatible.md) |
-| Storage | folder per meeting + versioned `meeting.json` | planned (F3), [ADR-004](docs/decisions/004-folder-per-meeting-json-storage.md) |
+| Storage | folder per meeting + versioned `meeting.json` | built (F3.1), not yet wired into `main.py`, [ADR-004](docs/decisions/004-folder-per-meeting-json-storage.md) |
 
 ---
 
@@ -63,12 +63,12 @@ Source root: `src/meeting_scribe/`. Each package has `domain/`, `application/`, 
 
 | Package | Responsibility |
 |---|---|
-| `base/` | Shared kernel: `BaseEntity` (frozen, null-object support), error hierarchy with stable `error_code`, logging setup |
+| `base/` | Shared kernel: `BaseEntity` (frozen, null-object support), error hierarchy with stable `error_code` (including the shared GPU errors), D-Bus error mapping, logging setup and the shared settings base |
 | `recording/` | Start/stop capture, recording session state, PipeWire/ffmpeg adapter |
 | `transcription/` | Audio to words with timestamps (faster-whisper adapter) |
 | `speakers/` | Diarization (pyannote adapter), voice samples, rename, merge, "Me" labelling |
 | `summaries/` | `SummaryProvider` port and OpenAI-compatible adapter (Ollama / DeepSeek) |
-| `meetings/` | Meeting catalog, `MeetingRepository`, post-recording pipeline orchestration and job queue |
+| `meetings/` | Meeting catalog, `MeetingRepository`, post-recording pipeline orchestration and job queue, worker protocol and subprocess runner, WAV readers |
 | `settings.py` | Root `Settings` composed of per-domain settings classes |
 | `main.py` | Composition root: `create_app(settings)`, `run()` |
 
@@ -103,9 +103,9 @@ worst case is stop timeout + 2 s + 2 s (14 s with the defaults). A process that 
 not be reaped" and its handle is kept so a later call can retry. Exit code 0 is a clean stop. When the process dies
 on its own, `AudioCapture.exit_detail()` gives the exit code plus the `ffmpeg.log` tail, and the controller stores it
 as the session `failure_reason` (generic text only when empty). Opening `ffmpeg.log` and spawning ffmpeg fail with
-distinct messages. Not yet wired into `main.py` (F1.4).
+distinct messages. Wired in `main.py`.
 
-The GNOME extension lives in `gnome-extension/` (F2 in progress) and the GTK review app in a separate top-level directory (planned, F4), both outside the Python package. Packaging files (systemd `--user` unit template and D-Bus activation file, installed by `make install`) live in `packaging/`.
+The GNOME extension lives in `gnome-extension/` (F2, done) and the GTK review app in a separate top-level directory (planned, F4), both outside the Python package. Packaging files (systemd `--user` unit template and D-Bus activation file, installed by `make install`) live in `packaging/`.
 
 Extension layout (`gnome-extension/`): the extension itself is `meeting-scribe@meetingscribe.dev/`. Presentation logic (view model, elapsed formatting, D-Bus error to message mapping) lives in pure ES modules under `lib/` with no `gi://` or `resource:///org/gnome/shell/` imports, translated through an injected `_` function, and is unit-tested with `gjs -m` (`make test-extension`, tests in `gnome-extension/tests/`). Code that touches the Shell (`extension.js`, `lib/panelIndicator.js`, `lib/glibScheduler.js`) stays thin and only wires those modules.
 
@@ -144,6 +144,8 @@ Defined in `pyproject.toml` under `[tool.importlinter]` (`root_package = "meetin
 | 4 | Shared kernel does not depend on the domains | forbidden | `base` may not import any domain or `meetings` (`settings`/`main` are covered by contract 6) |
 | 5 | Domain layers do not import frameworks | forbidden | every `<package>.domain` (including `base` and `meetings`) may not import `pydantic_settings`, `dbus_fast`, `gi` |
 | 6 | Domain packages do not import settings or the composition root | forbidden | `base` and all domain packages may not import `meeting_scribe.main` or `meeting_scribe.settings` |
+| 7 | The service never imports ML libraries (only the transcribe backend does, in the worker) | forbidden | no module of `meeting_scribe` may import `faster_whisper`, `ctranslate2`, `torch`, `torchaudio` or `pyannote`, except the faster-whisper backend in the worker |
+| 8 | The service entry point never reaches the worker or its ML backends | forbidden | `meeting_scribe.main` may not import `meeting_scribe.worker` or the faster-whisper backend, directly or indirectly |
 
 ---
 
@@ -172,7 +174,7 @@ sequenceDiagram
   MT->>N: "Meeting processed: N speakers"
 ```
 
-Orchestration lives in `meetings` (planned, F3): one FIFO queue persisted in each `meeting.json`, states `QUEUED`, `TRANSCRIBING`, `DIARIZING`, `EXTRACTING_SAMPLES`, `DONE` or `FAILED`, resumed at service start. Transcription hears the mean of both channels; diarization runs on the system channel only, and "Me" comes from per-frame mic versus system energy dominance with loudspeaker bleed compensation (ADR-002). The contract is the [processing spec](docs/specs/processing.md) (draft). Decision records: [ADR-003](docs/decisions/003-process-after-stop-single-gpu-worker.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) (proposed).
+Orchestration lives in `meetings` (built in F3.1; wiring to Stop and the D-Bus `Meetings1` interface are F3.4): one FIFO queue persisted in each `meeting.json`, states `QUEUED`, `TRANSCRIBING`, `DIARIZING`, `EXTRACTING_SAMPLES`, `DONE` or `FAILED`, resumed at service start. Transcription hears the mean of both channels; diarization runs on the system channel only, and "Me" comes from per-frame mic versus system energy dominance with loudspeaker bleed compensation (ADR-002). The contract is the [processing spec](docs/specs/processing.md). Decision records: [ADR-003](docs/decisions/003-process-after-stop-single-gpu-worker.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md).
 
 ---
 
@@ -181,7 +183,7 @@ Orchestration lives in `meetings` (planned, F3): one FIFO queue persisted in eac
 Target GPU: RTX 5060 Laptop, 8 GB.
 
 - **Lazy load**: a model is loaded when its stage starts, never at service start.
-- **Release by process exit** (ADR-007, proposed): each GPU stage runs in its own short-lived worker process (`python -m meeting_scribe.worker transcribe|diarize`), so Whisper and pyannote are never resident together and all VRAM, including the CUDA context, returns when the worker exits. `torch.cuda.empty_cache()` alone cannot guarantee that. The service process never imports torch, CTranslate2, faster-whisper or pyannote.
+- **Release by process exit** (ADR-007): each GPU stage runs in its own short-lived worker process (`python -m meeting_scribe.worker transcribe|diarize`), so Whisper and pyannote are never resident together and all VRAM, including the CUDA context, returns when the worker exits. `torch.cuda.empty_cache()` alone cannot guarantee that. The service process never imports torch, CTranslate2, faster-whisper or pyannote.
 - **One GPU job at a time**: a single queue drains jobs FIFO; recording itself uses no GPU, and no worker runs while a recording is active (preemption pending the user's answer, spec OQ-3).
 - **Resume**: unfinished jobs are re-enqueued at service start; stage caches keyed on parameters and audio skip completed work.
 - **Explicit failures**: CUDA library preload failures are logged; `PROCESSING_DEVICE=cuda` never falls back silently (`GPU_UNAVAILABLE`), the CPU is used only when configured, and a worker crash or timeout fails the job without touching the service.
@@ -209,7 +211,7 @@ service, the same boundary as the user's files. The service runs one asyncio loo
 so D-Bus stays responsive. The review app runs on system Python ([ADR-005](docs/decisions/005-review-ui-native-gtk-app.md)).
 Tooling: `gdbus call` or `busctl --user`. E2E tests (`@pytest.mark.dbus`) start a private `dbus-daemon`, connect to its
 address explicitly and wire the controller with fakes; they never touch the user's session bus or an audio device.
-`make install` (`scripts/install.sh`) installs the service as a `uv tool` (Python 3.12), renders the unit with the absolute `ExecStart`, copies the activation file, runs `systemctl --user enable --now` (restart on upgrade, never while recording) and packs, installs and enables the extension; `make uninstall` reverses it and never touches the meetings directory or `.env`. The service can also run in the foreground for development (`make run`, `meeting-scribe`); it exits non-zero if the bus name is already
+`make install` (`scripts/install.sh`) installs the service as a `uv tool` (Python 3.12) into a fresh `${XDG_DATA_HOME:-~/.local/share}/meeting-scribe/versions/<timestamp>-<pid>/` directory, verifies it, repoints the `current` symlink the unit runs, rolls back to the previous version if the new one fails to start and prunes old versions; it renders the unit with the absolute `ExecStart`, copies the activation file, runs `systemctl --user enable --now` (restart on upgrade, never while recording) and packs, installs and enables the extension; `make uninstall` reverses it and never touches the meetings directory or `.env`. The service can also run in the foreground for development (`make run`, `meeting-scribe`); it exits non-zero if the bus name is already
 owned (1), stops an active recording on SIGINT/SIGTERM, exits 2 if that stop fails and 3 if the bus connection is lost
 (the recording is stopped first, so ffmpeg is never left running unreachable). Shutdown lets the crash monitor finish
 its current poll before stopping, so controller calls never overlap.
@@ -275,6 +277,6 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | [004](docs/decisions/004-folder-per-meeting-json-storage.md) | Folder per meeting with versioned `meeting.json` |
 | [005](docs/decisions/005-review-ui-native-gtk-app.md) | Review UI as a native GTK4 + libadwaita app |
 | [006](docs/decisions/006-summary-provider-openai-compatible.md) | `SummaryProvider` port, OpenAI-compatible adapter |
-| [007](docs/decisions/007-gpu-worker-subprocess.md) | GPU work in short-lived worker processes, one per GPU stage (proposed) |
+| [007](docs/decisions/007-gpu-worker-subprocess.md) | GPU work in short-lived worker processes, one per GPU stage |
 
 Related: [error codes](docs/architecture/error-codes-catalog.md) · [rules registry](docs/project/rules-registry.md) · [scope](docs/project/mvp-scope.md).

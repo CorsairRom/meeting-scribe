@@ -1,14 +1,14 @@
 ---
 type: spec
 feature: processing
-status: approved  # draft | approved | in-progress | done | blocked
+status: in-progress  # draft | approved | in-progress | done | blocked
 mvp: true
 prd_ref: FR-3, FR-4, NFR-3, NFR-4, NFR-5, NFR-6, open question 1
 depends_on:
   - decisions/002-separate-mic-and-system-audio-tracks.md (2-channel chunks, "Me" by energy dominance)
   - decisions/003-process-after-stop-single-gpu-worker.md (process after stop, one GPU job at a time)
   - decisions/004-folder-per-meeting-json-storage.md (meeting folder, versioned meeting.json, keyed caches)
-  - decisions/007-gpu-worker-subprocess.md (GPU work in short-lived worker processes, proposed)
+  - decisions/007-gpu-worker-subprocess.md (GPU work in short-lived worker processes, active)
   - architecture/api-contracts.md (Recording1 today; Meetings1 added in F3.4)
 verifiable_by:
   - tests/unit/meetings/
