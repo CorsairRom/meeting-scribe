@@ -126,3 +126,15 @@ def test_process_env_wins_over_env_file(monkeypatch: pytest.MonkeyPatch, tmp_pat
     monkeypatch.setenv("LOG_LEVEL", "ERROR")
 
     assert Settings().log_level == "ERROR"
+
+
+def test_loaded_settings_remember_the_env_file_they_were_built_from(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env_file = tmp_path / "xdg" / "meeting-scribe" / ".env"
+    env_file.parent.mkdir(parents=True)
+    env_file.write_text("LOG_LEVEL=DEBUG\n")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+
+    assert get_settings().env_files == (env_file,)
+    assert Settings().env_files == ()  # not built through load(): source unknown

@@ -129,6 +129,24 @@ repo from F1).
       system verified by per-channel RMS; lavfi without `-re` writes 60 s in 0.08 s (GO-016..019).
       `MeetingScribeSettings` moved to `base/infrastructure/settings.py` so per-domain settings can
       live in their domain without importing `meeting_scribe.settings` (import contract 6).
+- [x] F1.3b Capture hardening (Gentle AI review `review-cb84c2e323d8edbc`, approved with advisory
+      findings; accepted because F1.4 runs everything on a single-threaded event loop): bounded wait
+      after SIGKILL (R4); crash cause (exit code + ffmpeg.log tail) surfaced in `failure_reason`
+      (R4/R3); log-open failure not reported as "ffmpeg not found" (R4/R3); terminated-vs-killed
+      message accuracy (R2); log swallowed transition errors (R2); config-source log tied to the
+      settings actually loaded (R2); document why the null session state is `STOPPED` (R2).
+      Branch `f1/fix-capture-hardening`. Route: delegated writer. Commits `f431433` (+358/-21,
+      items 1–5, 7; GO-020/021) and `9648fe7` (+73/-9, config source via `Settings.load()`).
+      TDD RED per item (e.g. `unexpected keyword argument 'kill_grace_seconds'`, `no attribute
+      'exit_detail'`, `'terminated' in '...was killed.'`) → GREEN `127 passed`; no stray ffmpeg.
+      Worst-case stop = stop timeout + terminate grace + kill grace = 14 s by default.
+      Known edge: if ffmpeg cannot be reaped (D-state), the handle is kept and `start()` reports
+      "already running" until it is reaped — acceptable, surfaced as FAILED with the reason.
+      RDD (476 lines, high): user granted; lineage `review-995050cae3b59cf8` approved + acked. Two
+      warnings fixed in `cb92113`: the bounded-stop test now asserts every wait timeout (mutation
+      `process.wait()` without timeout → test fails), and the env-source lookup is documented as
+      best effort (nested settings resolve their own env file). Remaining suggestions (tests via
+      private `_fail`, vacuous running-exit_detail test, hard-coded 14 s in a comment) left as is.
 - [ ] F1.4 D-Bus adapter (TDD): dbus-fast `dev.meetingscribe.Recording1` (`Start`, `Stop`,
       `State`, `ElapsedSeconds`, `StateChanged`), error mapping `dev.meetingscribe.Error.<CODE>`;
       `main.run()` becomes the asyncio service loop with SIGINT/SIGTERM handling; e2e under
@@ -232,5 +250,5 @@ it (F1.4). Items below kept for traceability.
 
 Owner merges tracker #2 (`feat/foundations` → `main`). Meanwhile F1 runs on integration branch
 `feat/recording` (based on `feat/foundations` until #2 lands, then retargeted to `main`).
-Current: F1.1–F1.3 done; next F1.4 D-Bus `Recording1` service. RDD boundary for F1 = tip of `feat/foundations`
+Current: F1.1–F1.3 integrated (#14, #16–#20); F1.3b done; next F1.4. RDD boundary for F1 = tip of `feat/foundations`
 (its tree equals the reviewed F0 tree).

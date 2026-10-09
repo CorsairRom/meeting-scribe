@@ -288,7 +288,10 @@ def test_stop_stays_bounded_when_the_process_cannot_be_reaped(
     pid = capture.pid
     assert pid is not None
 
+    timeouts: list[float | None] = []
+
     def never_reaped(_self: subprocess.Popen[bytes], timeout: float | None = None) -> int:
+        timeouts.append(timeout)
         raise subprocess.TimeoutExpired("stubborn", timeout or 0)
 
     with monkeypatch.context() as patch:
@@ -299,6 +302,7 @@ def test_stop_stays_bounded_when_the_process_cannot_be_reaped(
         elapsed = time.monotonic() - started
 
     assert elapsed < 3
+    assert timeouts == [0.2, 0.2, 0.2]  # stop, terminate and kill waits are all bounded
     assert isinstance(result, Failure)
     assert "could not be reaped" in str(result.failure())
     assert capture.is_running()  # handle kept so a later call can retry
