@@ -44,13 +44,19 @@ export class IndicatorController {
     }
 
     /**
-     * Handle the primary click. Starts a recording when the model says so.
+     * Handle the primary click. Starts a recording when the model says so. A click while the
+     * menu is open only closes it: the state may have changed since it opened, and closing a
+     * menu must never start a recording.
      *
-     * @returns {'start'|'open-menu'|'none'} what the view must still do: open its menu or nothing
+     * @param {object} [options]
+     * @param {boolean} [options.menuOpen] - whether the view's menu is currently open
+     * @returns {'start'|'open-menu'|'close-menu'|'none'} what the view must still do
      */
-    onPrimaryClick() {
+    onPrimaryClick({menuOpen = false} = {}) {
         if (this._destroyed)
             return 'none';
+        if (menuOpen)
+            return 'close-menu';
         const {clickAction} = viewModel(this._client.snapshot, this._);
         if (clickAction === 'start')
             this._run(() => this._client.start());

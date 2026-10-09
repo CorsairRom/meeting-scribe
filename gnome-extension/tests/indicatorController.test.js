@@ -127,6 +127,14 @@ test('primary click asks to open the menu while recording, failed or unavailable
     }
 });
 
+test('a click on an open menu only closes it, even if the state became idle meanwhile', async () => {
+    const f = fixture(snap({state: 'STOPPED'}));
+    f.controller.refresh();
+    assertEqual(f.controller.onPrimaryClick({menuOpen: true}), 'close-menu');
+    await flush();
+    assertDeepEqual(f.client.calls, []);
+});
+
 test('primary click does nothing while a call is in flight or the state is unknown', () => {
     for (const s of [snap({busy: true}), snap({state: 'WEIRD'})]) {
         const f = fixture(s);
