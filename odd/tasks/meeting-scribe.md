@@ -181,6 +181,12 @@ repo from F1).
       `6518856` (runbook `docs/runbooks/record-via-gdbus.md`; +115/-3). TDD RED (files missing) →
       GREEN 168 passed; `systemd-analyze --user verify` on a `/bin/true` copy: clean. Nothing
       installed, nothing run. Real-device smoke test: pending the user's consent.
+      Final F1 review: whole `feat/recording` vs main (4165 lines) stopped with
+      `lens_context_budget_exceeded` (no authority created) → reduced to the unreviewed tail
+      #27–#29 (458 lines): user granted; lineage `review-ce5f4b33c7d01c6b` approved + acked.
+      Fixed: `KillMode=mixed` so systemd does not SIGTERM ffmpeg alongside the service (RED
+      `KeyError: 'KillMode'` → GREEN), runbook Start reply wording, +4 s explained; regression test
+      for idle shutdown with unreadable status. `make check` → 170 passed; unit verify clean.
 ### F2 GNOME extension — pending
 ### F3 Processing — pending
 ### F4 Review UI — pending

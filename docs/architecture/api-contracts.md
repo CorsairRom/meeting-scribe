@@ -46,7 +46,7 @@ Controls the single in-progress recording. Nothing records until a client calls 
 | Member | Kind | Signature | Description | Errors |
 |---|---|---|---|---|
 | `Start` | method | `() -> s` | Resolve the audio devices, create the session folder and start capture. Returns the new session id. Blocks up to about 0.5 s (capture startup check). | `RECORDING_ALREADY_ACTIVE` when a recording is in progress; `AUDIO_DEVICE_NOT_FOUND`; `RECORDING_STORAGE_FAILED`; `AUDIO_CAPTURE_FAILED` |
-| `Stop` | method | `() -> s` | Stop capture cleanly and return the session id. Blocks up to `RECORDING_STOP_TIMEOUT_SECONDS` + 4 s in the worst case. | `NO_ACTIVE_RECORDING` when nothing is recording; `AUDIO_CAPTURE_FAILED` when the capture had crashed or would not stop |
+| `Stop` | method | `() -> s` | Stop capture cleanly and return the session id. Blocks up to `RECORDING_STOP_TIMEOUT_SECONDS` + 4 s in the worst case (2 s SIGTERM grace + 2 s SIGKILL grace, GO-020). | `NO_ACTIVE_RECORDING` when nothing is recording; `AUDIO_CAPTURE_FAILED` when the capture had crashed or would not stop |
 | `State` | property | `s` (read) | `IDLE`, `RECORDING`, `STOPPED` or `FAILED` | — |
 | `SessionId` | property | `s` (read) | Current or last session id; empty when `IDLE` | — |
 | `ElapsedSeconds` | property | `d` (read) | Seconds since the recording started (frozen once stopped or failed); `0.0` when `IDLE`. Changes continuously and is not announced by `PropertiesChanged` | — |

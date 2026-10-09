@@ -48,7 +48,8 @@ output format without listening to it.
      --method dev.meetingscribe.Recording1.Start
    ```
 
-   The reply carries the state, session id and session directory.
+   The reply is the session id (a single string, e.g. `2026-10-09_111739`). Read the session
+   directory from the `Directory` property in step 3.
 
 3. Read the properties:
 
@@ -74,7 +75,7 @@ output format without listening to it.
 
 ## Verify
 
-Inspect the chunks without playing them. Use the session directory from step 2 (or `Directory` in step 3):
+Inspect the chunks without playing them. Use the session directory from the `Directory` property (step 3):
 
 ```bash
 ffprobe -hide_banner <session-dir>/chunk_00000.wav
