@@ -200,8 +200,9 @@ def map_whisper_error(error: Exception, model: str) -> MeetingScribeError:
         isinstance(error, ValueError) and "invalid model size" in lowered
     ):
         return ModelUnavailableError(
-            f"The model '{model}' is not in the Hugging Face cache and could not be downloaded "
-            f"({type(error).__name__}). Check the model name and the network."
+            f"The model '{model}' is not in the Hugging Face cache and the worker runs offline "
+            f"({type(error).__name__}). Run `make install` again to download the models "
+            "(or check TRANSCRIPTION_MODEL), then reprocess the meeting."
         )
     if isinstance(error, ImportError):
         return TranscriptionError(

@@ -41,6 +41,18 @@ class RealPyannoteBackend:
         # pyannote's ``__call__`` is loosely typed (``**kwargs``); the port states what we use.
         return cast("PipelineLike", loaded)
 
+    def fetch_pipeline(self, pipeline: str) -> None:
+        """Fetch the pipeline and every model it names into the cache (install time).
+
+        The same loader the worker uses, so a successful fetch guarantees an offline load. It stays
+        on the CPU and uses the ambient Hugging Face login (``token=True``), never read here.
+        """
+        from pyannote.audio import Pipeline  # noqa: PLC0415 - lazy by design
+
+        self.prepare()  # telemetry off before the first import, as in the worker
+        if Pipeline.from_pretrained(pipeline, token=True) is None:
+            raise RuntimeError(f"Pipeline '{pipeline}' could not be loaded")
+
     def make_input(self, audio: Samples) -> Mapping[str, object]:
         import torch  # noqa: PLC0415 - lazy by design
 

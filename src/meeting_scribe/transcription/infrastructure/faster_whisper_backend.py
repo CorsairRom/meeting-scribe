@@ -28,6 +28,12 @@ class FasterWhisperBackend:
 
         return WhisperModel(model, device=device, compute_type=compute_type)
 
+    def download_model(self, model: str) -> None:
+        """Fetch the model into the Hugging Face cache (install time; the worker runs offline)."""
+        from faster_whisper.utils import download_model  # noqa: PLC0415 - lazy by design
+
+        download_model(model)
+
     def engine_versions(self) -> dict[str, str]:
         """Read from package metadata: no import, so a cache hit never loads the library."""
         versions: dict[str, str] = {}

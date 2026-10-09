@@ -31,7 +31,7 @@ ml = [
 ]
 
 [project.scripts]
-meeting-scribe = "meeting_scribe.main:run"
+meeting-scribe = "meeting_scribe.cli:run"
 
 [build-system]
 requires = ["uv_build>=0.10.9,<0.11.0"]
