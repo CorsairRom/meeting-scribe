@@ -27,7 +27,7 @@ class WavMixReader:
         position = 0
         try:
             for chunk in timeline.chunks:
-                raw = self._read_frames(meeting_dir / "audio" / chunk.name, chunk.frames)
+                raw = read_frames(meeting_dir / "audio" / chunk.name, chunk.frames)
                 if len(raw) < chunk.frames * _FRAME_BYTES:
                     return Failure(
                         MeetingStorageError(f"Chunk '{chunk.name}' is shorter than when inspected.")
@@ -41,10 +41,11 @@ class WavMixReader:
             return Failure(MeetingStorageError(f"Cannot read the audio chunks: {error}"))
         return Success(mix)
 
-    @staticmethod
-    def _read_frames(path: Path, frames: int) -> bytes:
-        with path.open("rb") as handle:
-            with wave.open(handle):  # parses the header; leaves the handle at the first sample
-                data_offset = handle.tell()
-            handle.seek(data_offset)
-            return handle.read(frames * _FRAME_BYTES)
+
+def read_frames(path: Path, frames: int) -> bytes:
+    """Up to ``frames`` frames of raw PCM, from the first sample (past any header)."""
+    with path.open("rb") as handle:
+        with wave.open(handle):  # parses the header; leaves the handle at the first sample
+            data_offset = handle.tell()
+        handle.seek(data_offset)
+        return handle.read(frames * _FRAME_BYTES)

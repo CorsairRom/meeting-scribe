@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, NamedTuple, Protocol
 
 from returns.result import Result
 
@@ -119,4 +119,25 @@ class AudioMixReader(Protocol):
         self, meeting_dir: Path, timeline: Timeline
     ) -> Result[Samples, MeetingStorageError]:
         """The session as one mono float32 signal, ``(ch0 + ch1) / 2`` per frame (spec 2.2)."""
+        ...
+
+
+class ChannelEnergies(NamedTuple):
+    """Mean square per 100 ms frame of each channel of the session (spec 2.3, 2.4)."""
+
+    mic: list[float]
+    system: list[float]
+
+
+class AudioChannelReader(Protocol):
+    def read_energies(
+        self, meeting_dir: Path, timeline: Timeline
+    ) -> Result[ChannelEnergies, MeetingStorageError]:
+        """Both frame-energy envelopes, decoded one channel at a time (no whole stereo signal)."""
+        ...
+
+    def read_channel(
+        self, meeting_dir: Path, timeline: Timeline, channel: Literal["mic", "system"]
+    ) -> Result[Samples, MeetingStorageError]:
+        """One channel as a mono float32 signal in [-1, 1) (``mic`` is 0, ``system`` is 1)."""
         ...

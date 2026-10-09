@@ -2,9 +2,9 @@
 
 A second composition root next to ``main``: it reads the job spec from stdin, builds the stage's
 adapters, runs one stage and speaks the protocol on the event stream. It reads no settings and no
-``.env``; everything comes in the job. The ``diarize`` stage lands in F3.3. Importing this module
-loads no ML library, and ``main`` validates the stage and the job before it builds anything: only
-the requested stage is built, inside the guard that turns a crash into one protocol error event.
+``.env``; everything comes in the job. Importing this module loads no ML library, and ``main``
+validates the stage and the job before it builds anything: only the requested stage is built,
+inside the guard that turns a crash into one protocol error event.
 """
 
 import json
@@ -26,6 +26,7 @@ from meeting_scribe.meetings.domain.worker import (
     WorkerEvent,
     WorkerJob,
 )
+from meeting_scribe.speakers.infrastructure.pyannote_diarizer import PyannoteBackend
 from meeting_scribe.transcription.infrastructure.faster_whisper_transcriber import WhisperBackend
 
 logger = logging.getLogger(__name__)
@@ -97,8 +98,40 @@ def build_transcribe_stage(backend: WhisperBackend | None = None) -> StageRunner
     return run
 
 
+def build_diarize_stage(backend: PyannoteBackend | None = None) -> StageRunner:
+    """The diarize stage and its adapters; ``backend`` is a test seam (default: the real one)."""
+    from meeting_scribe.meetings.application.diarize_stage import (  # noqa: PLC0415
+        run_diarize_stage,
+    )
+    from meeting_scribe.meetings.infrastructure.wav_channel_reader import (  # noqa: PLC0415
+        WavChannelReader,
+    )
+    from meeting_scribe.meetings.infrastructure.wav_chunk_inspector import (  # noqa: PLC0415
+        WavChunkInspector,
+    )
+    from meeting_scribe.speakers.application.diarize_audio import DiarizeAudio  # noqa: PLC0415
+    from meeting_scribe.speakers.infrastructure.json_turns_cache import (  # noqa: PLC0415
+        JsonTurnsCache,
+    )
+    from meeting_scribe.speakers.infrastructure.pyannote_backend import (  # noqa: PLC0415
+        RealPyannoteBackend,
+    )
+    from meeting_scribe.speakers.infrastructure.pyannote_diarizer import (  # noqa: PLC0415
+        PyannoteDiarizer,
+    )
+
+    service = DiarizeAudio(PyannoteDiarizer(backend or RealPyannoteBackend()), JsonTurnsCache())
+
+    def run(job: WorkerJob, emit: Emit) -> Result[ResultEvent, MeetingScribeError]:
+        return run_diarize_stage(
+            job, audio=WavChunkInspector(), channels=WavChannelReader(), diarize=service, emit=emit
+        )
+
+    return run
+
+
 def _default_stages() -> dict[str, StageFactory]:
-    return {"transcribe": build_transcribe_stage}
+    return {"transcribe": build_transcribe_stage, "diarize": build_diarize_stage}
 
 
 def _prepare(

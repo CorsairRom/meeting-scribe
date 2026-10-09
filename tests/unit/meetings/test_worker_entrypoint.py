@@ -31,11 +31,11 @@ def test_unknown_stage_is_rejected_with_an_error_event_and_exit_1() -> None:
     assert "bogus" in event["message"]
 
 
-def test_the_diarize_stage_is_not_available_until_its_task_lands() -> None:
+def test_the_diarize_stage_is_available_and_refuses_a_bad_job_before_building_anything() -> None:
     done = _run("-m", "meeting_scribe.worker", "diarize", stdin="{}")
 
     assert done.returncode == 1
-    assert json.loads(done.stdout.strip())["error_code"] == "WORKER_STAGE_UNAVAILABLE"
+    assert json.loads(done.stdout.strip())["error_code"] == "WORKER_PROTOCOL_ERROR"
 
 
 def test_a_job_that_is_not_json_is_a_protocol_error_event_not_a_traceback() -> None:

@@ -806,14 +806,14 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
 | A-2 | CTranslate2 memory is outside torch's allocator, so `empty_cache()` cannot free Whisper, and `del model` may leave cached blocks | F3.2. **Not measured directly**: torch is not in this process; the design never depends on it because the process exit returns everything (GO-037) |
 | A-3 | Worker start plus CUDA init costs a few seconds per stage | F3.2 / F3.3. **Confirmed for transcribe (2026-10-09)**: 4.2 s wall for an 11 s synthetic session, of which the model load is 2.5 s (includes CUDA init) and decoding 0.1 s; a cache hit costs 0.2 s |
 | A-4 | Whisper `large-v3-turbo` float16 and community-1 each fit comfortably in 8 GB on their own | F3.2 / F3.3 (GPU test). **Whisper confirmed (2026-10-09)**: peak about 2.1 GB above the 457 MiB desktop baseline on an 8 GB card; community-1 is F3.3 |
-| A-5 | The ambient Hugging Face login works without passing `token` (prototype behaviour) or with `token=True` | F3.3 |
+| A-5 | The ambient Hugging Face login works without passing `token` (prototype behaviour) or with `token=True` | F3.3. **Pending the real run (F3.3b)**: the adapter passes `token=True`, which makes `huggingface_hub` read the stored login and raise `LocalTokenNotFoundError` when there is none (read from source, GO-042); the opt-in GPU test `tests/gpu/test_diarize_worker.py` confirms it once the user allows a run with their login |
 | A-6 | Averaging the channels (-6 dB) does not hurt Whisper accuracy | F3.5 validation |
 | A-7 | "Me" defaults (6 dB dominance, 10 dB noise margin, 0.5 s) work on headset and loudspeaker setups | F3.5 validation with consent |
-| A-8 | pyannote telemetry is off by default; the opt-out variable name | F3.3 (read pyannote source) |
-| A-9 | Where torch `+cu130` comes from in the prototype lock | F3.3. **Answered in F3.2 (2026-10-09)**: the prototype lock takes torch 2.14.1 from the default PyPI index (`registry = pypi.org`, no custom index); that Linux wheel depends on the cu13 NVIDIA packages (`nvidia-cudnn-cu13`, `cuda-toolkit`, ...). faster-whisper does not pull torch, so the `ml` extra has none until pyannote lands |
+| A-8 | pyannote telemetry is off by default; the opt-out variable name | F3.3 (read pyannote source). **Answered (2026-10-09, pyannote.audio 4.0.7)**: the assumption was wrong, telemetry is ON by default (`metrics_enabled: true` in the package config). The opt-out is `PYANNOTE_METRICS_ENABLED=false`; the service sets it in the worker environment and the backend forces it again before the first import (GO-042) |
+| A-9 | Where torch `+cu130` comes from in the prototype lock | F3.3. **Answered in F3.2 (2026-10-09)**: the prototype lock takes torch 2.14.1 from the default PyPI index (`registry = pypi.org`, no custom index); that Linux wheel depends on the cu13 NVIDIA packages (`nvidia-cudnn-cu13`, `cuda-toolkit`, ...). faster-whisper does not pull torch, so the `ml` extra has none until pyannote lands. **Resolved in F3.3b**: `uv add --optional ml pyannote.audio` gives pyannote.audio 4.0.7, torch 2.14.1 and torchaudio 2.11.0 from the default PyPI index (no custom index) |
 | A-10 | Install size (several GB) and model size (about 1.6 GB for turbo) | F3.5 |
-| A-11 | The exact pyannote exception for a gated or unauthenticated model, for mapping to `DIARIZATION_MODEL_ACCESS_DENIED` | F3.3 |
-| A-12 | A pyannote progress hook can report progress without `ProgressHook`'s terminal output | F3.3 (otherwise stage-level progress only) |
+| A-11 | The exact pyannote exception for a gated or unauthenticated model, for mapping to `DIARIZATION_MODEL_ACCESS_DENIED` | F3.3. **Answered (2026-10-09)**: `huggingface_hub.errors.GatedRepoError` (a `RepositoryNotFoundError`, an `HfHubHTTPError`) for unaccepted terms, `RepositoryNotFoundError` for private/unknown, `LocalTokenNotFoundError` for `token=True` without a login; the adapter also accepts HTTP 401/403 on the exception (GO-042) |
+| A-12 | A pyannote progress hook can report progress without `ProgressHook`'s terminal output | F3.3 (otherwise stage-level progress only). **Confirmed (2026-10-09)**: `pipeline(file, hook=fn)` calls `fn(step, artifact, file=, total=, completed=)`; a plain function maps it to a 0..1 fraction and prints nothing (GO-042) |
 
 ## Product decisions (approved by the user on 2026-10-09; all recommendations accepted)
 
@@ -916,3 +916,14 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
   in under 1 % of its frames (constant, no setting). Sample selection is `clean_turns_of` / `me_turns_with_quiet_system`
   plus `select_sample_clips`; the 0.4 s silence between clips, the mono 16 kHz file and the -3 dBFS normalization
   belong to the samples writer (F3.3b).
+- 2026-10-09 (F3.3b, diarization stage): `speakers.application.DiarizeAudio` mirrors `TranscribeAudio`: it decides the
+  channel (`choose_diarization_channel` over the system envelope), builds the `turns.json` key (`pipeline`,
+  `num/min/max_speakers`, `device`, `channel`, `pyannote.audio` and `torch` versions from package metadata, audio
+  fingerprint), reuses a valid cache without decoding audio or importing a library, throttles progress to one event per
+  second and writes `turns.json` (`{"cache_version", "key", "data": {"diarization", "exclusive_diarization"}}`). The
+  `pyannote` calls sit behind a `PyannoteBackend` port (`pyannote_diarizer.py`: device policy with the same
+  `GPU_UNAVAILABLE`/no-CPU-fallback rule as transcription, error mapping, progress hook); `pyannote_backend.py` is the
+  only module importing `torch`/`pyannote`. `meetings.application.run_diarize_stage` reads the energies through the new
+  `AudioChannelReader` port (`WavChannelReader`, one channel at a time) and passes the system envelope and a lazy
+  `load_channel` to the service. The `speakers` domain has its own `check_device_available` (the domains may not
+  import each other). The stage `started` event carries the device (`cuda`/`cpu`).

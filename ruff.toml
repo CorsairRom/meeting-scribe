@@ -57,6 +57,7 @@ lint.ignore = [
 # per file so unused arguments stay flagged everywhere else, production code included.
 "tests/fakes/**" = ["ARG001", "ARG002", "ARG005"]
 "tests/unit/meetings/fakes.py" = ["ARG001", "ARG002", "ARG005"]
+"tests/unit/speakers/fakes.py" = ["ARG001", "ARG002", "ARG005"]
 "tests/unit/meetings/test_processing_controller.py" = ["ARG001", "ARG002", "ARG005"]
 "tests/unit/meetings/test_processing_queue.py" = ["ARG001", "ARG002", "ARG005"]
 "tests/unit/meetings/test_subprocess_worker_runner.py" = ["ARG001", "ARG002", "ARG005"]
@@ -67,6 +68,8 @@ lint.ignore = [
 # the importorskip has to run before the imports that need it.
 "tests/unit/meetings/test_wav_mix_reader.py" = ["E402"]
 "tests/unit/meetings/test_worker_stage_runner.py" = ["E402"]
+"tests/unit/meetings/test_wav_channel_reader.py" = ["E402"]
+"tests/unit/meetings/test_worker_diarize_stage.py" = ["E402"]
 
 # D-Bus member names are PascalCase by convention (api-contracts.md).
 "src/**/infrastructure/dbus/*_interface.py" = ["N802"]
