@@ -12,6 +12,7 @@ from meeting_scribe.meetings.domain.errors import (
     MeetingAudioMissingError,
     MeetingSchemaUnsupportedError,
     MeetingStorageError,
+    NotificationError,
     WorkerCancelledError,
 )
 from meeting_scribe.meetings.domain.meeting import (
@@ -20,6 +21,7 @@ from meeting_scribe.meetings.domain.meeting import (
     RecordingInfo,
     SpeakerEntry,
 )
+from meeting_scribe.meetings.domain.notification import Notification
 from meeting_scribe.meetings.domain.ports import CancelSignal
 from meeting_scribe.meetings.domain.timeline import ChunkHeader, Timeline, build_timeline
 from meeting_scribe.meetings.domain.worker import (
@@ -119,6 +121,7 @@ class RecordingEvents:
         self.state_changes: list[tuple[str, str, str]] = []
         self.finished_ids: list[str] = []
         self.storage_failures: list[tuple[str, str]] = []
+        self.status_changes = 0
 
     def state_changed(self, meeting: Meeting) -> None:
         stored = self._repository.meetings[meeting.id].processing.state
@@ -129,6 +132,9 @@ class RecordingEvents:
 
     def storage_failed(self, meeting_id: str, error_code: str) -> None:
         self.storage_failures.append((meeting_id, error_code))
+
+    def status_changed(self) -> None:
+        self.status_changes += 1
 
 
 def speakers() -> tuple[SpeakerEntry, ...]:
@@ -183,3 +189,15 @@ class ScriptedRunner:
 
     def stages_for(self, meeting_id: str) -> list[str]:
         return [stage for mid, stage, _ in self.calls if mid == meeting_id]
+
+
+class FakeNotifier:
+    """Stands in for ``org.freedesktop.Notifications``: tests never reach the real one."""
+
+    def __init__(self, error: NotificationError | None = None) -> None:
+        self.error = error
+        self.sent: list[Notification] = []
+
+    def notify(self, notification: Notification) -> Result[None, NotificationError]:
+        self.sent.append(notification)
+        return Failure(self.error) if self.error else Success(None)

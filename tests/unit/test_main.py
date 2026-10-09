@@ -27,6 +27,7 @@ from meeting_scribe.transcription.infrastructure.transcription_settings import (
 )
 from tests.unit.meetings.fakes import (
     FakeAudioInspector,
+    FakeNotifier,
     InMemoryMeetingRepository,
     ScriptedRunner,
 )
@@ -296,6 +297,7 @@ def test_a_recording_on_the_wired_app_holds_back_processing_and_enqueues_on_stop
             runner=runner,
             audio=FakeAudioInspector(),
             clock=FakeMeetingsClock(),
+            notifier=FakeNotifier(),
         ),
     )
 

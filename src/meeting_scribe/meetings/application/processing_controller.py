@@ -91,6 +91,16 @@ class ProcessingConfig(BaseModel):
         return max(self.worker_min_timeout_seconds, audio_seconds * self.worker_timeout_factor)
 
 
+class ProcessingStatus(BaseModel):
+    """What a client is told about the pipeline right now (``Meetings1`` properties)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    active_meeting_id: str  # empty when idle
+    active_state: str  # "IDLE" or the active job's state
+    queued_count: int  # jobs waiting, the active one excluded
+
+
 class ProcessingController:
     def __init__(
         self,
@@ -118,6 +128,8 @@ class ProcessingController:
         self._monotonic = monotonic
         self._storage_runs: dict[str, int] = {}  # consecutive runs ended by a storage failure
         self._delayed: list[tuple[float, str]] = []  # (due time, meeting id) waiting to retry
+        self._active_id = ""  # the job the loop is running, "" when idle (guarded by the lock)
+        self._active_state = "QUEUED"
 
     # -- commands (any thread) ------------------------------------------------------------
 
@@ -166,6 +178,26 @@ class ProcessingController:
         if isinstance(found, Failure):
             return found
         return self._commit(found.unwrap().reprocess(self._clock.now())).map(self._push)
+
+    def get_meeting(self, meeting_id: str) -> Result[Meeting, MeetingScribeError]:
+        loaded = self._repository.get(meeting_id)
+        if isinstance(loaded, Failure):
+            return loaded
+        return loaded.unwrap().as_result(
+            EntityNotFoundError(f"Meeting '{meeting_id}' does not exist.", detail_code="MEETING")
+        )
+
+    def list_meetings(self) -> Result[list[Meeting], MeetingStorageError]:
+        """Every readable meeting, newest first."""
+        return self._repository.list_all()
+
+    def status(self) -> ProcessingStatus:
+        with self._condition:
+            return ProcessingStatus(
+                active_meeting_id=self._active_id,
+                active_state=self._active_state if self._active_id else "IDLE",
+                queued_count=len(self._queue) + len(self._delayed),
+            )
 
     def preempt(self) -> None:
         """A recording started: stop the running worker; its job returns to the queue head."""
@@ -219,13 +251,21 @@ class ProcessingController:
                 return False
             meeting_id = self._queue.popleft()
             self._cancel = cancel = threading.Event()
+            self._active_id, self._active_state = meeting_id, "QUEUED"
         try:
             outcome = self._run_job(meeting_id, cancel)
         except Exception:
             logger.exception("Processing of meeting '%s' crashed unexpectedly.", meeting_id)
+            self._clear_active()
             return True
+        self._clear_active()
         self._settle(meeting_id, outcome)
+        self._notify_status()
         return True
+
+    def _clear_active(self) -> None:
+        with self._condition:
+            self._active_id = ""
 
     # -- internals ------------------------------------------------------------------------
 
@@ -254,6 +294,7 @@ class ProcessingController:
             if meeting.id not in self._queue:
                 self._queue.append(meeting.id)
             self._condition.notify_all()
+        self._notify_status()
         return meeting
 
     def _persist(
@@ -262,7 +303,11 @@ class ProcessingController:
         """Save, then signal: a client never sees a state that is not on disk."""
         saved = self._repository.save(meeting)
         if isinstance(saved, Success):
+            with self._condition:
+                if meeting.id == self._active_id:
+                    self._active_state = meeting.processing.state
             self._notify(self._events.state_changed, meeting)
+            self._notify_status()
         return saved
 
     def _commit(
@@ -366,6 +411,12 @@ class ProcessingController:
                 return  # already scheduled (enqueued again mid-run): one entry, one extra run
             self._delayed.append((self._monotonic() + seconds, meeting_id))
             self._condition.notify_all()
+
+    def _notify_status(self) -> None:
+        try:
+            self._events.status_changed()
+        except Exception:
+            logger.warning("Processing status observer failed.", exc_info=True)
 
     def _notify_storage_failed(self, meeting_id: str, error_code: str) -> None:
         try:

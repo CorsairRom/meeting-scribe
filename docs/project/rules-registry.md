@@ -406,6 +406,13 @@ ai_instructions:
 - **Source**: [processing spec](../specs/processing.md) section 1 and 6.3 (OQ-1, OQ-3)
 - **Verifiable in**: `tests/unit/test_handoff.py`, `tests/unit/test_main.py`, `tests/e2e/processing/`
 
+### GO-046 — Meetings1 reads the controller, announces from the processing thread through the loop, and the notifier is isolated
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `MeetingsInterface` talks only to `ProcessingController` (`list_meetings`, `get_meeting`, `reprocess`, `status`); blocking repository calls run in `asyncio.to_thread`. It is also a `ProcessingEvents` observer, subscribed on the `ProcessingEventHub` that `create_app` builds (the interface only exists once the bus is connected): events arrive on the processing thread and are moved to the event loop with `call_soon_threadsafe`, so signals and `PropertiesChanged` are emitted from the loop thread and keep the order in which the controller persisted them. `status_changed()` carries no data on purpose: the loop-side handler reads the freshest `status()` and publishes only a real change, so out-of-order callbacks cannot publish a stale status. The controller tracks the active job under its lock (`ActiveState` is `IDLE` after a preemption, although the job's state on disk stays in progress). Signals for states reached before a client subscribes are not replayed; clients read the properties and `Get` first. The notifier is a port (`Notifier`, `NotifyOnFinish` observer, `FreedesktopNotifier` adapter): the adapter runs its own `asyncio.run` with a fresh session-bus connection per notification (the processing thread has no loop and the service bus is never shared across threads), uses a raw `Notify` call (no introspection of the daemon) and returns `Failure(NOTIFICATION_FAILED)` for a missing daemon, a lost bus or a timeout, which is logged at WARNING and never touches the job. The text is `Meeting processed: N speakers` (singular for one, `no speech detected` for none, `(CPU)` when a stage ran on the CPU) or `Meeting processing failed` with the first line of the failure message (at most 200 characters); never transcript text or speaker names. Tests use `FakeNotifier`; the adapter itself is tested against a fake `org.freedesktop.Notifications` on the private bus.
+- **Source**: [processing spec](../specs/processing.md) section 8, AC-18, AC-19
+- **Verifiable in**: `tests/e2e/meetings/`, `tests/unit/meetings/test_notifications.py`
+
 ---
 
 ## Statistics (keep updated)
@@ -414,11 +421,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 45 | 0 | 0 |
+| GO | 46 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-045 — 2026-10-09
-**Next available IDs**: BR-005, CR-014, GO-046, AP-005
+**Last rule added**: GO-046 — 2026-10-09
+**Next available IDs**: BR-005, CR-014, GO-047, AP-005
 
 ---
 

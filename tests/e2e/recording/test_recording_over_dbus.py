@@ -21,6 +21,7 @@ from meeting_scribe.main import (
     EXIT_BUS_DISCONNECTED,
     EXIT_STOP_FAILED,
     Application,
+    ProcessingAdapters,
     RecordingAdapters,
     create_app,
     serve,
@@ -28,6 +29,13 @@ from meeting_scribe.main import (
 from meeting_scribe.recording.domain.errors import AudioCaptureError
 from meeting_scribe.settings import Settings, StorageSettings
 from tests.e2e.conftest import PrivateBus
+from tests.unit.meetings.fakes import (
+    FakeAudioInspector,
+    FakeNotifier,
+    InMemoryMeetingRepository,
+    ScriptedRunner,
+)
+from tests.unit.meetings.fakes import FakeClock as FakeMeetingsClock
 from tests.unit.recording.fakes import (
     FakeAudioCapture,
     FakeClock,
@@ -54,6 +62,13 @@ class Rig:
                 device_resolver=FakeDeviceResolver(),
                 capture=self.capture,
                 storage=FakeRecordingStorage(),
+            ),
+            processing_adapters=ProcessingAdapters(  # a stopped recording must start no worker
+                repository=InMemoryMeetingRepository(),
+                runner=ScriptedRunner(),
+                audio=FakeAudioInspector(),
+                clock=FakeMeetingsClock(),
+                notifier=FakeNotifier(),
             ),
         )
 

@@ -55,3 +55,9 @@ class WorkerCancelledError(MeetingScribeError):
     """The worker was stopped on request (preemption or shutdown); the job is not failed."""
 
     error_code = "WORKER_CANCELLED"
+
+
+class NotificationError(MeetingScribeError):
+    """The desktop notification could not be delivered; logged, never changes a job."""
+
+    error_code = "NOTIFICATION_FAILED"
