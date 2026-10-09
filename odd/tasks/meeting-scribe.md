@@ -173,7 +173,7 @@ repo from F1).
       RDD (399 lines, high): user granted; lineage `review-9a0327b7d3c2cc8e` approved + acked.
       Warnings fixed inline: R3-001 shutdown now stops even if `status()` raises (RED `OSError:
       ffmpeg.log unreadable` → GREEN 160 passed); R2-001 monitor docstring names the real halt.
-- [ ] F1.5 Packaging + runbook: systemd `--user` unit and D-Bus activation file under
+- [x] F1.5 Packaging + runbook: systemd `--user` unit and D-Bus activation file under
       `packaging/` (not installed), runbook "record via gdbus"; real-device smoke test only with
       user consent.
       Route: delegated writer. Commits `df15ae3` (unit template `Type=dbus`, `RestartPreventExitStatus=1`,
@@ -187,6 +187,10 @@ repo from F1).
       Fixed: `KillMode=mixed` so systemd does not SIGTERM ffmpeg alongside the service (RED
       `KeyError: 'KillMode'` → GREEN), runbook Start reply wording, +4 s explained; regression test
       for idle shutdown with unreadable status. `make check` → 170 passed; unit verify clean.
+      Real-device smoke test (user consent 2026-10-09, "record ~10 s and delete it"): service in the
+      foreground on the real session bus, name owned after ~200 ms; `Start` → RECORDING; after
+      10.5 s `Stop` → STOPPED; Ctrl+C → exit 0; no ffmpeg left. Chunk: 2 ch, 16 kHz, s16, 10.5 s;
+      per-channel RMS mic 525 / system 552 (both non-silent); empty ffmpeg.log. Recording deleted.
 ### F2 GNOME extension — pending
 ### F3 Processing — pending
 ### F4 Review UI — pending
@@ -283,5 +287,5 @@ it (F1.4). Items below kept for traceability.
 
 Owner merges tracker #2 (`feat/foundations` → `main`). Meanwhile F1 runs on integration branch
 `feat/recording` (based on `feat/foundations` until #2 lands, then retargeted to `main`).
-Current: F1.1–F1.3 integrated (#14, #16–#20); F1.4 integrated (#23–#25); F1.5 files done; pending: real-device smoke test (needs consent) and final F1 review. RDD boundary for F1 = tip of `feat/foundations`
+Current: F1.1–F1.3 integrated (#14, #16–#20); F1.4 integrated (#23–#25); F1 complete: tracker #15 ready for the owner. Next: F2 GNOME extension (after the owner's go). RDD boundary for F1 = tip of `feat/foundations`
 (its tree equals the reviewed F0 tree).
