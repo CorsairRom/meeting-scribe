@@ -170,6 +170,9 @@ repo from F1).
       returned None; `no attribute 'start_monitor'`; `assert 0 == 2`; disconnect `TimeoutError`) →
       GREEN `159 passed`; no stray dbus-daemon/ffmpeg. Exit codes: 0 clean, 1 name owned,
       2 shutdown stop failed, 3 bus lost (GO-026). Shutdown waits for an in-flight monitor poll.
+      RDD (399 lines, high): user granted; lineage `review-9a0327b7d3c2cc8e` approved + acked.
+      Warnings fixed inline: R3-001 shutdown now stops even if `status()` raises (RED `OSError:
+      ffmpeg.log unreadable` → GREEN 160 passed); R2-001 monitor docstring names the real halt.
 - [ ] F1.5 Packaging + runbook: systemd `--user` unit and D-Bus activation file under
       `packaging/` (not installed), runbook "record via gdbus"; real-device smoke test only with
       user consent.
