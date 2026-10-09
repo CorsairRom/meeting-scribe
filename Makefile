@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup lint format imports test test-extension check run extension-pack extension-install
+.PHONY: help setup lint format imports test test-extension check run install uninstall extension-pack extension-install
 
 EXTENSION_UUID := meeting-scribe@meetingscribe.dev
 PACK_DIR ?= dist
@@ -28,14 +28,20 @@ test-extension: ## Run the GNOME extension unit tests (gjs)
 
 check: lint test test-extension ## lint + test + test-extension
 
-run: ## Start the local service
+run: ## Start the service in the foreground (development)
 	uv run meeting-scribe
 
-extension-pack: ## Build the GNOME extension zip into dist/
+install: ## Install everything: service, systemd unit, D-Bus activation, GNOME extension
+	scripts/install.sh
+
+uninstall: ## Remove what install added (keeps meetings and .env); FORCE=1 to stop while recording
+	scripts/uninstall.sh
+
+extension-pack: ## Build the GNOME extension zip into dist/ (development)
 	mkdir -p $(PACK_DIR)
 	gnome-extensions pack gnome-extension/$(EXTENSION_UUID) --extra-source=lib --force -o $(PACK_DIR)
 
-extension-install: extension-pack ## Install the packed extension (does not enable it)
+extension-install: extension-pack ## Install the packed extension without enabling it (development)
 	gnome-extensions install --force $(PACK_DIR)/$(EXTENSION_UUID).shell-extension.zip
 	@echo
 	@echo "Installed, NOT enabled. On Wayland the shell cannot be restarted:"
