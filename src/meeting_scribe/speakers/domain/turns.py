@@ -23,6 +23,10 @@ class Turn(BaseModel):
     def duration(self) -> float:
         return self.end - self.start
 
+    def overlap(self, other: "Turn") -> float:
+        """Seconds both turns share; zero or negative when they only touch or are apart."""
+        return min(self.end, other.end) - max(self.start, other.start)
+
 
 class TimedWord(BaseModel):
     """A transcribed word; the transcription domain's ``Word`` is mapped to this one."""

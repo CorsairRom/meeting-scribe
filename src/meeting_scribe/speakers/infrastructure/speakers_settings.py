@@ -37,7 +37,21 @@ class SpeakersSettings(MeetingScribeSettings):
             raise ValueError(
                 "SPEAKERS_SAMPLE_MIN_CLIP_SECONDS must not exceed SPEAKERS_SAMPLE_MAX_CLIP_SECONDS"
             )
+        if self.sample_target_seconds < self.sample_min_clip_seconds:
+            raise ValueError(
+                "SPEAKERS_SAMPLE_TARGET_SECONDS must be at least SPEAKERS_SAMPLE_MIN_CLIP_SECONDS"
+            )
+        self._num_speakers_is_within_bounds()
         return self
+
+    def _num_speakers_is_within_bounds(self) -> None:
+        count = self.num_speakers
+        if count is None:
+            return
+        if self.min_speakers is not None and count < self.min_speakers:
+            raise ValueError("SPEAKERS_NUM_SPEAKERS must not be below SPEAKERS_MIN_SPEAKERS")
+        if self.max_speakers is not None and count > self.max_speakers:
+            raise ValueError("SPEAKERS_NUM_SPEAKERS must not exceed SPEAKERS_MAX_SPEAKERS")
 
     def me_params(self) -> MeParams:
         return MeParams(

@@ -1,3 +1,5 @@
+import random
+
 from meeting_scribe.speakers.domain.assignment import FALLBACK_SPEAKER, assign_speakers
 from meeting_scribe.speakers.domain.turns import TimedWord, Turn
 
@@ -56,3 +58,30 @@ def test_the_word_keeps_its_timing_and_text() -> None:
     assigned = assign_speakers([TimedWord(start=0.5, end=0.9, text="hola")], [S1])[0]
 
     assert (assigned.start, assigned.end, assigned.text) == (0.5, 0.9, "hola")
+
+
+def _brute_force(word: TimedWord, turns: list[Turn]) -> str:
+    ordered = sorted(turns, key=lambda t: (t.start, t.end))
+    best, owner = 0.0, None
+    for turn in ordered:
+        overlap = min(word.end, turn.end) - max(word.start, turn.start)
+        if overlap > best:
+            best, owner = overlap, turn.speaker
+    if owner is not None:
+        return owner
+    mid = (word.start + word.end) / 2
+    return min(ordered, key=lambda t: max(t.start - mid, mid - t.end, 0.0)).speaker
+
+
+def test_the_indexed_search_agrees_with_checking_every_turn() -> None:
+    rng = random.Random(7)  # noqa: S311 - a reproducible test fixture
+    turns = [
+        Turn(start=s, end=s + rng.uniform(0.2, 30.0), speaker=f"S{i}")
+        for i, s in enumerate(sorted(rng.uniform(0, 600) for _ in range(120)))
+    ]  # long turns overlap many later ones
+    words = [
+        TimedWord(start=s, end=s + rng.uniform(0.05, 0.6), text="w")
+        for s in sorted(rng.uniform(-5, 640) for _ in range(500))
+    ]
+
+    assert _speakers(words, turns) == [_brute_force(word, turns) for word in words]

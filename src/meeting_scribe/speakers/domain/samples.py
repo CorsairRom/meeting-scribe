@@ -7,7 +7,7 @@ from collections.abc import Sequence
 
 from pydantic import BaseModel, ConfigDict
 
-from meeting_scribe.speakers.domain.energy import active_threshold, frame_range
+from meeting_scribe.speakers.domain.energy import active_threshold, frame_range, frames_until
 from meeting_scribe.speakers.domain.params import SampleParams
 from meeting_scribe.speakers.domain.turns import Turn
 
@@ -33,20 +33,24 @@ def clean_turns_of(speaker: str, turns: Sequence[Turn]) -> tuple[Turn, ...]:
     return tuple(
         turn
         for turn in turns
-        if turn.speaker == speaker
-        and not any(min(turn.end, other.end) > max(turn.start, other.start) for other in others)
+        if turn.speaker == speaker and not any(turn.overlap(other) > 0 for other in others)
     )
 
 
 def me_turns_with_quiet_system(
-    me_turns: Sequence[Turn], system: Sequence[float]
+    me_turns: Sequence[Turn], system: Sequence[float], margin_db: float
 ) -> tuple[Turn, ...]:
-    """ "Me" turns during which no frame of the system channel is clearly active (no bleed)."""
-    threshold = active_threshold(system)
+    """ "Me" turns during which no frame of the system channel is clearly active (no bleed).
+
+    A frame the system envelope does not have is not evidence of quiet: a turn reaching past a
+    shorter (or empty) envelope is left out.
+    """
+    threshold = active_threshold(system, margin_db)
     return tuple(
         turn
         for turn in me_turns
-        if all(system[i] < threshold for i in frame_range(turn.start, turn.end, len(system)))
+        if frames_until(turn.end) <= len(system)
+        and all(system[i] < threshold for i in frame_range(turn.start, turn.end, len(system)))
     )
 
 
