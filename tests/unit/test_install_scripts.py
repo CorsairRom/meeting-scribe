@@ -42,6 +42,7 @@ COREUTILS = [
     "date",
     "mv",
     "touch",
+    "readlink",
 ]
 
 FAKES = {
@@ -50,8 +51,14 @@ case "$1 $2" in
   "tool install")
     echo "uv-env UV_TOOL_DIR=${UV_TOOL_DIR:-} UV_TOOL_BIN_DIR=${UV_TOOL_BIN_DIR:-}" >> "$FAKE_LOG"
     [ "${FAKE_UV_FAIL:-0}" = 1 ] && { mkdir -p "$UV_TOOL_DIR"; echo "uv: boom" >&2; exit 2; }
-    mkdir -p "$UV_TOOL_BIN_DIR"; : > "$UV_TOOL_BIN_DIR/meeting-scribe"
+    mkdir -p "$UV_TOOL_BIN_DIR"
+    [ "${FAKE_UV_NO_EXE:-0}" = 1 ] && exit 0
+    : > "$UV_TOOL_BIN_DIR/meeting-scribe"
     chmod +x "$UV_TOOL_BIN_DIR/meeting-scribe" ;;
+  "tool dir")
+    echo "uv-env-dir UV_TOOL_DIR=${UV_TOOL_DIR:-}" \\
+         "UV_TOOL_BIN_DIR=${UV_TOOL_BIN_DIR:-}" >> "$FAKE_LOG"
+    echo "${FAKE_UV_TOOL_BIN:-/legacy/.local/bin}" ;;
 esac
 """,
     "systemctl": """
@@ -656,9 +663,22 @@ def test_uninstall_uses_the_shared_state_check_even_with_force(sandbox: Env) -> 
     assert "recording" in result.stderr.lower()
 
 
-def test_install_force_never_overrides_a_recording_through_the_helper_contract() -> None:
-    assert "refuse_unless_safe \"'make install'\" unknown" in INSTALL.read_text()
-    assert "refuse_unless_safe \"'make uninstall'\" recording" in UNINSTALL.read_text()
+def test_install_force_never_overrides_a_recording_detected_at_the_first_check(
+    sandbox: Env,
+) -> None:
+    result = sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_GDBUS_MODE="recording", FORCE="1")
+    assert result.returncode != 0
+    assert "a recording is in progress" in result.stderr.lower()
+    assert not any(line.startswith("uv tool install") for line in sandbox.calls())
+    assert not sandbox.unit_path.exists()
+
+
+def test_uninstall_force_proceeds_over_a_recording_by_intent(sandbox: Env) -> None:
+    _installed(sandbox)
+    result = sandbox.run(UNINSTALL, FAKE_UNIT_ACTIVE="1", FAKE_GDBUS_MODE="recording", FORCE="1")
+    assert result.returncode == 0, result.stderr
+    assert f"systemctl --user disable --now {UNIT}" in sandbox.calls()
+    assert not sandbox.unit_path.exists()
 
 
 def test_unit_is_rendered_verbatim_for_a_path_with_sed_special_characters(
@@ -686,3 +706,89 @@ def test_reinstall_restarts_when_the_service_exited_during_the_install(sandbox: 
     assert result.returncode == 0, result.stderr
     assert f"systemctl --user restart {UNIT}" in sandbox.calls()
     assert "restart:   skipped" not in result.stdout
+
+
+# --- F2.7b: verify before switching, roll back on a failed start, explicit legacy detection ---
+
+
+def _restarts(sandbox: Env) -> list[str]:
+    return [line for line in sandbox.calls() if _is_restart(line)]
+
+
+def test_a_failed_restart_on_upgrade_rolls_back_to_the_previous_version(sandbox: Env) -> None:
+    sandbox.run(INSTALL, **IDLE)
+    (first,) = sandbox.versions
+    result = sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_SYSTEMCTL_FAIL="restart", **IDLE)
+    assert result.returncode != 0
+    assert (sandbox.root / "current").resolve() == first.resolve()
+    assert len(_restarts(sandbox)) == 2  # the new version, then the previous one
+    assert len(sandbox.versions) == 2  # the new one is kept for inspection
+    assert f"rolled back to {first.name}" in result.stdout
+    assert "kept in versions/" in result.stdout
+    assert f"journalctl --user -u {UNIT}" in result.stdout
+    assert sandbox.unit_exec_start == f"ExecStart={sandbox.exe}"
+
+
+def test_a_failed_restart_on_migration_restores_the_legacy_unit_and_keeps_the_uv_tool(
+    sandbox: Env,
+) -> None:
+    _legacy_unit(sandbox)
+    result = sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_SYSTEMCTL_FAIL="restart", **IDLE)
+    assert result.returncode != 0
+    assert sandbox.unit_exec_start == "ExecStart=/legacy/.local/bin/meeting-scribe"
+    assert not any(line.startswith("uv tool uninstall") for line in sandbox.calls())
+    assert not (sandbox.root / "current").is_symlink()
+    assert len(sandbox.versions) == 1  # kept for inspection
+    assert "legacy" in result.stdout
+    assert len(_restarts(sandbox)) == 2
+
+
+def test_a_missing_executable_never_switches_and_removes_the_orphan(sandbox: Env) -> None:
+    sandbox.run(INSTALL, **IDLE)
+    (first,) = sandbox.versions
+    unit_before = sandbox.unit_path.read_text()
+    result = sandbox.run(INSTALL, FAKE_UV_NO_EXE="1", **IDLE)
+    assert result.returncode != 0
+    assert "was not created" in result.stderr
+    assert sandbox.versions == [first]
+    assert (sandbox.root / "current").resolve() == first.resolve()
+    assert sandbox.unit_path.read_text() == unit_before
+
+
+def test_a_leftover_temp_link_from_an_interrupted_run_does_not_break_the_install(
+    sandbox: Env,
+) -> None:
+    sandbox.run(INSTALL, **IDLE)
+    # `exec` keeps the pid, so the leftover has exactly the name the old script would reuse.
+    prelude = f'mkdir -p "{sandbox.root}"; ln -s x "{sandbox.root}/current.new.$$"; exec "$0" "$1"'
+    result = subprocess.run(  # noqa: S603  # fixed argv, sandboxed PATH
+        [sandbox.env["BASH"], "-c", prelude, sandbox.env["BASH"], str(INSTALL)],
+        env={**sandbox.env, **IDLE},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (sandbox.root / "current").resolve() in [v.resolve() for v in sandbox.versions]
+
+
+def test_a_hand_edited_unit_is_not_mistaken_for_the_legacy_install(sandbox: Env) -> None:
+    sandbox.unit_path.parent.mkdir(parents=True)
+    sandbox.unit_path.write_text("[Service]\nExecStart=/opt/custom/meeting-scribe\n")
+    result = sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", **IDLE)
+    assert result.returncode == 0, result.stderr
+    assert not any(line.startswith("uv tool uninstall") for line in sandbox.calls())
+
+
+def test_the_legacy_install_is_the_unit_pointing_at_the_default_uv_tool_bin_dir(
+    sandbox: Env,
+) -> None:
+    sandbox.unit_path.parent.mkdir(parents=True)
+    sandbox.unit_path.write_text("[Service]\nExecStart=/elsewhere/bin/meeting-scribe\n")
+    sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_UV_TOOL_BIN="/elsewhere/bin", **IDLE)
+    calls = sandbox.calls()
+    assert "uv tool uninstall meeting-scribe" in calls
+    assert "uv tool dir --bin" in calls
+    query_env = next(line for line in calls if line.startswith("uv-env-dir"))
+    assert query_env == "uv-env-dir UV_TOOL_DIR= UV_TOOL_BIN_DIR="
