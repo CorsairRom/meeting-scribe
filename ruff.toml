@@ -53,5 +53,8 @@ lint.ignore = [
     "SLF001",
 ]
 
+# D-Bus member names are PascalCase by convention (api-contracts.md).
+"src/**/infrastructure/dbus/*_interface.py" = ["N802"]
+
 [lint.pylint]
 max-args = 10
