@@ -231,8 +231,17 @@ extension in the user's session, or running the nested shell, only with the user
       bounded at 2 s, name-lost rejects, harness cleanup registry run before exit. GREEN 41 passed
       ×3, no leftover daemons. Note: if `RECORDING_STOP_TIMEOUT_SECONDS` is raised above ~16 s the
       20 s client timeout must follow.
-- [ ] F2.3 Extension shell (`extension.js`, `metadata.json` shell-version 50, `stylesheet.css`):
+- [x] F2.3 Extension shell (`extension.js`, `metadata.json` shell-version 50, `stylesheet.css`):
       `PanelMenu.Button`, 1 s timer only while recording, full cleanup in `disable()` (EGO rules).
+      Route: delegated writer. Commits `e8ad042` (pure `indicatorController`, 15 tests; +311) and
+      `3b25864` (`extension.js`, `panelIndicator.js`, `glibScheduler.js`, metadata, stylesheet,
+      static checks; +331/-5). TDD: controller RED `ImportError` → 56 passed; glue RED 7 failing
+      → 70 passed. Click interception verified against GNOME 50 sources: `PanelMenu.Button` opens
+      its menu from a `Clutter.ClickGesture` calling `menu.toggle()`, so the button uses
+      `dontCreateMenu` + a `PopupMenu` subclass whose `toggle()` asks the controller (CR-013,
+      GO-030/031). Static check: `node --check --input-type=module` via stdin (proven on broken
+      sources); `make test-extension` now needs node (fails loudly if missing). NOT yet run in a
+      shell — F2.4, with consent.
 - [ ] F2.4 Packaging + runbook: `make extension-pack` (`gnome-extensions pack`), runbook for the
       nested `--devkit` shell and for installing in the real session (logout/login on Wayland);
       manual verification only with consent.
@@ -332,4 +341,4 @@ it (F1.4). Items below kept for traceability.
 F0 merged to `main` (#2, squash). F1 complete on integration branch `feat/recording`: F1.1–F1.5
 integrated (#14, #16–#31; packaging/runbook #28–#30, smoke test #31). Final tail review
 `review-0b5874936265a288` approved. Tracker #15 is ready for the owner to merge into `main`.
-F1 merged to `main` (#15, merge commit 7301d96). F2 started on `feat/gnome-extension`; current: F2.3.
+F1 merged to `main` (#15, merge commit 7301d96). F2 started on `feat/gnome-extension`; current: F2.4 (F2.1 #33–#34, F2.2 #36–#37 integrated; F2.3 done).

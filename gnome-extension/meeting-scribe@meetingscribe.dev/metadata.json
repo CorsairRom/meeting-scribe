@@ -1,0 +1,8 @@
+{
+  "uuid": "meeting-scribe@meetingscribe.dev",
+  "name": "Meeting Scribe",
+  "description": "Start and stop meeting recordings from the top bar. Needs the local meeting-scribe service running (systemd --user); the extension only talks to it over D-Bus.",
+  "shell-version": ["50"],
+  "gettext-domain": "meeting-scribe",
+  "url": "https://github.com/CorsairRom/meeting-scribe"
+}
