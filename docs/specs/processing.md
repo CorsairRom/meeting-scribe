@@ -1,7 +1,7 @@
 ---
 type: spec
 feature: processing
-status: draft  # draft | approved | in-progress | done | blocked
+status: approved  # draft | approved | in-progress | done | blocked
 mvp: true
 prd_ref: FR-3, FR-4, NFR-3, NFR-4, NFR-5, NFR-6, open question 1
 depends_on:
@@ -813,7 +813,7 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
 | A-11 | The exact pyannote exception for a gated or unauthenticated model, for mapping to `DIARIZATION_MODEL_ACCESS_DENIED` | F3.3 |
 | A-12 | A pyannote progress hook can report progress without `ProgressHook`'s terminal output | F3.3 (otherwise stage-level progress only) |
 
-## Open product questions (not decided; recommended default in brackets)
+## Product decisions (approved by the user on 2026-10-09; all recommendations accepted)
 
 1. **OQ-1** A recording that ended `FAILED` (capture crash) still has its chunks. Process it automatically?
    [Yes: the "never lose a meeting" promise covers crashes too.]

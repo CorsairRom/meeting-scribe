@@ -1,7 +1,7 @@
 ---
 type: decision
 adr_number: 007
-status: proposed  # proposed | active | superseded | deprecated
+status: active  # proposed | active | superseded | deprecated
 date: 2026-10-09
 deciders: [richard, ai-assistant]
 supersedes: null   # refines ADR-003's implementation notes; ADR-003's decision stands
@@ -17,7 +17,7 @@ ai_instructions:
 
 ## Status
 
-`proposed` — written in F3.0 with the [processing spec](../specs/processing.md); awaiting the user's review.
+`active` — approved by the user on 2026-10-09 (F3 design review).
 
 ## Context
 

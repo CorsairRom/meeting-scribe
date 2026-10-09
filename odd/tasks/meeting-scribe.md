@@ -341,9 +341,19 @@ Safety: tests use synthetic audio only and never load models (adapters behind po
 opt-in and skipped by default); real-recording validation only with the user's consent, on their
 own meeting, without reading its content into the repo or logs.
 
-- [ ] F3.0 Design spec `docs/specs/processing.md` + ADR-007 (GPU work in a short-lived worker
+- [x] F3.0 Design spec `docs/specs/processing.md` + ADR-007 (GPU work in a short-lived worker
       subprocess per job, so VRAM is fully released) after mapping the prototype and verifying
       faster-whisper / pyannote.audio 4 APIs. Branch `f3/docs-processing-design`.
+      Route: delegated writer (opus). `59b34d4` spec (857 lines) + backlog/README; `89f005b` ADR-007 +
+      ARCHITECTURE. Revision vs plan: one worker process per GPU STAGE (CTranslate2 manages its own
+      VRAM; only process exit guarantees release). Transcribe the channel mix, diarize the system
+      channel, "Me" by per-frame energy dominance (6 dB) with bleed estimate, "Unknown" when
+      ambiguous; ML deps in an `ml` extra kept out of the service by an import contract.
+      User approved ADR-007 (now active) and all 8 product recommendations on 2026-10-09: process
+      FAILED captures; ignore folders without meeting.json; preempt processing while recording and
+      resume after; in-person meetings diarize the mic without "Me"; CUDA required unless CPU set
+      explicitly; `Meetings1.Reprocess` in F3; models downloaded during `make install`, worker
+      offline afterwards; keep "Unknown".
 - [ ] F3.1 `meetings` domain: Meeting entity + processing state machine, versioned `meeting.json`
       repository (folder per meeting), job queue + single worker orchestration, resume at start.
 - [ ] F3.2 `transcription` domain + faster-whisper adapter (CUDA lib preload with logging, WAV
