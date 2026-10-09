@@ -2,9 +2,9 @@
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, PrivateAttr, field_validator
 from pydantic_settings import SettingsConfigDict
 
 from meeting_scribe.base.infrastructure.settings import (
@@ -45,6 +45,22 @@ class Settings(MeetingScribeSettings):
     storage: StorageSettings = Field(default_factory=StorageSettings)
     recording: RecordingSettings = Field(default_factory=RecordingSettings)
 
+    # Env files resolved when ``load`` ran; empty for settings built any other way.
+    _env_files: tuple[Path, ...] = PrivateAttr(default=())
+
+    @classmethod
+    def load(cls) -> Self:
+        """Build settings from the environment, remembering which env file fed them."""
+        env_files = effective_env_files()
+        settings = cls()
+        settings._env_files = env_files
+        return settings
+
+    @property
+    def env_files(self) -> tuple[Path, ...]:
+        """Env files in use when these settings were loaded (empty if none or not loaded)."""
+        return self._env_files
+
     @field_validator("log_level", mode="before")
     @classmethod
     def _normalize_log_level(cls, value: Any) -> Any:
@@ -53,4 +69,4 @@ class Settings(MeetingScribeSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return Settings.load()
