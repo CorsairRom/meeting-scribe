@@ -94,6 +94,7 @@ test('extension.js passes the click wrapper parameter through to the controller'
     // Dropping {menuOpen} would let a closing click start a recording: the wrapper's parameter
     // must be the argument of the controller call.
     const source = read('extension.js');
+    // Expected shape: `onPrimaryClick: options => this._controller?.onPrimaryClick(options) ...`
     const match = source.match(/onPrimaryClick:\s*\(?\s*(\w+)\s*\)?\s*=>[^,]*onPrimaryClick\((\w*)\)/);
     assertEqual(match !== null, true, 'onPrimaryClick wrapper not found');
     assertEqual(match[2], match[1], 'onPrimaryClick wrapper must forward its parameter');
