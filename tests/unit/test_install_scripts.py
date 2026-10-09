@@ -27,6 +27,7 @@ COREUTILS = [
     "chmod",
     "cp",
     "rm",
+    "rmdir",
     "mktemp",
     "dirname",
     "basename",
@@ -587,6 +588,18 @@ def test_uninstall_removes_the_versions_tree(sandbox: Env) -> None:
     assert sandbox.root.exists()
     sandbox.run(UNINSTALL, **IDLE)
     assert not sandbox.root.exists()
+
+
+def test_uninstall_keeps_other_data_next_to_the_versions(sandbox: Env) -> None:
+    # Only what the installer created goes away; e.g. a future model cache must survive.
+    _installed(sandbox)
+    other = sandbox.root / "models" / "keep.bin"
+    other.parent.mkdir(parents=True)
+    other.write_text("x")
+    sandbox.run(UNINSTALL, **IDLE)
+    assert other.exists()
+    assert not (sandbox.root / "versions").exists()
+    assert not (sandbox.root / "current").is_symlink()
 
 
 @pytest.mark.parametrize("failing", ["pack", "install"])

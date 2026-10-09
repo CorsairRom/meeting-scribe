@@ -20,7 +20,10 @@ gnome-extensions disable "$EXTENSION_UUID" || true
 gnome-extensions uninstall "$EXTENSION_UUID" || true
 
 echo "==> Removing the installed versions"
-rm -rf "$INSTALL_ROOT"
+# Remove only what install.sh created; anything else under $INSTALL_ROOT (e.g. caches) stays.
+rm -f "$CURRENT_LINK"
+rm -rf "$VERSIONS_DIR"
+rmdir "$INSTALL_ROOT" 2>/dev/null || true
 # A pre-versioning install lives in the default uv tool directory: remove it too (best effort).
 uv tool uninstall meeting-scribe || true
 
