@@ -373,6 +373,11 @@ ai_instructions:
 - **Status**: active
 - **Reason**: a localhost HTTP server is reachable by any website in the user's browser (CSRF, DNS rebinding) and forces hardening work. Clients use the per-user D-Bus session bus and a native GTK4 app ([ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md), [ADR-005](../decisions/005-review-ui-native-gtk-app.md)).
 
+### GO-040 — Speaker assignment is pure and keyed by plain strings; the speakers domain owns its own word type
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `speakers/domain` never imports `transcription` (the domains are independent), so it has its own `TimedWord` and the composition root (the diarize worker) maps `Word` to it. Speakers are plain string keys: pyannote labels such as `SPEAKER_03`, plus `ME`, `UNKNOWN` and `FALLBACK_SPEAKER` (used when diarization returned no turns, numbered `Speaker 1`; the prototype crashed on `max()` of an empty list). `number_speakers` numbers by first *utterance*, so a speaker that owns no word takes no number, and `ME`/`UNKNOWN` are never numbered. `SpeakerLabel.id` (`ME`, `UNKNOWN`, `S1`...) is stable and never changes with a name; only `display` does, and a blank name keeps the label. `format_timestamp` truncates (does not round) to whole seconds. `assign_speakers` sorts the turns by `(start, end)` so ties go to the earlier turn whatever the input order; it is words x turns, which is fine at meeting scale.
+
 ---
 
 ## Statistics (keep updated)
@@ -381,11 +386,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 39 | 0 | 0 |
+| GO | 40 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-039 — 2026-10-09
-**Next available IDs**: BR-005, CR-014, GO-040, AP-005
+**Last rule added**: GO-040 — 2026-10-09
+**Next available IDs**: BR-005, CR-014, GO-041, AP-005
 
 ---
 

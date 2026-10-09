@@ -250,8 +250,18 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | `TRANSCRIPTION_BEAM_SIZE` | `TranscriptionSettings.beam_size` | `5` | Beam size (>= 1) |
 | `TRANSCRIPTION_VAD_FILTER` | `TranscriptionSettings.vad_filter` | `true` | Silero VAD pre-filter |
 | `TRANSCRIPTION_CONDITION_ON_PREVIOUS_TEXT` | `TranscriptionSettings.condition_on_previous_text` | `false` | Feed the previous text back as a prompt (off avoids repetition loops on long audio) |
+| `SPEAKERS_PIPELINE` | `SpeakersSettings.pipeline` | `pyannote/speaker-diarization-community-1` | pyannote pipeline id (not empty); used from F3.3b |
+| `SPEAKERS_NUM_SPEAKERS` | `SpeakersSettings.num_speakers` | unset | Exact remote speaker count (>= 1), or unset for automatic |
+| `SPEAKERS_MIN_SPEAKERS` / `SPEAKERS_MAX_SPEAKERS` | `SpeakersSettings.min_speakers` / `max_speakers` | unset | Bounds when the count is automatic (min must not exceed max) |
+| `SPEAKERS_UTTERANCE_GAP_SECONDS` | `SpeakersSettings.utterance_gap_seconds` | `5.0` | Same-speaker silence that still joins an utterance (>= 0) |
+| `SPEAKERS_ME_DOMINANCE_DB` | `SpeakersSettings.me_dominance_db` | `6.0` | Residual mic energy over predicted bleed plus noise needed for "Me" (>= 0) |
+| `SPEAKERS_ME_NOISE_MARGIN_DB` | `SpeakersSettings.me_noise_margin_db` | `10.0` | Residual mic energy over the mic noise floor needed for speech (>= 0) |
+| `SPEAKERS_ME_MIN_TURN_SECONDS` | `SpeakersSettings.me_min_turn_seconds` | `0.5` | Shortest "Me" turn kept (> 0) |
+| `SPEAKERS_SAMPLE_MAX_CLIPS` | `SpeakersSettings.sample_max_clips` | `3` | Clips per speaker sample (>= 1) |
+| `SPEAKERS_SAMPLE_TARGET_SECONDS` | `SpeakersSettings.sample_target_seconds` | `15.0` | Target total sample length (> 0) |
+| `SPEAKERS_SAMPLE_MIN_CLIP_SECONDS` / `SPEAKERS_SAMPLE_MAX_CLIP_SECONDS` | `SpeakersSettings.sample_min_clip_seconds` / `sample_max_clip_seconds` | `1.5` / `6.0` | Clip length bounds (min must not exceed max) |
 
-`RecordingSettings` lives in `recording/infrastructure/recording_settings.py`, `ProcessingSettings` in `meetings/infrastructure/processing_settings.py`, `TranscriptionSettings` in `transcription/infrastructure/transcription_settings.py`. Future per-domain settings (for example `SUMMARIES_`) live in each domain's `infrastructure/` and are composed into `Settings` by the root. The planned F3 variables not built yet (`SPEAKERS_*`) are listed in the [processing spec](docs/specs/processing.md) section 7 and move into this table when built.
+`RecordingSettings` lives in `recording/infrastructure/recording_settings.py`, `ProcessingSettings` in `meetings/infrastructure/processing_settings.py`, `TranscriptionSettings` in `transcription/infrastructure/transcription_settings.py`, `SpeakersSettings` in `speakers/infrastructure/speakers_settings.py`. Future per-domain settings (for example `SUMMARIES_`) live in each domain's `infrastructure/` and are composed into `Settings` by the root.
 
 ---
 
