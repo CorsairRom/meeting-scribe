@@ -904,3 +904,8 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
   malformed job) therefore imports no adapter and no numpy, and a build failure such as a missing `ml` extra is one
   protocol error event instead of a traceback. `JsonWordsCache` and the audio-decode failure path of
   `TranscribeAudio` have their own unit tests.
+- 2026-10-09 (F3.3a): `speakers/domain` holds the pure assembly functions (`assign_speakers`, `group_utterances`,
+  `number_speakers`, `render_transcript`, `format_timestamp`; GO-040) and `SpeakersSettings` holds every `SPEAKERS_*`
+  variable of section 7 (validated: `ge`/`gt`, `min <= max` for speakers and for clip lengths) and is composed into
+  `Settings`. The domain has its own `TimedWord`/`Turn`/`Utterance`/`SpeakerLabel`; the worker maps the transcription
+  `Word` into `TimedWord`. Empty input renders `(no speech detected)`; no turns assigns `FALLBACK_SPEAKER`.
