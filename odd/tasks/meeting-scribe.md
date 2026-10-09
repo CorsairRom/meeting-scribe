@@ -326,6 +326,10 @@ extension in the user's session, or running the nested shell, only with the user
       (single-user edge cases, noted for F6): restoring a hand-edited custom unit on a failed
       first upgrade, rollback summary wording/README precision, a test for rollback with an
       inactive service.
+      Live migration (user's go, 2026-10-09): `make install` exit 0 → version
+      `20261009173638-2310554`, `current` → that version, ExecStart `…/current/bin/meeting-scribe`,
+      legacy `~/.local/bin/meeting-scribe` removed, service active (`IDLE`), extension enabled.
+      Cosmetic follow-up: silence uv's "bin is not on your PATH" warning for versioned bins.
 ### F3 Processing — pending
 ### F4 Review UI — pending
 ### F5 Summaries — pending
@@ -423,4 +427,4 @@ it (F1.4). Items below kept for traceability.
 F0 merged to `main` (#2, squash). F1 complete on integration branch `feat/recording`: F1.1–F1.5
 integrated (#14, #16–#31; packaging/runbook #28–#30, smoke test #31). Final tail review
 `review-0b5874936265a288` approved. Tracker #15 is ready for the owner to merge into `main`.
-F1 merged to `main` (#15, merge commit 7301d96). F2 started on `feat/gnome-extension`; current: F2.4 done; F2.1–F2.3 integrated (#33–#34, #36–#40); verified in the real session; next: F2.7 polish, then tracker #35 ready.
+F1 merged to `main` (#15, merge commit 7301d96). F2 started on `feat/gnome-extension`; current: F2.4 done; F2.1–F2.3 integrated (#33–#34, #36–#40); F2 complete and verified in the real session (#33–#48); tracker #35 ready for the owner. Next: F3 Processing.
