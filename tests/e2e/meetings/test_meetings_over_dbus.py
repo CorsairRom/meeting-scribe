@@ -219,13 +219,16 @@ def test_a_finished_job_sends_one_notification_and_a_failed_one_says_so(
         meetings.on_processing_finished(lambda i, s, n: finished.append((i, s, n)))
         await eventually(lambda: rig.state("broken") == "FAILED", "second job failed")
         await eventually(lambda: len(rig.notifier.sent) == 2, "notifications sent")
+        await meetings.call_reprocess("broken")  # a run we are subscribed for
+        await eventually(lambda: len(finished) == 1, "failed signal")
 
     _run(rig, bus_address, scenario)
 
-    assert [(n.summary, n.body) for n in rig.notifier.sent] == [
+    assert [(n.summary, n.body) for n in rig.notifier.sent[:2]] == [
         ("Meeting processed: 1 speaker", ""),
         ("Meeting processing failed", "The worker exited with code -9."),
     ]
+    assert finished == [("broken", "FAILED", 0)]  # the contracted FAILED payload
 
 
 def test_notifications_can_be_turned_off(tmp_path: Path, bus_address: str) -> None:

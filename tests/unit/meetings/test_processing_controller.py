@@ -764,3 +764,25 @@ def test_get_passes_a_storage_failure_through() -> None:
     fx.repository.get_failures["bad"] = MeetingCorruptError("damaged")
 
     assert fx.controller.get_meeting("bad").failure().error_code == "MEETING_CORRUPT"
+
+
+def test_an_unexpected_crash_fails_the_job_and_announces_status_and_failure() -> None:
+    fx = Fixture()
+
+    def explode(job: WorkerJob, on_event: OnEvent, cancel: CancelSignal):
+        raise RuntimeError("the runner is broken")
+
+    fx.runner.behaviours[("m1", "transcribe")] = explode
+    fx.controller.enqueue("m1", RECORDING).unwrap()
+    announced = fx.events.status_changes
+
+    assert fx.controller.run_next() is True
+
+    failure = fx.repository.meetings["m1"].processing.failure
+    assert failure is not None
+    assert failure.error_code == "INTERNAL_ERROR"
+    assert "broken" not in failure.message  # a fixed message: no exception text is stored
+    assert ("m1", "FAILED", "FAILED") in fx.events.state_changes
+    assert fx.events.finished_ids == ["m1"]
+    assert fx.events.status_changes > announced  # the return to idle is announced too
+    assert fx.controller.status().active_state == "IDLE"

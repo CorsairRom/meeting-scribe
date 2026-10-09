@@ -935,8 +935,9 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
   with no eligible turn gets an empty `sample`. In an in-person meeting (mic diarized) "Me" and "Unknown" do not
   exist and every speaker is sampled from the microphone.
 - 2026-10-09 (F3.3 review follow-up): the extraction step is staged. `TranscriptFiles` has `begin`, `write_*`,
-  `commit` and `discard`: every output goes to `.assembling/` and `commit` swaps `samples/` in whole and replaces
-  `utterances.json` and `transcript.md`, so a failure keeps the previous run's outputs (GO-044). The progress
+  `commit` and `discard`: every output goes to `.assembling/` and `commit` publishes `samples/`, `utterances.json` and
+  `transcript.md` as one set (backup directory, manifest, commit-point rename; a crash is rolled back by the next run),
+  so a failure keeps the previous run's outputs (GO-044). The progress
   throttle never drops the terminal 1.0 update.
 - 2026-10-09 (F3.4a, wiring): `RecordingListener` lives in `recording/domain/ports.py`; `meeting_scribe/handoff.py`
   adapts it to `ProcessingController` (`on_started` -> `preempt`, `on_finished` -> `enqueue` then `release`, a `FAILED`

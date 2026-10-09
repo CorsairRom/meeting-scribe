@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -309,3 +311,20 @@ def test_a_recording_on_the_wired_app_holds_back_processing_and_enqueues_on_stop
     assert app.processing.run_next() is True  # released by the stop
     assert repository.meetings[session.id].processing.state == "DONE"
     assert runner.stages_for(session.id) == ["transcribe", "diarize"]
+
+
+def test_a_processing_loop_that_outlives_the_shutdown_bound_is_logged_not_fatal(
+    main_records: list[logging.LogRecord],
+) -> None:
+    release = threading.Event()
+    stuck = threading.Thread(target=release.wait, args=(5,), daemon=True)
+    stuck.start()
+    app = create_app(Settings())
+
+    asyncio.run(main_module._stop_processing(app.processing, stuck, 0.05))
+    release.set()
+    stuck.join()
+
+    assert any(
+        r.levelno == logging.ERROR and "did not stop within" in r.getMessage() for r in main_records
+    )

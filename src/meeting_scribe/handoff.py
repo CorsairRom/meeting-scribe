@@ -27,19 +27,21 @@ class ProcessingRecordingListener:
 
     def on_finished(self, session: RecordingSession) -> None:
         """Queue the meeting (a crashed capture too, OQ-1), then let the GPU work resume."""
-        recording = RecordingInfo(
-            started_at=session.started_at,
-            stopped_at=session.stopped_at,
-            state=session.state,
-            failure_reason=session.failure_reason or "",
-        )
-        queued = self._processing.enqueue(session.id, recording)
-        if isinstance(queued, Failure):
-            error = queued.failure()
-            logger.error(
-                "Meeting '%s' could not be queued for processing: [%s]. Its audio is kept in "
-                "its folder.",
-                session.id,
-                error.error_code,
+        try:
+            recording = RecordingInfo(
+                started_at=session.started_at,
+                stopped_at=session.stopped_at,
+                state=session.state,
+                failure_reason=session.failure_reason or "",
             )
-        self._processing.release()
+            queued = self._processing.enqueue(session.id, recording)
+            if isinstance(queued, Failure):
+                error = queued.failure()
+                logger.error(
+                    "Meeting '%s' could not be queued for processing: [%s]. Its audio is kept "
+                    "in its folder.",
+                    session.id,
+                    error.error_code,
+                )
+        finally:
+            self._processing.release()  # GO-045: the GPU is released however the session ends
