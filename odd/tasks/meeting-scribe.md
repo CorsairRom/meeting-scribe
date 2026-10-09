@@ -416,8 +416,19 @@ own meeting, without reading its content into the repo or logs.
       (14 failures / collection errors) — not strict TDD; noted for future briefs. GREEN 672 python.
       The model was NOT downloaded/loaded (user's HF login not authorized yet): the real GPU test
       `tests/gpu/test_diarize_worker.py` (A-5) runs in F3.5 with consent.
-- [ ] F3.4 Wiring: Stop enqueues processing; D-Bus `Meetings1` (list/get, processing state,
+- [ ] F3.4 Wiring (F3.4a done; F3.4b extension pending): Stop enqueues processing; D-Bus `Meetings1` (list/get, processing state,
       `ProcessingFinished`); desktop notification; extension shows processing state.
+      F3.3b integrated (#68–#70; reviews d2b70651, 9f53b245, e9dfff1c approved; deps split from code to
+      fit the lens budget). F3.4a (delegated, test-first enforced): `7447def` diarization review fixes
+      (bounded energy memory 38.5→<4.8 MB, staged sample/transcript writes `.assembling/` + atomic swap,
+      final progress kept, PYTHONPATH-independent subprocess test); `e29d1cf` RecordingListener +
+      handoff (Stop/crash → enqueue + release, Start → preempt), ProcessingConfig built from settings
+      with a wiring test, processing loop thread started/stopped by serve() (resume at start, 20 s
+      bounded shutdown); `b2d1d50` Meetings1 (List/Get/Reprocess, ActiveMeetingId/ActiveState/
+      QueuedCount, ProcessingStateChanged/ProcessingFinished), Notifier + org.freedesktop.Notifications
+      adapter ("Meeting processed: N speakers"), private-bus e2e with fake worker + fake notifier.
+      GREEN 732 python / 75 extension; no stray daemons/workers. Open (F3.5): a stopped session that
+      cannot be enqueued (storage error) is only logged; loop outliving the shutdown bound exits 0.
 - [ ] F3.5 Install/packaging update (ML deps in the versioned install), runbook, real-recording
       validation with consent.
 ### F4 Review UI — pending
