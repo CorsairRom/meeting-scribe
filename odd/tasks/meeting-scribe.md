@@ -147,10 +147,19 @@ repo from F1).
       `process.wait()` without timeout → test fails), and the env-source lookup is documented as
       best effort (nested settings resolve their own env file). Remaining suggestions (tests via
       private `_fail`, vacuous running-exit_detail test, hard-coded 14 s in a comment) left as is.
-- [ ] F1.4 D-Bus adapter (TDD): dbus-fast `dev.meetingscribe.Recording1` (`Start`, `Stop`,
+- [x] F1.4 D-Bus adapter (TDD): dbus-fast `dev.meetingscribe.Recording1` (`Start`, `Stop`,
       `State`, `ElapsedSeconds`, `StateChanged`), error mapping `dev.meetingscribe.Error.<CODE>`;
       `main.run()` becomes the asyncio service loop with SIGINT/SIGTERM handling; e2e under
       `dbus-run-session`; `docs/architecture/api-contracts.md`.
+      Route: delegated writer. dbus-fast 5.2.0 (API verified via Context7 + installed source).
+      Commits `c6f3489` (+55), `92815e8` (+341), `aaae8e7` (+434/-27), `5511839` (+149/-21).
+      TDD: RED `ModuleNotFoundError ...base.infrastructure.dbus` / `a coroutine was expected, got
+      None` (direct-called `@dbus_method` wrappers return None → logic in plain coroutines, GO-022) /
+      `cannot import name 'RecordingAdapters'` → GREEN `154 passed`. E2E on a private dbus-daemon
+      (temp config) with fake adapters only; orchestrator verified no test starts real adapters;
+      no stray dbus-daemon/ffmpeg. `request_name` uses `DO_NOT_QUEUE`; a second instance exits.
+      `run()` now blocks serving D-Bus (closes R3-001). Untested: real SIGINT/SIGTERM handler path —
+      covered manually in the F1.5 runbook smoke test.
 - [ ] F1.5 Packaging + runbook: systemd `--user` unit and D-Bus activation file under
       `packaging/` (not installed), runbook "record via gdbus"; real-device smoke test only with
       user consent.
@@ -250,5 +259,5 @@ it (F1.4). Items below kept for traceability.
 
 Owner merges tracker #2 (`feat/foundations` → `main`). Meanwhile F1 runs on integration branch
 `feat/recording` (based on `feat/foundations` until #2 lands, then retargeted to `main`).
-Current: F1.1–F1.3 integrated (#14, #16–#20); F1.3b done; next F1.4. RDD boundary for F1 = tip of `feat/foundations`
+Current: F1.1–F1.3 integrated (#14, #16–#20); F1.3b and F1.4 done; next F1.5 packaging + runbook. RDD boundary for F1 = tip of `feat/foundations`
 (its tree equals the reviewed F0 tree).

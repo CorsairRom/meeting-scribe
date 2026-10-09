@@ -28,9 +28,9 @@ it with dbus-fast as `DBusError("dev.meetingscribe.Error.<ERROR_CODE>", message)
 The error-name prefix is proposed and renamable until F6, together with the bus name
 ([ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md)). Inspect errors with `gdbus call` or `busctl --user call`.
 
-> **State today (F0)**: the error classes exist in the shared kernel; the D-Bus translation (the
-> `infrastructure/dbus/*_interface.py` adapters producing this error name) is introduced in F1 together with the
-> first interface. Until then this mapping is the contract those adapters must implement.
+> **State today (F1.4)**: `to_dbus_error` (`src/meeting_scribe/base/infrastructure/dbus/errors.py`) builds this error
+> from any `MeetingScribeError` using the instance `error_code` (so detail codes carry through); the `Recording1`
+> adapter applies it to every `Failure`. Only the error message crosses the bus: no stack trace.
 
 ### Validation errors
 
@@ -44,7 +44,7 @@ details payload.
 
 All classes derive from `MeetingScribeError` in `src/meeting_scribe/base/domain/errors.py`.
 
-| Class | `error_code` | Meaning | D-Bus error name (planned, F1) |
+| Class | `error_code` | Meaning | D-Bus error name |
 |---|---|---|---|
 | `MeetingScribeError` | `INTERNAL_ERROR` | Base class and fallback for unexpected failures | `dev.meetingscribe.Error.INTERNAL_ERROR` |
 | `EntityNotFoundError` | `ENTITY_NOT_FOUND` | A requested entity does not exist (typically a null object converted by `as_result`) | `dev.meetingscribe.Error.ENTITY_NOT_FOUND` |

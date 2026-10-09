@@ -129,7 +129,7 @@ ai_instructions:
 - **Status**: active
 - **Rule**: The bus name is `dev.meetingscribe.Service`, the object path `/dev/meetingscribe/Service`, interfaces are `dev.meetingscribe.<Name>1`, and domain errors are raised as `DBusError("dev.meetingscribe.Error.<ERROR_CODE>", message)`. Names are renamable until F6.
 - **Source**: [ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md); [`error-codes-catalog.md`](../architecture/error-codes-catalog.md)
-- **Verifiable in**: `docs/architecture/api-contracts.md` (from F1); e2e tests under `dbus-run-session`
+- **Verifiable in**: `docs/architecture/api-contracts.md`; `tests/e2e/recording/` (private `dbus-daemon`)
 
 ---
 
@@ -244,6 +244,26 @@ ai_instructions:
 - **Status**: active
 - **Detail**: `AudioCapture.exit_detail()` returns the exit code and `ffmpeg.log` tail of a dead process. `RecordingController` uses it for `failure_reason` and the returned error (status/start/stop crash paths), falling back to `CAPTURE_CRASHED_REASON`. ffmpeg can also die after the startup grace; that shows up as `FAILED` on the next call. Opening `ffmpeg.log` and spawning ffmpeg have separate error handling, so a missing session folder is not reported as "ffmpeg not found".
 
+### GO-022 — dbus-fast `@dbus_method` wrappers swallow the return value in Python
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: calling a decorated method directly (`interface.Start()`) runs it and returns `None` (an `async` one is never awaited), because the decorator wraps the function for the bus and registers the original separately (dbus-fast 5.2.0, `service.py`). Keep behavior in plain methods (`start`/`stop`) and make the decorated member a one-line delegate. `dbus_property` getters do work as ordinary Python properties. Annotations must not use `type` statement aliases (parse_annotation rejects them): annotate with `dbus_fast.annotations` types or `Annotated[..., DBusSignature(...)]` assigned to a plain name.
+
+### GO-023 — Request the bus name with `DO_NOT_QUEUE` and check the reply
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `request_name(name)` with default flags queues behind the current owner and returns `IN_QUEUE`, so a second instance would sit silent. `serve` passes `NameFlag.DO_NOT_QUEUE` and exits with code 1 unless the reply is `PRIMARY_OWNER`.
+
+### GO-024 — The controller is not thread-safe: serialize calls and never read it mid-call
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `RecordingInterface` runs each controller call in `asyncio.to_thread` under one `asyncio.Lock`. While a call is in flight, property reads and the 2 s crash monitor use the last published snapshot instead of calling `status()` from the loop thread. Shutdown (`stop_if_active`) takes the same lock, then stops an active recording because ffmpeg runs in its own session and would otherwise be orphaned.
+
+### GO-025 — Private-bus tests: explicit address, own config, kill by PID
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: the `bus_address` fixture (`tests/e2e/conftest.py`) runs `dbus-daemon --config-file=<temp> --nofork --print-address=1` and clients pass that address to `MessageBus(bus_address=...)`; `DBUS_SESSION_BUS_ADDRESS` is never read, so the user's bus cannot be reached by accident. The temp config has no service directories, so nothing is activated. Every app is wired with the fakes: `Start` on real adapters records the microphone.
+
 ---
 
 ## Anti-Patterns (AP)
@@ -276,11 +296,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 11 | 0 | 0 |
-| GO | 21 | 0 | 0 |
+| GO | 25 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-021 — 2026-10-09
-**Next available IDs**: BR-005, CR-012, GO-022, AP-005
+**Last rule added**: GO-025 — 2026-10-09
+**Next available IDs**: BR-005, CR-012, GO-026, AP-005
 
 ---
 
