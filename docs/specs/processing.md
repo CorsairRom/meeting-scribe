@@ -898,3 +898,9 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
   so no domain needs numpy at import time and the tests that decode audio skip without it.
 - 2026-10-09 (F3.2): `make setup` now runs `uv sync --extra ml --extra quality-assurance` (pyrefly must see the
   adapters' imports); `pytest` excludes `-m gpu` by default, run it with `uv run pytest -m gpu -s`.
+- 2026-10-09 (F3.3a, review follow-up): `worker.main` validates the stage and the job first and only then calls the
+  stage's factory (`stages` maps a stage name to a zero-argument factory, not to a built runner), inside the same
+  `try` that turns a crash into one `INTERNAL_ERROR` event. A refused invocation (unknown or unavailable stage,
+  malformed job) therefore imports no adapter and no numpy, and a build failure such as a missing `ml` extra is one
+  protocol error event instead of a traceback. `JsonWordsCache` and the audio-decode failure path of
+  `TranscribeAudio` have their own unit tests.

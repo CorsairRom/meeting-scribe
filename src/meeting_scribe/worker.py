@@ -3,7 +3,8 @@
 A second composition root next to ``main``: it reads the job spec from stdin, builds the stage's
 adapters, runs one stage and speaks the protocol on the event stream. It reads no settings and no
 ``.env``; everything comes in the job. The ``diarize`` stage lands in F3.3. Importing this module
-loads no ML library: adapters are built (and the libraries imported) only when a stage runs.
+loads no ML library, and ``main`` validates the stage and the job before it builds anything: only
+the requested stage is built, inside the guard that turns a crash into one protocol error event.
 """
 
 import json
@@ -35,6 +36,8 @@ EXIT_ERROR = 1
 
 type Emit = Callable[[WorkerEvent], None]
 type StageRunner = Callable[[WorkerJob, Emit], Result[ResultEvent, MeetingScribeError]]
+type StageFactory = Callable[[], StageRunner]
+"""Builds a stage's adapters (and imports their libraries); called once, after the job is valid."""
 
 
 def open_event_stream() -> IO[str]:
@@ -61,7 +64,8 @@ def _error(events: IO[str], error_code: str, message: str) -> int:
 
 def build_transcribe_stage(backend: WhisperBackend | None = None) -> StageRunner:
     """The transcribe stage and its adapters; ``backend`` is a test seam (default: the real one)."""
-    # Adapters are imported here, not at module level, so a refused stage never pays for them.
+    # Adapters are imported here, not at module level: ``main`` calls this factory only after the
+    # stage and the job are valid, so a refused invocation never imports them (or numpy).
     from meeting_scribe.meetings.application.transcribe_stage import (  # noqa: PLC0415
         run_transcribe_stage,
     )
@@ -93,12 +97,12 @@ def build_transcribe_stage(backend: WhisperBackend | None = None) -> StageRunner
     return run
 
 
-def _default_stages() -> dict[str, StageRunner]:
-    return {"transcribe": build_transcribe_stage()}
+def _default_stages() -> dict[str, StageFactory]:
+    return {"transcribe": build_transcribe_stage}
 
 
 def _prepare(
-    stage: str, stdin: IO[str], runners: Mapping[str, StageRunner]
+    stage: str, stdin: IO[str], factories: Mapping[str, StageFactory]
 ) -> WorkerJob | tuple[str, str]:
     """The validated job, or the ``(error_code, message)`` that refuses this invocation."""
     if stage not in STAGES:
@@ -106,7 +110,7 @@ def _prepare(
             "WORKER_UNKNOWN_STAGE",
             f"Unknown worker stage {stage!r}; expected one of {', '.join(STAGES)}.",
         )
-    if stage not in runners:
+    if stage not in factories:
         return ("WORKER_STAGE_UNAVAILABLE", f"The {stage} stage is not implemented in this build.")
     try:
         job = WorkerJob.model_validate_json(stdin.read())
@@ -128,7 +132,7 @@ def main(
     *,
     stdin: IO[str] | None = None,
     events: IO[str] | None = None,
-    stages: Mapping[str, StageRunner] | None = None,
+    stages: Mapping[str, StageFactory] | None = None,
 ) -> int:
     """Run one stage; the keyword arguments are test seams (a real worker passes none)."""
     args = sys.argv[1:] if argv is None else argv
@@ -136,8 +140,8 @@ def main(
         events = open_event_stream()
         configure_logging("INFO")  # stderr: lands in processing.log, never on the event stream
     stage = args[0] if args else ""
-    runners = _default_stages() if stages is None else stages
-    prepared = _prepare(stage, stdin or sys.stdin, runners)
+    factories = _default_stages() if stages is None else stages
+    prepared = _prepare(stage, stdin or sys.stdin, factories)
     if not isinstance(prepared, WorkerJob):
         return _error(events, *prepared)
     sink = events
@@ -147,7 +151,7 @@ def main(
         sink.flush()
 
     try:
-        result = runners[stage](prepared, emit)
+        result = factories[stage]()(prepared, emit)
     except Exception as error:
         logger.exception("The %s stage crashed.", stage)
         return _error(events, MeetingScribeError.error_code, f"{type(error).__name__}: {error}")
