@@ -173,16 +173,21 @@ Tooling: `gdbus call` or `busctl --user`; e2e tests under `dbus-run-session`.
 
 ## 7. Configuration
 
-`Settings` (root) composes per-domain classes, each with its own `env_prefix`. All read `.env`
-(`extra="ignore"`, `case_sensitive=False`); `get_settings()` is `lru_cache`d. Template: [`.env.example`](.env.example).
+`Settings` (root) composes per-domain classes via `Field(default_factory=...)`. All inherit the shared
+`MeetingScribeSettings` base (`extra="ignore"`, `case_sensitive=False`, utf-8) and only set their own
+`env_prefix`. `get_settings()` is `lru_cache`d. Template: [`.env.example`](.env.example).
+
+Env file resolution (once, in the base class): `$XDG_CONFIG_HOME/meeting-scribe/.env` (default
+`~/.config/meeting-scribe/.env`) if it exists, otherwise `./.env` in the CWD (development). Process environment
+variables always win. `effective_env_files()` reports the file in use and `create_app` logs it at INFO (path only,
+never values). Under `systemd --user` the CWD is not the project, so use the XDG path.
 
 | Variable | Settings class | Default | Meaning |
 |---|---|---|---|
-| `LOG_LEVEL` | `Settings.log_level` | `INFO` | stdlib logging level |
-| `STORAGE_MEETINGS_DIR` | `StorageSettings.meetings_dir` | `~/Documents/meetings` | Where meetings are stored |
+| `LOG_LEVEL` | `Settings.log_level` | `INFO` | One of DEBUG, INFO, WARNING, ERROR, CRITICAL (case-insensitive); invalid fails at load |
+| `STORAGE_MEETINGS_DIR` | `StorageSettings.meetings_dir` | `~/Documents/meetings` | Where meetings are stored (`~` is expanded) |
 
-Known gap: `~` in `STORAGE_MEETINGS_DIR` is not expanded by pydantic; an expanding validator is a F1 follow-up
-(see [`docs/project/backlog.md`](docs/project/backlog.md)). Future per-domain settings (for example `TRANSCRIPTION_`,
+Future per-domain settings (for example `TRANSCRIPTION_`,
 `SUMMARIES_`) live in each domain's `infrastructure/` and are composed into `Settings` by the root.
 
 ---

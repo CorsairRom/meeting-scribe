@@ -17,7 +17,8 @@ make check   # ruff, pyrefly, import-linter contracts, pytest
 make run     # start the service (no transport yet; D-Bus arrives in F1)
 ```
 
-Copy `.env.example` to `.env` to override settings (`LOG_LEVEL`, `STORAGE_MEETINGS_DIR`).
+Copy `.env.example` to `~/.config/meeting-scribe/.env` (or `$XDG_CONFIG_HOME/meeting-scribe/.env`) to override
+settings (`LOG_LEVEL`, `STORAGE_MEETINGS_DIR`); a `./.env` in the project directory is the development fallback.
 Run `make help` to list all targets.
 
 ## Documentation
