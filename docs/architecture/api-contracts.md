@@ -103,6 +103,12 @@ when it ran on the CPU), or `Meeting processing failed` with the failure message
 transcript content or speaker names. `PROCESSING_NOTIFY=false` turns it off. A notification service that is missing
 or fails is logged at WARNING and never changes the job. Clients must not send a second notification.
 
+**Extension client (F3.4b).** `gnome-extension/.../lib/meetingsClient.js` watches the bus name without autostart,
+reads `ActiveMeetingId`, `ActiveState` and `QueuedCount` (and their `PropertiesChanged`), keeps the last
+`ProcessingFinished` payload and calls `Reprocess` with a 10 s timeout. It does not call `List` or `Get` and never
+reads meeting content; the menu shows the stage, the queue length, the speaker count, and a Reprocess action after
+`FAILED`. Signals missed before it subscribed are not replayed: it starts from the properties.
+
 Example calls (documentation only, run them against your own session bus):
 
 ```bash

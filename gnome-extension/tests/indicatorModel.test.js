@@ -215,3 +215,105 @@ test('viewModel translates every string through the injected function', () => {
     assertEqual(vm({state: 'RECORDING'}, tr).menuItems[2].text, '<Stop recording>');
     assertEqual(vm({available: false}, tr).menuItems[0].text, '<The Meeting Scribe service is not running.>');
 });
+
+// -- meeting processing (Meetings1) -----------------------------------------------------------
+
+const idle = {available: true, activeMeetingId: '', activeState: 'IDLE', queuedCount: 0, last: null};
+const proc = overrides => ({...idle, ...overrides});
+const withProcessing = (processing, overrides = {}) => vm({...overrides, processing});
+const texts = items => items.filter(i => i.kind !== 'separator').map(i => i.text);
+
+test('without processing input the model is unchanged', () => {
+    assertDeepEqual(vm({}).menuItems, [{kind: 'action', text: 'Start recording', action: 'start'}]);
+    assertEqual(vm({}).label, '');
+});
+
+test('an idle pipeline adds nothing to the menu', () => {
+    assertDeepEqual(withProcessing(proc({})).menuItems, vm({}).menuItems);
+});
+
+test('a processing job shows its stage under the recording items', () => {
+    for (const [state, text] of [
+        ['TRANSCRIBING', 'Processing meeting… (transcribing)'],
+        ['DIARIZING', 'Processing meeting… (diarizing)'],
+        ['EXTRACTING_SAMPLES', 'Processing meeting… (extracting samples)'],
+        ['QUEUED', 'Processing meeting…'],
+    ]) {
+        const m = withProcessing(proc({activeMeetingId: 'm1', activeState: state}));
+        assertDeepEqual(m.menuItems, [
+            {kind: 'action', text: 'Start recording', action: 'start'},
+            {kind: 'separator'},
+            {kind: 'status', text},
+        ], `${state}: `);
+    }
+});
+
+test('queued jobs are counted, singular and plural, with or without an active job', () => {
+    const one = withProcessing(proc({activeMeetingId: 'm1', activeState: 'DIARIZING', queuedCount: 1}));
+    assertDeepEqual(texts(one.menuItems).slice(1), ['Processing meeting… (diarizing)', '1 meeting queued']);
+    const many = withProcessing(proc({queuedCount: 3}));
+    assertDeepEqual(texts(many.menuItems).slice(1), ['3 meetings queued']);
+});
+
+test('the panel shows a processing hint only while a job runs, never replacing the timer', () => {
+    assertEqual(withProcessing(proc({activeMeetingId: 'm1', activeState: 'DIARIZING'})).label, '…');
+    assertEqual(withProcessing(proc({queuedCount: 2})).label, '');
+    const recording = withProcessing(proc({activeMeetingId: 'm1', activeState: 'DIARIZING'}),
+        {state: 'RECORDING', elapsedSeconds: 5});
+    assertEqual(recording.label, '00:00:05');
+    assertEqual(withProcessing(proc({activeMeetingId: 'm1', activeState: 'DIARIZING'})).tooltip,
+        'Processing meeting…');
+});
+
+test('the click rule is unchanged while processing: every click opens the menu', () => {
+    for (const p of [proc({activeMeetingId: 'm1', activeState: 'DIARIZING'}),
+        proc({last: {meetingId: 'm1', state: 'FAILED', speakerCount: 0}})])
+        assertEqual(withProcessing(p).clickAction, 'open-menu');
+});
+
+test('a finished meeting reports the speaker count and nothing else', () => {
+    const done = n => withProcessing(proc({last: {meetingId: 'm1', state: 'DONE', speakerCount: n}}));
+    assertEqual(texts(done(3).menuItems).at(-1), 'Last meeting processed: 3 speakers');
+    assertEqual(texts(done(1).menuItems).at(-1), 'Last meeting processed: 1 speaker');
+    assertEqual(texts(done(0).menuItems).at(-1), 'Last meeting processed: no speech detected');
+    assertEqual(JSON.stringify(done(3)).includes('m1'), false, 'no meeting id in the view: ');
+});
+
+test('a failed meeting offers one Reprocess action', () => {
+    const m = withProcessing(proc({last: {meetingId: 'm1', state: 'FAILED', speakerCount: 0}}));
+    assertDeepEqual(m.menuItems.slice(-1), [
+        {kind: 'action', text: 'Processing failed — Reprocess', action: 'reprocess'},
+    ]);
+    assertDeepEqual(ids(m.menuItems), ['start', 'reprocess']);
+});
+
+test('an active job hides the previous result', () => {
+    const m = withProcessing(proc({
+        activeMeetingId: 'm2', activeState: 'TRANSCRIBING',
+        last: {meetingId: 'm1', state: 'FAILED', speakerCount: 0},
+    }));
+    assertDeepEqual(texts(m.menuItems).slice(1), ['Processing meeting… (transcribing)']);
+});
+
+test('processing is not shown when the service is unavailable or a call is in flight', () => {
+    const active = proc({activeMeetingId: 'm1', activeState: 'DIARIZING'});
+    assertEqual(withProcessing(active, {available: false}).menuItems.length, 2);
+    assertEqual(withProcessing(active, {available: false}).label, '');
+    assertDeepEqual(texts(withProcessing(active, {busy: true}).menuItems), ['Working…']);
+    assertEqual(withProcessing({...active, available: false}).menuItems.length, 1);
+});
+
+test('processing lines translate through the injected function', () => {
+    const up = s => s.split('%s').map(part => part.toUpperCase()).join('%s');
+    const m = viewModel({...base, processing: proc({activeMeetingId: 'm1',
+        activeState: 'DIARIZING', queuedCount: 2})}, up);
+    assertDeepEqual(texts(m.menuItems).slice(1),
+        ['PROCESSING MEETING… (DIARIZING)', '2 MEETINGS QUEUED']);
+});
+
+test('errorMessage maps the Meetings1 errors', () => {
+    assertEqual(errorMessage(`${E}ENTITY_NOT_FOUND_MEETING`, ''), 'That meeting no longer exists.');
+    assertEqual(errorMessage(`${E}MEETING_PROCESSING_ACTIVE`, ''),
+        'That meeting is already queued or being processed.');
+    assertEqual(errorMessage(`${E}MEETING_STORAGE_FAILED`, ''), 'Could not read the meetings folder.');
+});

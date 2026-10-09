@@ -115,6 +115,8 @@ Packaging: `make extension-pack` runs `gnome-extensions pack` with `--extra-sour
 
 The D-Bus client (`lib/recordingClient.js`) takes an injectable bus connection and clock, does nothing until `connect()` and releases everything in `destroy()`. It watches the service's bus name (no autostart, so the extension never launches the service) and creates the `Recording1` proxy only while the name has an owner. Its snapshot (`available`, `busy`, `state`, `sessionId`, `elapsedSeconds`, `failureReason`) feeds `viewModel()` and updates from `PropertiesChanged` and `StateChanged`. The service does not announce `ElapsedSeconds`, so the client reads it once when a recording starts (or is joined) and counts locally on the monotonic clock; the shell's 1 s timer (F2.3) only re-reads `snapshot`. A late seed reply from an earlier recording is dropped (a counter bumped on every entry into RECORDING), a transition into `FAILED` is reported only once its `FailureReason` is known (read with `Properties.Get`, because `StateChanged` carries none), and every call uses a 20 s timeout (`callTimeoutMs`: `Stop` blocks up to `RECORDING_STOP_TIMEOUT_SECONDS` + 4 s in the service). Tests run it against a fake `Recording1` on a private `dbus-daemon` (`gnome-extension/tests/privateBus.js`, GO-029).
 
+`lib/meetingsClient.js` is the same kind of client for `Meetings1` (F3.4b): its snapshot (`available`, `activeMeetingId`, `activeState`, `queuedCount`, `last`) goes to `viewModel()` as `processing`, which appends the processing lines after the recording items; the controller takes it as an optional `meetings` collaborator, re-renders on `handleProcessingChange()` and runs the `reprocess` menu action for a `FAILED` last result.
+
 ---
 
 ## 3. Layering rules

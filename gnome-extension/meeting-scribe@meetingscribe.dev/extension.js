@@ -3,6 +3,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {GLibScheduler} from './lib/glibScheduler.js';
 import {IndicatorController} from './lib/indicatorController.js';
+import {MeetingsClient} from './lib/meetingsClient.js';
 import {PanelIndicator} from './lib/panelIndicator.js';
 import {RecordingClient} from './lib/recordingClient.js';
 
@@ -23,8 +24,14 @@ export default class MeetingScribeExtension extends Extension {
             objectPath: OBJECT_PATH,
             onChange: snapshot => this._controller?.handleChange(snapshot),
         });
+        this._meetings = new MeetingsClient({
+            busName: BUS_NAME,
+            objectPath: OBJECT_PATH,
+            onChange: () => this._controller?.handleProcessingChange(),
+        });
         this._controller = new IndicatorController({
             client: this._client,
+            meetings: this._meetings,
             view: this._indicator,
             scheduler: this._scheduler,
             notify: (title, body) => Main.notify(title, body),
@@ -33,11 +40,14 @@ export default class MeetingScribeExtension extends Extension {
         Main.panel.addToStatusArea(this.uuid, this._indicator);
         this._controller.refresh();
         this._client.connect();
+        this._meetings.connect();
     }
 
     disable() {
         this._client?.destroy();
         this._client = null;
+        this._meetings?.destroy();
+        this._meetings = null;
         this._controller?.destroy();
         this._controller = null;
         this._indicator?.destroy();
