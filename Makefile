@@ -32,6 +32,7 @@ run: ## Start the local service
 	uv run meeting-scribe
 
 extension-pack: ## Build the GNOME extension zip into dist/
+	mkdir -p $(PACK_DIR)
 	gnome-extensions pack gnome-extension/$(EXTENSION_UUID) --extra-source=lib --force -o $(PACK_DIR)
 
 extension-install: extension-pack ## Install the packed extension (does not enable it)
