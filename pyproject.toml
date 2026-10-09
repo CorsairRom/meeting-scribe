@@ -87,7 +87,7 @@ forbidden_modules = [
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
-name = "Shared kernel does not depend on domains or the composition root"
+name = "Shared kernel does not depend on the domains"
 type = "forbidden"
 source_modules = ["meeting_scribe.base"]
 forbidden_modules = [
@@ -96,8 +96,6 @@ forbidden_modules = [
     "meeting_scribe.speakers",
     "meeting_scribe.summaries",
     "meeting_scribe.meetings",
-    "meeting_scribe.settings",
-    "meeting_scribe.main",
 ]
 
 [[tool.importlinter.contracts]]

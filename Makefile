@@ -2,7 +2,7 @@
 .PHONY: help setup lint format imports test check run
 
 help: ## List available targets
-	@rg -N '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sd '^([a-z-]+):.*## (.*)$$' '$$1\t$$2'
+	@awk -F':.*## ' '/^[a-z-]+:.*## / {printf "%s\t%s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 setup: ## Install runtime and quality-assurance dependencies
 	uv sync --extra quality-assurance
