@@ -1,6 +1,7 @@
 """``dev.meetingscribe.Recording1``: thin D-Bus adapter over ``RecordingController``."""
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from typing import Annotated
@@ -32,7 +33,9 @@ def _published(status: RecordingStatus) -> tuple[str, str, str, str]:
 
 
 class RecordingInterface(ServiceInterface):
-    """The controller is neither thread-safe nor non-blocking (startup grace, stop up to 14 s).
+    """The controller is neither thread-safe nor non-blocking (startup grace, bounded stop wait).
+
+    The stop wait is derived from ``RECORDING_STOP_TIMEOUT_SECONDS``.
 
     Every controller call therefore runs in a worker thread, one at a time under ``_lock``.
     While a call is in flight, property reads and the crash monitor use the last snapshot
@@ -48,6 +51,8 @@ class RecordingInterface(ServiceInterface):
         self._controller = controller
         self._poll_interval = poll_interval
         self._lock = asyncio.Lock()
+        self._monitor_halt = asyncio.Event()
+        self._monitor_task: asyncio.Task[None] | None = None
         self._snapshot = controller.status()
         self._last_published = _published(self._snapshot)
 
@@ -92,23 +97,62 @@ class RecordingInterface(ServiceInterface):
         return (state, session_id)
 
     async def monitor(self) -> None:
-        """Poll the controller so a capture crash is announced without a client call."""
-        while True:
-            await asyncio.sleep(self._poll_interval)
-            if self._lock.locked():
-                continue  # a call is in flight and will publish its own outcome
-            async with self._lock:
-                status = await asyncio.to_thread(self._controller.status)
-            self._publish(status)
+        """Poll the controller so a capture crash is announced without a client call.
 
-    async def stop_if_active(self) -> None:
-        """Shutdown hook: ffmpeg runs in its own session and would otherwise be orphaned."""
+        A failing poll is logged and the loop keeps going: one unreadable log must not end
+        crash detection for the rest of the process. The loop only ends on ``halt_monitor``
+        (after its current iteration) or cancellation.
+        """
+        while not self._monitor_halt.is_set():
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._monitor_halt.wait(), timeout=self._poll_interval)
+            if self._monitor_halt.is_set():
+                return
+            try:
+                await self._poll_once()
+            except Exception:
+                logger.exception("Crash monitor poll failed; will retry.")
+
+    async def _poll_once(self) -> None:
+        if self._lock.locked():
+            return  # a call is in flight and will publish its own outcome
+        async with self._lock:
+            status = await asyncio.to_thread(self._controller.status)
+        self._publish(status)
+
+    def start_monitor(self) -> None:
+        self._monitor_halt.clear()
+        self._monitor_task = asyncio.create_task(self.monitor())
+
+    async def shutdown(self) -> Result[RecordingSession, MeetingScribeError] | None:
+        """Stop the monitor without cancelling it, then stop an active recording.
+
+        Cancelling the monitor mid ``to_thread`` would leave its worker thread running while
+        shutdown starts another one, so the monitor is asked to finish its iteration instead.
+        """
+        self._monitor_halt.set()
+        if self._monitor_task is not None:
+            await asyncio.gather(self._monitor_task, return_exceptions=True)
+            self._monitor_task = None
+        return await self.stop_if_active()
+
+    async def stop_if_active(self) -> Result[RecordingSession, MeetingScribeError] | None:
+        """Shutdown hook: ffmpeg runs in its own session and would otherwise be orphaned.
+
+        Returns the stop outcome, or ``None`` when nothing was recording. A failure is logged
+        at ERROR with its code: it may mean an orphaned ffmpeg or a truncated final chunk.
+        """
+        outcome: Result[RecordingSession, MeetingScribeError] | None = None
         async with self._lock:
             status = await asyncio.to_thread(self._controller.status)
             if status.state == "RECORDING":
-                await asyncio.to_thread(self._controller.stop)
+                outcome = await asyncio.to_thread(self._controller.stop)
                 status = await asyncio.to_thread(self._controller.status)
+        if isinstance(outcome, Failure):
+            error = outcome.failure()
+            logger.error("Shutdown could not stop the recording: [%s] %s", error.error_code, error)
         self._publish(status)
+        return outcome
 
     async def _call(
         self, operation: Callable[[], Result[RecordingSession, MeetingScribeError]]
@@ -138,12 +182,15 @@ class RecordingInterface(ServiceInterface):
             return
         self._last_published = current
         logger.info("Recording state is now %s.", status.state)
-        self.StateChanged(status.state, status.session_id)
-        self.emit_properties_changed(
-            {
-                "State": status.state,
-                "SessionId": status.session_id,
-                "Directory": status.directory,
-                "FailureReason": status.failure_reason,
-            }
-        )
+        try:
+            self.StateChanged(status.state, status.session_id)
+            self.emit_properties_changed(
+                {
+                    "State": status.state,
+                    "SessionId": status.session_id,
+                    "Directory": status.directory,
+                    "FailureReason": status.failure_reason,
+                }
+            )
+        except Exception:  # e.g. the bus is gone: the state is still recorded locally
+            logger.exception("Could not announce the state change on the bus.")

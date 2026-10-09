@@ -1,12 +1,14 @@
 """RecordingInterface without a bus: members are called as plain Python (fakes only)."""
 
 import asyncio
+import logging
 import threading
 from pathlib import Path
 from typing import Any
 
 import pytest
 from dbus_fast import DBusError
+from returns.result import Failure, Success
 
 from meeting_scribe.recording.application.recording_controller import RecordingController
 from meeting_scribe.recording.domain.errors import AudioCaptureError
@@ -159,8 +161,9 @@ def test_stop_if_active_stops_a_running_recording() -> None:
     rig = Rig()
     asyncio.run(rig.interface.start())
 
-    asyncio.run(rig.interface.stop_if_active())
+    outcome = asyncio.run(rig.interface.stop_if_active())
 
+    assert isinstance(outcome, Success)
     assert rig.capture.stop_calls == 1
     assert rig.interface.State == "STOPPED"
 
@@ -168,9 +171,122 @@ def test_stop_if_active_stops_a_running_recording() -> None:
 def test_stop_if_active_is_a_noop_when_idle() -> None:
     rig = Rig()
 
-    asyncio.run(rig.interface.stop_if_active())
+    outcome = asyncio.run(rig.interface.stop_if_active())
 
+    assert outcome is None
     assert rig.capture.stop_calls == 0
+
+
+def test_stop_if_active_returns_and_logs_the_failure_with_its_code(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    rig = Rig(FakeAudioCapture(stop_error=AudioCaptureError("ffmpeg would not stop")))
+    asyncio.run(rig.interface.start())
+
+    with caplog.at_level(logging.ERROR):
+        outcome = asyncio.run(rig.interface.stop_if_active())
+
+    assert isinstance(outcome, Failure)
+    assert outcome.failure().error_code == "AUDIO_CAPTURE_FAILED"
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert any("AUDIO_CAPTURE_FAILED" in m and "ffmpeg would not stop" in m for m in errors)
+
+
+def test_monitor_survives_a_status_failure_and_still_announces_a_crash(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    rig = Rig()
+    calls: list[int] = []
+    original = rig.controller.status
+
+    def flaky() -> Any:
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError("ffmpeg.log unreadable")
+        return original()
+
+    async def scenario() -> None:
+        await rig.interface.start()
+        rig.controller.status = flaky  # type: ignore[method-assign]
+        monitor = asyncio.create_task(rig.interface.monitor())
+        rig.capture.crash("ffmpeg exited with code 1")
+        await asyncio.sleep(0.2)
+        assert not monitor.done()
+        monitor.cancel()
+        await asyncio.gather(monitor, return_exceptions=True)
+
+    with caplog.at_level(logging.ERROR):
+        asyncio.run(scenario())
+
+    assert [state for state, _ in rig.state_changed] == ["RECORDING", "FAILED"]
+    assert any(r.exc_info and "unreadable" in str(r.exc_info[1]) for r in caplog.records)
+
+
+class _GatedStatus:
+    """Wraps ``status`` so one call blocks on a gate and overlapping controller calls show up."""
+
+    def __init__(self, rig: Rig) -> None:
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.block_next = False
+        self.active = 0
+        self.max_active = 0
+        self.stop_started_while_status_active = False
+        self._lock = threading.Lock()
+        self._status = rig.controller.status
+        self._stop = rig.controller.stop
+        rig.controller.status = self.status  # type: ignore[method-assign]
+        rig.controller.stop = self.stop  # type: ignore[method-assign]
+
+    def _enter(self) -> None:
+        with self._lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+
+    def _exit(self) -> None:
+        with self._lock:
+            self.active -= 1
+
+    def status(self) -> Any:
+        self._enter()
+        try:
+            if self.block_next:
+                self.block_next = False
+                self.entered.set()
+                assert self.release.wait(timeout=5)
+            return self._status()
+        finally:
+            self._exit()
+
+    def stop(self) -> Any:
+        self._enter()
+        try:
+            return self._stop()
+        finally:
+            self._exit()
+
+
+def test_shutdown_waits_for_an_in_flight_monitor_poll_before_stopping() -> None:
+    rig = Rig()
+    gate = _GatedStatus(rig)
+
+    async def scenario() -> None:
+        await rig.interface.start()
+        gate.block_next = True
+        rig.interface.start_monitor()
+        await asyncio.to_thread(gate.entered.wait, 5)
+        shutdown = asyncio.create_task(rig.interface.shutdown())
+        await asyncio.sleep(0.1)
+        assert not shutdown.done()
+        assert rig.capture.stop_calls == 0  # nothing runs while the poll is mid-thread
+        gate.release.set()
+        outcome = await asyncio.wait_for(shutdown, timeout=5)
+        assert isinstance(outcome, Success)
+
+    asyncio.run(scenario())
+
+    assert gate.max_active == 1  # controller calls never overlapped
+    assert rig.capture.stop_calls == 1
 
 
 def test_controller_calls_run_off_the_event_loop_thread() -> None:
@@ -186,4 +302,5 @@ def test_controller_calls_run_off_the_event_loop_thread() -> None:
 
     asyncio.run(rig.interface.start())
 
-    assert threads != [threading.get_ident()]
+    assert len(threads) == 1
+    assert threads[0] != threading.get_ident()
