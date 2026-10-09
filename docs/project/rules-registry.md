@@ -433,3 +433,17 @@ ai_instructions:
 
 Mark the old rule `Status: superseded` with `Superseded by: <ID> (date)` and the reason; create the new rule
 with `Supersedes: <ID>`. Never delete rules.
+
+### GO-047 — Models are fetched at install time; the worker is always offline
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `make install` runs `meeting-scribe prefetch-models` after the service is switched and started (recording never needs the models, so a missing network or Hugging Face login must not block installing it; a failure is only reported in the summary, never as an install failure). The command is `meeting_scribe.cli:run` (the console script), not `main`, because the import contract forbids `main` from reaching the ML backends. It fetches the gated pipeline first (a missing login fails in seconds, not after the 1.6 GB Whisper model), then Whisper, always attempts both, and maps failures with the same mappers as the worker (`DIARIZATION_MODEL_ACCESS_DENIED` with "accept the terms at <url> and run `hf auth login`", `MODEL_UNAVAILABLE`); anything shaped like a token (`hf_...`) is scrubbed from the output and the token is never read (`token=True` is the ambient login). The real fetchers are methods of the two backends: `FasterWhisperBackend.download_model` (`faster_whisper.utils.download_model`, which also fills the cache `WhisperModel` reads) and `RealPyannoteBackend.fetch_pipeline` (the worker's own `Pipeline.from_pretrained`, CPU only, so a successful fetch guarantees an offline load). `SubprocessWorkerRunner` forces `HF_HUB_OFFLINE=1` in every worker environment (a user value cannot turn it off); a cache miss then surfaces as `LocalEntryNotFoundError` and becomes `MODEL_UNAVAILABLE` with "run `make install` again". `uv tool install` takes the extra through a PEP 508 direct reference (`meeting-scribe[ml] @ <repo>`); `<repo>[ml]` is a parse error in uv 0.10.9.
+- **Source**: [processing spec](../specs/processing.md) OQ-7, section 9, F3.5
+- **Verifiable in**: `tests/unit/test_prefetch.py`, `tests/unit/test_cli.py`, `tests/unit/test_install_scripts.py`, `tests/unit/meetings/test_subprocess_worker_runner.py`
+
+### GO-048 — A recording that cannot be queued tells the user; the extension never shows a stale result
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: when `enqueue` fails after Stop (storage error), `ProcessingRecordingListener` logs the code and sends one desktop notification with fixed text (no meeting id, no content): the recording is saved, fix the disk, restart the service. A `meeting.json` that did get written is resumed at the next start by `resume()`; a recording folder without one is not rediscovered. The GPU is released in every case (GO-045). In the extension, `MeetingsClient` forgets the last result when a job starts (`ActiveState` leaves `IDLE`) and whenever the service appears or vanishes, so a missed `ProcessingFinished` cannot resurrect a handled failure; a proxy that cannot be built is logged once through `logError` and the client stays unavailable.
+- **Source**: [processing spec](../specs/processing.md) section 8
+- **Verifiable in**: `tests/unit/test_handoff.py`, `gnome-extension/tests/meetingsClient.test.js`

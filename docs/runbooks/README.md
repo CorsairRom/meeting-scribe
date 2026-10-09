@@ -19,5 +19,6 @@ A runbook gives exact commands, preconditions and what to verify afterwards.
 |---|---|---|
 | [Record and stop a meeting via gdbus](record-via-gdbus.md) | F1 | active |
 | [Try and install the GNOME extension](gnome-extension.md) | F2 | active |
+| [Set up and troubleshoot processing](processing.md) | F3 | active |
 
-Planned: install troubleshooting (F6), Hugging Face login for the gated diarization model (F3).
+Planned: install troubleshooting (F6).
