@@ -59,6 +59,7 @@ EXIT_OK = 0
 EXIT_NAME_TAKEN = 1
 EXIT_STOP_FAILED = 2
 EXIT_BUS_DISCONNECTED = 3
+EXIT_PROCESSING_STUCK = 4
 
 SHUTDOWN_TIMEOUT_SECONDS = 20.0
 """How long ``serve`` waits for the processing loop to stop its worker (SIGTERM, grace, SIGKILL)."""
@@ -179,7 +180,7 @@ def create_app(
         capture=adapters.capture,
         storage=adapters.storage,
         meetings_dir=settings.storage.meetings_dir,
-        listener=ProcessingRecordingListener(processing),
+        listener=ProcessingRecordingListener(processing, notifier=processing_ports.notifier),
     )
     return Application(settings=settings, recording=recording, processing=processing, events=events)
 
@@ -200,8 +201,8 @@ def _start_processing(processing: ProcessingController) -> threading.Thread:
 
 async def _stop_processing(
     processing: ProcessingController, thread: threading.Thread, wait_seconds: float
-) -> None:
-    """Stop the loop and its worker, bounded; the job stays resumable on disk (AC-16)."""
+) -> bool:
+    """Stop the loop and its worker, bounded; True when it ended. The job stays resumable."""
     processing.shutdown()
     await asyncio.to_thread(thread.join, wait_seconds)
     if thread.is_alive():
@@ -209,6 +210,7 @@ async def _stop_processing(
             "The processing loop did not stop within %.0f s; a worker process may be left over.",
             wait_seconds,
         )
+    return not thread.is_alive()
 
 
 async def _wait_for_stop_or_disconnect(stop: asyncio.Event, bus: MessageBus) -> bool:
@@ -228,6 +230,15 @@ async def _wait_for_stop_or_disconnect(stop: asyncio.Event, bus: MessageBus) -> 
         await asyncio.gather(stop_waiter, disconnect_waiter, return_exceptions=True)
 
 
+def _exit_code(disconnected: bool, stop_failed: bool, processing_stopped: bool) -> int:
+    """Precedence 3, 2, 4; every cause is already logged at ERROR where it happened."""
+    if disconnected:
+        return EXIT_BUS_DISCONNECTED
+    if stop_failed:
+        return EXIT_STOP_FAILED
+    return EXIT_OK if processing_stopped else EXIT_PROCESSING_STUCK
+
+
 async def serve(
     app: Application,
     bus_address: str | None = None,
@@ -241,7 +252,9 @@ async def serve(
 
     Returns the process exit code: ``EXIT_OK`` (0) after a clean shutdown, ``EXIT_NAME_TAKEN`` (1)
     if the bus name is taken, ``EXIT_STOP_FAILED`` (2) if stopping the active recording at
-    shutdown failed, ``EXIT_BUS_DISCONNECTED`` (3) if the bus connection was lost.
+    shutdown failed, ``EXIT_BUS_DISCONNECTED`` (3) if the bus connection was lost,
+    ``EXIT_PROCESSING_STUCK`` (4) if the processing loop outlived ``shutdown_timeout`` (a worker
+    process may be left over). Precedence: 3, then 2, then 4.
     """
     loop = asyncio.get_running_loop()
     handled: list[signal.Signals] = []
@@ -262,6 +275,7 @@ async def serve(
             return EXIT_NAME_TAKEN
         app.events.subscribe(meetings)
         processing_thread: threading.Thread | None = None
+        processing_stopped = True
         disconnected = False
         try:
             processing_thread = _start_processing(app.processing)
@@ -276,16 +290,16 @@ async def serve(
                 outcome = await recording.shutdown()
         finally:
             if processing_thread is not None:
-                await _stop_processing(app.processing, processing_thread, shutdown_timeout)
+                processing_stopped = await _stop_processing(
+                    app.processing, processing_thread, shutdown_timeout
+                )
             else:
                 app.processing.shutdown()
             app.events.unsubscribe(meetings)
-        if disconnected:
-            return EXIT_BUS_DISCONNECTED
-        if isinstance(outcome, Failure):
-            return EXIT_STOP_FAILED  # already logged at ERROR with its code
-        logger.info("meeting-scribe stopped.")
-        return EXIT_OK
+        code = _exit_code(disconnected, isinstance(outcome, Failure), processing_stopped)
+        if code == EXIT_OK:
+            logger.info("meeting-scribe stopped.")
+        return code
     finally:
         bus.disconnect()
         for signum in handled:

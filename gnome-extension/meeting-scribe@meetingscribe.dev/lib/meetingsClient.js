@@ -41,14 +41,19 @@ export class MeetingsClient {
      * @param {string} options.objectPath - object path of the service
      * @param {Function} options.onChange - called with the snapshot after every change
      * @param {number} [options.callTimeoutMs] - timeout of every D-Bus call, in milliseconds
+     * @param {Function} [options.logError] - receives a message when the proxy cannot be built
+     * @param {Function} [options.createProxy] - proxy factory (test seam), same shape as `new MeetingsProxy`
      */
     constructor({connection = Gio.DBus.session, busName, objectPath, onChange,
-        callTimeoutMs = DEFAULT_CALL_TIMEOUT_MS}) {
+        callTimeoutMs = DEFAULT_CALL_TIMEOUT_MS, logError = message => console.error(message),
+        createProxy = (...args) => new MeetingsProxy(...args)}) {
         this._connection = connection;
         this._busName = busName;
         this._objectPath = objectPath;
         this._onChange = onChange;
         this._callTimeoutMs = callTimeoutMs;
+        this._logError = logError;
+        this._createProxy = createProxy;
 
         this._destroyed = false;
         this._watchId = 0;
@@ -133,14 +138,20 @@ export class MeetingsClient {
         if (this._destroyed)
             return;
         this._dropProxy();
+        this._last = null; // a (re)started service has no result to show yet
         const generation = ++this._generation;
         const cancellable = new Gio.Cancellable();
         this._cancellable = cancellable;
         // DO_NOT_AUTO_START: creating the proxy must never launch the service.
-        new MeetingsProxy(this._connection, this._busName, this._objectPath,
+        this._createProxy(this._connection, this._busName, this._objectPath,
             (proxy, error) => {
-                if (error || this._destroyed || generation !== this._generation)
+                if (this._destroyed || generation !== this._generation)
                     return;
+                if (error) {
+                    // Stays unavailable (processing hidden) until the next name-owner change.
+                    this._logError(`meeting-scribe: cannot create the Meetings1 proxy: ${error.message}`);
+                    return;
+                }
                 this._adopt(proxy);
             }, cancellable, Gio.DBusProxyFlags.DO_NOT_AUTO_START);
     }
@@ -165,8 +176,13 @@ export class MeetingsClient {
         const values = changed.deepUnpack();
         if ('ActiveMeetingId' in values)
             this._activeMeetingId = values.ActiveMeetingId.unpack();
-        if ('ActiveState' in values)
-            this._activeState = values.ActiveState.unpack();
+        if ('ActiveState' in values) {
+            const next = values.ActiveState.unpack();
+            // A job starting ends the "last result" period even if its signal never arrived.
+            if (this._activeState === 'IDLE' && next !== 'IDLE')
+                this._last = null;
+            this._activeState = next;
+        }
         if ('QueuedCount' in values)
             this._queuedCount = values.QueuedCount.unpack();
         this._notify();

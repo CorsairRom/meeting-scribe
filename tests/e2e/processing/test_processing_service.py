@@ -132,3 +132,29 @@ def test_a_failure_while_starting_still_stops_the_processing_loop(
         asyncio.run(serve(rig.app, bus_address=bus_address, poll_interval=0.05))
 
     assert stopped == [True]
+
+
+def test_a_processing_loop_that_outlives_the_shutdown_bound_exits_with_a_distinct_code(
+    tmp_path: Path, bus_address: str
+) -> None:
+    from meeting_scribe.main import EXIT_PROCESSING_STUCK  # noqa: PLC0415
+
+    rig = ServiceRig(tmp_path)
+    release = threading.Event()
+    rig.app.processing.serve_forever = lambda: release.wait(5)  # type: ignore[method-assign]
+
+    async def main() -> int:
+        ready, stop = asyncio.Event(), asyncio.Event()
+        task = asyncio.create_task(
+            serve(rig.app, bus_address=bus_address, ready=ready, stop=stop, shutdown_timeout=0.05)
+        )
+        await asyncio.wait_for(ready.wait(), timeout=5)
+        stop.set()
+        return await asyncio.wait_for(task, timeout=5)
+
+    try:
+        exit_code = asyncio.run(main())
+    finally:
+        release.set()
+
+    assert exit_code == EXIT_PROCESSING_STUCK == 4

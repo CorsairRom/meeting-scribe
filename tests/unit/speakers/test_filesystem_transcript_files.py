@@ -239,7 +239,10 @@ def _fail_nth_move(monkeypatch: pytest.MonkeyPatch, nth: int, error: BaseExcepti
     monkeypatch.setattr(module, "_move", move)
 
 
-_STEPS = [(True, n) for n in range(1, 8)] + [(False, n) for n in range(1, 5)]
+# With a previous set a commit makes 8 moves (manifest, two per published name, the commit-point
+# rename); without one it makes 5. The last step of each is the `.commit.old` -> `.commit.done`
+# rename, so a failure or a crash exactly at the commit point is covered too.
+_STEPS = [(True, n) for n in range(1, 9)] + [(False, n) for n in range(1, 6)]
 
 
 @pytest.mark.parametrize(("had_previous", "step"), _STEPS)
@@ -300,3 +303,25 @@ def test_a_commit_that_finished_but_was_not_cleaned_up_keeps_the_new_set(tmp_pat
 
     assert _published(tmp_path) == published
     assert not (tmp_path / ".commit.done").exists()
+
+
+@pytest.mark.parametrize(("had_previous", "moves"), [(True, 8), (False, 5)])
+def test_the_step_matrix_ends_at_the_commit_point(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, had_previous: bool, moves: int
+) -> None:
+    files = FilesystemTranscriptFiles()
+    if had_previous:
+        _run(files, tmp_path, "old")
+        files.commit(tmp_path).unwrap()
+    _run(files, tmp_path, "new")
+    real, targets = module._move, []
+
+    def spy(source: Path, target: Path) -> None:
+        targets.append(target.name)
+        real(source, target)
+
+    monkeypatch.setattr(module, "_move", spy)
+    files.commit(tmp_path).unwrap()
+
+    assert len(targets) == moves
+    assert targets[-1] == ".commit.done"

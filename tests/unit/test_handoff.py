@@ -7,7 +7,7 @@ import pytest
 
 from meeting_scribe.handoff import ProcessingRecordingListener
 from meeting_scribe.recording.domain.recording_session import RecordingSession
-from tests.unit.meetings.fakes import RECORDING, ROOT, T0
+from tests.unit.meetings.fakes import RECORDING, ROOT, T0, FakeNotifier
 from tests.unit.meetings.test_processing_controller import Fixture
 
 ID = "2026-10-09_101500"
@@ -109,3 +109,54 @@ def test_the_gpu_is_released_even_when_the_session_is_malformed() -> None:
 
     fx.controller.enqueue("later", RECORDING).unwrap()
     assert fx.controller.run_next() is True
+
+
+def test_a_session_that_cannot_be_enqueued_tells_the_user_without_meeting_content() -> None:
+    fx = Fixture()
+    notifier = FakeNotifier()
+    listener = ProcessingRecordingListener(fx.controller, notifier=notifier)
+    fx.repository.fail_saves = True
+
+    listener.on_finished(_session())
+
+    assert len(notifier.sent) == 1
+    note = notifier.sent[0]
+    assert note.summary == "Meeting could not be queued for processing"
+    assert "restart" in note.body.lower()
+    assert ID not in note.summary + note.body  # an id embeds the recording time: keep it out
+
+
+def test_a_failed_notification_never_breaks_the_hand_off() -> None:
+    from meeting_scribe.meetings.domain.errors import NotificationError  # noqa: PLC0415
+
+    fx = Fixture()
+    listener = ProcessingRecordingListener(
+        fx.controller, notifier=FakeNotifier(error=NotificationError("no bus"))
+    )
+    listener.on_started(_session("RECORDING"))
+    fx.repository.fail_saves = True
+
+    listener.on_finished(_session())
+
+    fx.repository.fail_saves = False
+    fx.controller.enqueue("later", RECORDING).unwrap()
+    assert fx.controller.run_next() is True  # the GPU was released
+
+
+def test_a_queued_meeting_json_left_on_disk_is_picked_up_at_the_next_start() -> None:
+    fx = Fixture()
+    fx.seed(ID, 0, "QUEUED")  # meeting.json exists although the live enqueue reported a failure
+    fresh = Fixture()
+    fresh.repository.meetings = dict(fx.repository.meetings)
+
+    assert fresh.controller.resume().unwrap() == 1
+    assert fresh.controller.queued_ids() == (ID,)
+
+
+def test_a_successful_enqueue_sends_no_notification() -> None:
+    fx = Fixture()
+    notifier = FakeNotifier()
+
+    ProcessingRecordingListener(fx.controller, notifier=notifier).on_finished(_session())
+
+    assert notifier.sent == []

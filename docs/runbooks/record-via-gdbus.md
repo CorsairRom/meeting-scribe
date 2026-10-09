@@ -88,6 +88,7 @@ Expect `2 channels` (mic left, system audio right), `16000 Hz`, `s16`. Chunks ar
 | Service exits 1 | Another instance owns `dev.meetingscribe.Service` (GO-026). Stop it (`systemctl --user stop meeting-scribe.service` if installed) and retry. |
 | Service exits 2 | Stopping the active recording at shutdown failed; see the ERROR log line for its code. |
 | Service exits 3 | The D-Bus session connection was lost; check the session bus and restart. |
+| Service exits 4 | The processing loop did not stop within the shutdown bound, so a worker process may be left over (GO-026). Check for a stray `python -m meeting_scribe.worker` process and kill it by PID; the interrupted job resumes at the next start. |
 | `AUDIO_DEVICE_NOT_FOUND` | No default microphone, or the default source is a monitor. Pick a real input: `pactl set-default-source <name>`. |
 | `AUDIO_CAPTURE_FAILED` | ffmpeg failed to start or stop cleanly. Read `<session-dir>/ffmpeg.log`. |
 | Settings seem ignored | Config is read from `${XDG_CONFIG_HOME:-~/.config}/meeting-scribe/.env` plus the process environment; the startup log line `config source:` says which was used. |
