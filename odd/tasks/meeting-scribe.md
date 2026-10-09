@@ -330,7 +330,30 @@ extension in the user's session, or running the nested shell, only with the user
       `20261009173638-2310554`, `current` → that version, ExecStart `…/current/bin/meeting-scribe`,
       legacy `~/.local/bin/meeting-scribe` removed, service active (`IDLE`), extension enabled.
       Cosmetic follow-up: silence uv's "bin is not on your PATH" warning for versioned bins.
-### F3 Processing — pending
+### F3 Processing — integration branch `feat/processing` (from `main` after #35)
+
+Goal: on Stop, the service automatically transcribes (faster-whisper large-v3-turbo, CUDA float16)
+and diarizes (pyannote community-1) the recording, extracts a voice sample per speaker, labels the
+user's own voice "Me" from the mic channel (ADR-002), stores results in the meeting folder
+(ADR-004) and sends a desktop notification ("Done: N speakers"). One GPU job at a time; models are
+never resident together (ADR-003). Pending jobs resume at service start.
+Safety: tests use synthetic audio only and never load models (adapters behind ports, GPU tests
+opt-in and skipped by default); real-recording validation only with the user's consent, on their
+own meeting, without reading its content into the repo or logs.
+
+- [ ] F3.0 Design spec `docs/specs/processing.md` + ADR-007 (GPU work in a short-lived worker
+      subprocess per job, so VRAM is fully released) after mapping the prototype and verifying
+      faster-whisper / pyannote.audio 4 APIs. Branch `f3/docs-processing-design`.
+- [ ] F3.1 `meetings` domain: Meeting entity + processing state machine, versioned `meeting.json`
+      repository (folder per meeting), job queue + single worker orchestration, resume at start.
+- [ ] F3.2 `transcription` domain + faster-whisper adapter (CUDA lib preload with logging, WAV
+      decode without PyAV, word timestamps, params-keyed cache).
+- [ ] F3.3 `speakers` domain + pyannote adapter (exclusive diarization), word→speaker assignment,
+      utterance grouping, renumbering, "Me" by per-turn mic/system energy dominance, voice samples.
+- [ ] F3.4 Wiring: Stop enqueues processing; D-Bus `Meetings1` (list/get, processing state,
+      `ProcessingFinished`); desktop notification; extension shows processing state.
+- [ ] F3.5 Install/packaging update (ML deps in the versioned install), runbook, real-recording
+      validation with consent.
 ### F4 Review UI — pending
 ### F5 Summaries — pending
 ### F6 Install — pending
