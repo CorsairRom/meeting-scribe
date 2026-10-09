@@ -15,12 +15,16 @@ export class GLibScheduler {
      * @returns {number} handle for `cancel()`
      */
     every(seconds, fn) {
+        let reported = false;
         const id = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, seconds, () => {
             // A throwing callback would make GJS drop the source while it stays tracked here.
+            // Log only the first failure so a deterministic error cannot flood the journal.
             try {
                 fn();
             } catch (e) {
-                logError(e, 'meeting-scribe: indicator tick failed');
+                if (!reported)
+                    logError(e, 'meeting-scribe: scheduled callback failed (further failures not logged)');
+                reported = true;
             }
             return GLib.SOURCE_CONTINUE;
         });

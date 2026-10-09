@@ -1,6 +1,7 @@
 import shutil
 import subprocess
 import zipfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -15,14 +16,15 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.fixture(name="bundle")
-def _bundle(tmp_path: Path) -> zipfile.ZipFile:
+def _bundle(tmp_path: Path) -> Iterator[zipfile.ZipFile]:
     subprocess.run(  # noqa: S603  # fixed argv, no untrusted input
         ["make", "--no-print-directory", "extension-pack", f"PACK_DIR={tmp_path}"],  # noqa: S607
         cwd=ROOT,
         check=True,
         capture_output=True,
     )
-    return zipfile.ZipFile(tmp_path / ZIP_NAME)
+    with zipfile.ZipFile(tmp_path / ZIP_NAME) as bundle:
+        yield bundle
 
 
 def test_bundle_contains_exactly_the_extension_files(bundle: zipfile.ZipFile) -> None:
