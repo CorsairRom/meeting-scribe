@@ -6,6 +6,7 @@ from pydantic import Field, model_validator
 from pydantic_settings import SettingsConfigDict
 
 from meeting_scribe.base.infrastructure.settings import MeetingScribeSettings
+from meeting_scribe.speakers.domain.params import MeParams, SampleParams
 
 
 class SpeakersSettings(MeetingScribeSettings):
@@ -37,3 +38,18 @@ class SpeakersSettings(MeetingScribeSettings):
                 "SPEAKERS_SAMPLE_MIN_CLIP_SECONDS must not exceed SPEAKERS_SAMPLE_MAX_CLIP_SECONDS"
             )
         return self
+
+    def me_params(self) -> MeParams:
+        return MeParams(
+            dominance_db=self.me_dominance_db,
+            noise_margin_db=self.me_noise_margin_db,
+            min_turn_seconds=self.me_min_turn_seconds,
+        )
+
+    def sample_params(self) -> SampleParams:
+        return SampleParams(
+            max_clips=self.sample_max_clips,
+            target_seconds=self.sample_target_seconds,
+            min_clip_seconds=self.sample_min_clip_seconds,
+            max_clip_seconds=self.sample_max_clip_seconds,
+        )

@@ -96,3 +96,14 @@ def test_root_settings_composes_speakers(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("SPEAKERS_UTTERANCE_GAP_SECONDS", "3")
 
     assert Settings().speakers.utterance_gap_seconds == 3.0
+
+
+def test_the_domain_params_are_snapshots_of_the_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SPEAKERS_ME_DOMINANCE_DB", "8")
+    monkeypatch.setenv("SPEAKERS_SAMPLE_MAX_CLIPS", "2")
+
+    settings = SpeakersSettings()
+
+    assert (settings.me_params().dominance_db, settings.me_params().min_turn_seconds) == (8.0, 0.5)
+    assert settings.sample_params().max_clips == 2
+    assert settings.sample_params().max_clip_seconds == 6.0

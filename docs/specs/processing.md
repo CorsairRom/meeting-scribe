@@ -909,3 +909,10 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
   variable of section 7 (validated: `ge`/`gt`, `min <= max` for speakers and for clip lengths) and is composed into
   `Settings`. The domain has its own `TimedWord`/`Turn`/`Utterance`/`SpeakerLabel`; the worker maps the transcription
   `Word` into `TimedWord`. Empty input renders `(no speech detected)`; no turns assigns `FALLBACK_SPEAKER`.
+- 2026-10-09 (F3.3a): "Me" detection takes the two energy envelopes as plain float sequences (the worker computes
+  them with numpy and converts), so `speakers/domain` needs no numpy (GO-041). `detect_me` returns the "Me" and
+  "Unknown" turns and the bleed `k`; `merge_turns` produces the exclusive list for word assignment. In-person
+  meetings (OQ-4) are a pure decision, `choose_diarization_channel`: `mic` when the system channel is clearly active
+  in under 1 % of its frames (constant, no setting). Sample selection is `clean_turns_of` / `me_turns_with_quiet_system`
+  plus `select_sample_clips`; the 0.4 s silence between clips, the mono 16 kHz file and the -3 dBFS normalization
+  belong to the samples writer (F3.3b).
