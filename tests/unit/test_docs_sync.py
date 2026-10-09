@@ -147,9 +147,10 @@ def _env_prefix(node: ast.ClassDef) -> str:
 
 
 def _is_nested_settings(stmt: ast.AnnAssign) -> bool:
-    """``x: FooSettings = Field(default_factory=FooSettings)`` composes another class."""
-    value = stmt.value
-    return isinstance(value, ast.Call) and any(k.arg == "default_factory" for k in value.keywords)
+    """``x: FooSettings = Field(...)`` composes another settings class (decided by the annotation,
+    so list settings with ``default_factory`` are still checked)."""
+    annotation = stmt.annotation
+    return isinstance(annotation, ast.Name) and annotation.id.endswith("Settings")
 
 
 def _env_vars_in_code() -> set[str]:
@@ -234,3 +235,15 @@ def test_agents_current_phase_matches_scope() -> None:
         f"AGENTS.md says current phase {match.group(1)} but docs/project/mvp-scope.md has "
         f"{in_progress[0]} in progress"
     )
+
+
+def test_list_settings_with_default_factory_are_not_mistaken_for_nested_settings() -> None:
+    source = (
+        "class ExampleSettings(MeetingScribeSettings):\n"
+        "    delays: list[float] = Field(default_factory=lambda: [2.0])\n"
+        "    storage: StorageSettings = Field(default_factory=StorageSettings)\n"
+    )
+    node = ast.parse(source).body[0]
+    assert isinstance(node, ast.ClassDef)
+    fields = [stmt for stmt in node.body if isinstance(stmt, ast.AnnAssign)]
+    assert [_is_nested_settings(stmt) for stmt in fields] == [False, True]

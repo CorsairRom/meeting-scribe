@@ -49,8 +49,8 @@ flowchart LR
 | Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root serves the `Recording1` D-Bus interface (`create_app`, `serve`, `run`); more interfaces in later phases, unit file and activation installed by `make install` (F2.5) |
 | GNOME extension | GJS, thin client, no ML | done (F2), [ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md) |
 | Capture | ffmpeg on PipeWire, 2-channel 30 s chunks | adapter built (F1.3) and wired in `main.py` (F1.4), [ADR-002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) |
-| Transcription | faster-whisper `large-v3-turbo`, float16, CUDA, in a short-lived worker process | built (F3.1-F3.3), not yet wired into `main.py`; [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
-| Diarization | pyannote `speaker-diarization-community-1` on the system channel, in a short-lived worker process | built (F3.1-F3.3), not yet wired into `main.py`; [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
+| Transcription | faster-whisper `large-v3-turbo`, float16, CUDA, in a short-lived worker process | built (F3.2), not yet wired into `main.py`; [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
+| Diarization | pyannote `speaker-diarization-community-1` on the system channel, in a short-lived worker process | pending (F3.3b): the speakers domain (assignment, "Me", samples) is built (F3.3a), the pyannote worker stage is not; [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
 | Review UI | Native GTK4 + libadwaita app on system python, thin D-Bus client | planned (F4), [ADR-005](docs/decisions/005-review-ui-native-gtk-app.md) |
 | Summaries | `SummaryProvider` port, OpenAI-compatible adapter | planned (F5), [ADR-006](docs/decisions/006-summary-provider-openai-compatible.md) |
 | Storage | folder per meeting + versioned `meeting.json` | built (F3.1), not yet wired into `main.py`, [ADR-004](docs/decisions/004-folder-per-meeting-json-storage.md) |
