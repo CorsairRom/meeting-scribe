@@ -180,7 +180,7 @@ repo from F1).
       activation file → `SystemdService=`, 8 contract tests tied to `BUS_NAME`/exit codes; +106) and
       `6518856` (runbook `docs/runbooks/record-via-gdbus.md`; +115/-3). TDD RED (files missing) →
       GREEN 168 passed; `systemd-analyze --user verify` on a `/bin/true` copy: clean. Nothing
-      installed, nothing run. Real-device smoke test: pending the user's consent.
+      installed, nothing run by the writer (the real-device smoke test followed with consent, below).
       Final F1 review: whole `feat/recording` vs main (4165 lines) stopped with
       `lens_context_budget_exceeded` (no authority created) → reduced to the unreviewed tail
       #27–#29 (458 lines): user granted; lineage `review-ce5f4b33c7d01c6b` approved + acked.
@@ -285,7 +285,7 @@ it (F1.4). Items below kept for traceability.
 
 ## Next step
 
-Owner merges tracker #2 (`feat/foundations` → `main`). Meanwhile F1 runs on integration branch
-`feat/recording` (based on `feat/foundations` until #2 lands, then retargeted to `main`).
-Current: F1.1–F1.3 integrated (#14, #16–#20); F1.4 integrated (#23–#25); F1 complete: tracker #15 ready for the owner. Next: F2 GNOME extension (after the owner's go). RDD boundary for F1 = tip of `feat/foundations`
-(its tree equals the reviewed F0 tree).
+F0 merged to `main` (#2, squash). F1 complete on integration branch `feat/recording`: F1.1–F1.5
+integrated (#14, #16–#31; packaging/runbook #28–#30, smoke test #31). Final tail review
+`review-0b5874936265a288` approved. Tracker #15 is ready for the owner to merge into `main`.
+Next: F2 GNOME extension, after the owner's go (installing/enabling the extension needs consent).
