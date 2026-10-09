@@ -16,6 +16,7 @@ from meeting_scribe.meetings.domain.timeline import ChunkHeader, Timeline, build
 logger = logging.getLogger(__name__)
 
 _UNPATCHED_SIZES = (0, 0xFFFFFFFF)
+_FMT_BODY_BYTES = 16
 
 
 class WavChunkInspector:
@@ -28,7 +29,7 @@ class WavChunkInspector:
         try:
             paths = sorted(audio.glob("chunk_*.wav")) if audio.is_dir() else []
             headers = [self._header(path) for path in paths]
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, EOFError, struct.error) as error:
             return Failure(MeetingStorageError(f"Cannot read the audio chunks: {error}"))
         return build_timeline(headers)
 
@@ -42,9 +43,13 @@ class WavChunkInspector:
             while chunk := handle.read(8):
                 chunk_id, chunk_size = struct.unpack("<4sI", chunk)
                 if chunk_id == b"fmt ":
-                    _, channels, rate, _, _, bits = struct.unpack("<HHIIHH", handle.read(16))
+                    if chunk_size < _FMT_BODY_BYTES:
+                        raise ValueError(f"{path.name} has a short fmt chunk")
+                    _, channels, rate, _, _, bits = struct.unpack(
+                        "<HHIIHH", handle.read(_FMT_BODY_BYTES)
+                    )
                     width = bits // 8
-                    handle.seek(chunk_size - 16, 1)
+                    handle.seek(chunk_size - _FMT_BODY_BYTES, 1)
                 elif chunk_id == b"data":
                     data_offset = handle.tell()
                     return self._with_frames(

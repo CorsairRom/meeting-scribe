@@ -38,7 +38,7 @@ class FilesystemMeetingRepository:
             return Failure(
                 MeetingSchemaUnsupportedError(f"Meeting '{meeting.id}' is never rewritten.")
             )
-        if meeting.directory != self._root / meeting.id:
+        if not self._is_folder_name(meeting.id) or meeting.directory != self._root / meeting.id:
             return Failure(
                 MeetingStorageError(
                     f"Meeting '{meeting.id}' must live in '{self._root / meeting.id}', "
@@ -119,16 +119,23 @@ class FilesystemMeetingRepository:
                 handle.flush()
                 os.fsync(handle.fileno())
             Path(temp_name).replace(target)  # os.replace: atomic on POSIX
-            self._fsync_directory(target.parent)
         except BaseException:
             Path(temp_name).unlink(missing_ok=True)
             raise
+        self._fsync_directory(target.parent)
 
     @staticmethod
     def _fsync_directory(directory: Path) -> None:
-        """Make the rename itself durable: without it a power loss can undo the new state."""
-        fd = os.open(directory, os.O_RDONLY)
+        """Make the rename itself durable: without it a power loss can undo the new state.
+
+        The new file is already visible, so a failure here (some FUSE/CIFS mounts reject fsync on
+        a directory) is logged, not reported: the save did land (GO-032).
+        """
         try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+            fd = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        except OSError as error:
+            logger.warning("Saved in '%s' but the rename may not be durable: %s", directory, error)
