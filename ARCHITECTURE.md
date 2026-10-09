@@ -261,7 +261,7 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | `SPEAKERS_SAMPLE_TARGET_SECONDS` | `SpeakersSettings.sample_target_seconds` | `15.0` | Target total sample length (> 0) |
 | `SPEAKERS_SAMPLE_MIN_CLIP_SECONDS` / `SPEAKERS_SAMPLE_MAX_CLIP_SECONDS` | `SpeakersSettings.sample_min_clip_seconds` / `sample_max_clip_seconds` | `1.5` / `6.0` | Clip length bounds (min must not exceed max) |
 
-`RecordingSettings` lives in `recording/infrastructure/recording_settings.py`, `ProcessingSettings` in `meetings/infrastructure/processing_settings.py`, `TranscriptionSettings` in `transcription/infrastructure/transcription_settings.py`, `SpeakersSettings` in `speakers/infrastructure/speakers_settings.py`. Future per-domain settings (for example `SUMMARIES_`) live in each domain's `infrastructure/` and are composed into `Settings` by the root.
+`RecordingSettings` lives in `recording/infrastructure/recording_settings.py`, `ProcessingSettings` in `meetings/infrastructure/processing_settings.py`, `TranscriptionSettings` in `transcription/infrastructure/transcription_settings.py`, `SpeakersSettings` in `speakers/infrastructure/speakers_settings.py` (it builds the domain's `MeParams` and `SampleParams`). Future per-domain settings (for example `SUMMARIES_`) live in each domain's `infrastructure/` and are composed into `Settings` by the root.
 
 ---
 

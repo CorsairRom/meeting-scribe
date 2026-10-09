@@ -378,6 +378,11 @@ ai_instructions:
 - **Status**: active
 - **Detail**: `speakers/domain` never imports `transcription` (the domains are independent), so it has its own `TimedWord` and the composition root (the diarize worker) maps `Word` to it. Speakers are plain string keys: pyannote labels such as `SPEAKER_03`, plus `ME`, `UNKNOWN` and `FALLBACK_SPEAKER` (used when diarization returned no turns, numbered `Speaker 1`; the prototype crashed on `max()` of an empty list). `number_speakers` numbers by first *utterance*, so a speaker that owns no word takes no number, and `ME`/`UNKNOWN` are never numbered. `SpeakerLabel.id` (`ME`, `UNKNOWN`, `S1`...) is stable and never changes with a name; only `display` does, and a blank name keeps the label. `format_timestamp` truncates (does not round) to whole seconds. `assign_speakers` sorts the turns by `(start, end)` so ties go to the earlier turn whatever the input order; it is words x turns, which is fine at meeting scale.
 
+### GO-041 — "Me" detection and sample selection are pure Python over precomputed frame energies
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: the spec's "only Me detection needs numpy" is met on the worker side: the diarize worker (F3.3b) computes the two 100 ms mean-square envelopes from the audio and passes them as `Sequence[float]` (`ndarray.tolist()`), so `speakers/domain` imports no numpy and stays importable by the service. Zero noise floors are clamped to `ENERGY_FLOOR` (1e-12) so digital silence never yields `Me` and no `log10(0)` exists (the dominance test is done as a linear ratio). Limits worth knowing: the noise floor is the 10th percentile, so a channel that is active in more than 90 % of the frames has no quiet reference; the bleed `k` needs 30 s of clearly active system audio or it is 0; channels of different length use the shorter one. "Unknown" needs the system turns (a stretch under a system turn belongs to that speaker). `merge_turns` makes the final list exclusive ("Me" wins, system and unknown turns are cut around it). The in-person decision (`choose_diarization_channel`, OQ-4) is "system audio is clearly active in under 1 % of the frames" using the same relative threshold. Sample selection takes a speaker's *clean* turns (`clean_turns_of` for diarized speakers, `me_turns_with_quiet_system` for "Me"), longest first; a remainder of the target shorter than the minimum clip ends the selection instead of adding a sliver.
+
 ---
 
 ## Statistics (keep updated)
@@ -386,11 +391,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 40 | 0 | 0 |
+| GO | 41 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-040 — 2026-10-09
-**Next available IDs**: BR-005, CR-014, GO-041, AP-005
+**Last rule added**: GO-041 — 2026-10-09
+**Next available IDs**: BR-005, CR-014, GO-042, AP-005
 
 ---
 

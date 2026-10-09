@@ -397,6 +397,14 @@ own meeting, without reading its content into the repo or logs.
       CONDITION_ON_PREVIOUS_TEXT.
 - [ ] F3.3 `speakers` domain + pyannote adapter (exclusive diarization), word→speaker assignment,
       utterance grouping, renumbering, "Me" by per-turn mic/system energy dominance, voice samples.
+      F3.3a (delegated): `3952db1` lazy worker stage build (refused invocations import no adapters
+      or numpy) + JsonWordsCache and load-audio failure tests; `3f521f2` assignment (max overlap,
+      else nearest by midpoint), grouping (gap 5.0 s), numbering, rendering, SpeakersSettings;
+      `6525895` "Me" by per-frame energy dominance (6 dB, noise margin 10 dB, bleed estimate, min
+      turn 0.5 s, "Unknown" when ambiguous), in-person fallback (<1 % system speech), voice sample
+      selection (3 clips, 15 s, 1.5–6 s) — pure Python over precomputed frame energies (speakers
+      domain never imports numpy). RED per module → GREEN 587 python; bleed mutation (k=0) fails 3
+      tests. New env vars SPEAKERS_* for the user's `.env.example`.
 - [ ] F3.4 Wiring: Stop enqueues processing; D-Bus `Meetings1` (list/get, processing state,
       `ProcessingFinished`); desktop notification; extension shows processing state.
 - [ ] F3.5 Install/packaging update (ML deps in the versioned install), runbook, real-recording
