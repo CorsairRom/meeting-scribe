@@ -101,8 +101,9 @@ Delete the test session folder (`rm -r <session-dir>`) once you have checked the
 `make install` (F2.5) installs everything, `make uninstall` removes it. Two packaging files are involved:
 
 - `packaging/systemd/meeting-scribe.service.in`: the `systemd --user` unit template (`Type=dbus`, restart on failure
-  but not on exit 1, ordered after PipeWire). `scripts/install.sh` renders `@EXEC_START@` with the `uv tool` executable path.
+  but not on exit 1, ordered after PipeWire). `scripts/install.sh` renders `@EXEC_START@` with the stable `.../meeting-scribe/current/bin/meeting-scribe` path
+  (each install lives in `.../meeting-scribe/versions/<timestamp>/`, see the README).
   Both scripts read the recording state first (bounded by a timeout) and refuse while it is `RECORDING` or cannot be read;
-  `make uninstall FORCE=1` overrides that.
+  `FORCE=1` overrides an unreadable state for both, and additionally a running recording for `make uninstall` only.
 - `packaging/dbus/dev.meetingscribe.Service.service`: the D-Bus activation file; it hands activation to
   `meeting-scribe.service`, so the first call on the bus starts the service.

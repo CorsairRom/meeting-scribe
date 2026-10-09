@@ -21,14 +21,24 @@ You never start the service by hand. `make install` does the following, and is s
 the recording first: while a recording is in progress, or its state cannot be read, it changes nothing and exits with an
 error (stop the recording from the top-bar menu, then run it again). If only the state is unreadable, `FORCE=1 make install`
 overrides that (never a positive recording). The state is re-checked right before the service restarts; if a recording started
-meanwhile the restart is skipped with a warning and the new version applies on the next restart or login. If the service fails to start (for example a
-`make run` instance owns the bus name), it still installs the extension, reports the service as NOT active and exits non-zero.
+meanwhile the restart is skipped with a warning and the new version applies on the next restart or login. If the service
+fails to start (for example a `make run` instance owns the bus name), it still installs the extension, reports the service
+as NOT active and exits non-zero. A failing extension step is reported in the summary the same way (exit non-zero).
 
-1. Installs the service as a `uv` tool (Python 3.12) from this checkout.
+1. Installs the service as a `uv` tool (Python 3.12) from this checkout into its own directory,
+   `${XDG_DATA_HOME:-~/.local/share}/meeting-scribe/versions/<timestamp>/` (`tools/` and `bin/`), then repoints the
+   `current` symlink next to `versions/` atomically. The unit always runs `.../meeting-scribe/current/bin/meeting-scribe`,
+   so a running service never has its environment replaced underneath it. Older versions are pruned once the service runs
+   the new one (kept while the restart was skipped or failed).
 2. Installs and enables the `systemd --user` unit and the D-Bus activation file, then starts the service
    (on upgrade it restarts it).
 3. Packs, installs and enables the GNOME extension. On Wayland a brand-new extension is discovered only after you
    log out and back in once; the installer tells you when that is needed.
+
+Upgrading from an install made before versioned installs (the service ran from `~/.local/bin/meeting-scribe`): the first
+`make install` rewrites the unit to the `current/` path and, only after the service is active on it, runs
+`uv tool uninstall meeting-scribe` to drop the old tool. If the restart was skipped (recording), the old tool stays and the
+summary says how to remove it later. `make uninstall` removes the whole `meeting-scribe/` versions tree.
 
 Configure by creating `~/.config/meeting-scribe/.env` (or `$XDG_CONFIG_HOME/meeting-scribe/.env`; template:
 `.env.example`) with `LOG_LEVEL`, `STORAGE_MEETINGS_DIR` and so on, then `systemctl --user restart meeting-scribe.service`.
