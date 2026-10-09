@@ -162,7 +162,7 @@ The extension's code stays cached by the running shell until the next login.
 |---|---|
 | Indicator is `○`, "service is not running" | The service does not own `dev.meetingscribe.Service` on this session bus. Run `make run`, or wait for F6 (D-Bus activation). The extension never launches the service itself. In a nested shell, see "Seeing something other than service unavailable". |
 | After starting a recording: "No default microphone found" | `AUDIO_DEVICE_NOT_FOUND`: no default microphone, or the default source is a monitor. Pick a real input with `pactl set-default-source <name>`. |
-| `●` does nothing, no icon at all | `gnome-extensions info meeting-scribe@meetingscribe.dev` and Looking Glass (`lg`) show state and error. `OUT OF DATE` means `metadata.json` does not list your shell major version (it lists only 50). |
+| Indicator missing from the top bar | `gnome-extensions info meeting-scribe@meetingscribe.dev` and Looking Glass (`lg`) show state and error. `OUT OF DATE` means `metadata.json` does not list your shell major version (it lists only 50). |
 | `State: ERROR` | Read the error in Looking Glass or in the journal command above; fix, re-run `make extension-install` and log out and in (cached code). |
 | Extension not listed after install | The shell has not rescanned: log out and in. |
 | `mutter-devkit` missing, `--devkit` fails | Install `mutter-devkit` (GNOME 49 and later). |

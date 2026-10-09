@@ -90,11 +90,13 @@ test('extension.js has no work at module scope beyond imports and the class', ()
     assertEqual(/\benable\(\)/.test(source) && /\bdisable\(\)/.test(source), true);
 });
 
-test('extension.js forwards the click options so an open menu is only closed', () => {
-    // A zero-argument wrapper would drop {menuOpen} and let a closing click start a recording.
+test('extension.js passes the click wrapper parameter through to the controller', () => {
+    // Dropping {menuOpen} would let a closing click start a recording: the wrapper's parameter
+    // must be the argument of the controller call.
     const source = read('extension.js');
-    assertEqual(/onPrimaryClick:\s*\(\)\s*=>/.test(source), false,
-        'onPrimaryClick wrapper must forward its argument');
+    const match = source.match(/onPrimaryClick:\s*\(?\s*(\w+)\s*\)?\s*=>[^,]*onPrimaryClick\((\w*)\)/);
+    assertEqual(match !== null, true, 'onPrimaryClick wrapper not found');
+    assertEqual(match[2], match[1], 'onPrimaryClick wrapper must forward its parameter');
 });
 
 test('metadata.json declares the required fields for GNOME Shell 50', () => {
