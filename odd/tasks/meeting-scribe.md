@@ -263,6 +263,12 @@ extension in the user's session, or running the nested shell, only with the user
       consent only (R1); failing tick logged once (R4); blocking, roomier scheduler test (R3);
       forwarding guard asserts the wrapper parameter reaches the controller (mutation
       `onPrimaryClick()` → test fails); pack fixture closes the zip; runbook symptom row split.
+      Follow-up RDD on #42 (219 lines, standing consent): lineage `review-0cfac5dd209f0f94`
+      approved + acked. Fixed: blocking `spin()` could hang if the regression returned → guard
+      timeout source (mutation dropping the source now FAILS in 13 s instead of hanging); the
+      log-once flag resets after a successful tick (RED `expected 2, got 1` → GREEN 74 passed).
+      Extension packed and installed (not enabled) in the user's session with consent;
+      manual check pending (logout/login, enable, `make run`, click).
 ### F3 Processing — pending
 ### F4 Review UI — pending
 ### F5 Summaries — pending

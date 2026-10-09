@@ -18,12 +18,14 @@ export class GLibScheduler {
         let reported = false;
         const id = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, seconds, () => {
             // A throwing callback would make GJS drop the source while it stays tracked here.
-            // Log only the first failure so a deterministic error cannot flood the journal.
+            // Log the first failure of each failing streak: a deterministic error cannot flood
+            // the journal, and a new failure after a recovery is still reported.
             try {
                 fn();
+                reported = false;
             } catch (e) {
                 if (!reported)
-                    logError(e, 'meeting-scribe: scheduled callback failed (further failures not logged)');
+                    logError(e, 'meeting-scribe: scheduled callback failed (repeats not logged until it recovers)');
                 reported = true;
             }
             return GLib.SOURCE_CONTINUE;
