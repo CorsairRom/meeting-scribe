@@ -24,10 +24,10 @@ Fine-grained task tracking lives in [`odd/tasks/meeting-scribe.md`](../../odd/ta
 
 - [ ] `recording` domain: session entity, state transitions as entity methods returning copies
 - [ ] ffmpeg capture adapter: 2-channel 30 s chunks (mic + system monitor), stop with `q`, kill fallback, `start_new_session=True`
-- [ ] D-Bus `dev.meetingscribe.Recording1` (`Start`, `Stop`, `State`, `ElapsedSeconds`, `StateChanged`) via dbus-fast, error mapping to `dev.meetingscribe.Error.<ERROR_CODE>`
-- [ ] e2e tests under `dbus-run-session` (private session bus)
+- [x] D-Bus `dev.meetingscribe.Recording1` (`Start`, `Stop`, `State`, `ElapsedSeconds`, `StateChanged`) via dbus-fast, error mapping to `dev.meetingscribe.Error.<ERROR_CODE>`
+- [x] e2e tests on a private session bus (`dbus-daemon`, fakes only)
 - [ ] systemd `--user` unit
-- [ ] Docs: `architecture/api-contracts.md` (D-Bus interfaces), rules-registry entries
+- [x] Docs: `architecture/api-contracts.md` (D-Bus interfaces), rules-registry entries
 - [x] **Follow-up**: `STORAGE_MEETINGS_DIR=~/...` expanded; `.env` from XDG config; validated `log_level` (F1.1, 2026-10-09)
 - [x] ~~**Follow-up**: Starlette `httpx` deprecation warning~~ obsolete: HTTP stack removed (2026-10-09)
 

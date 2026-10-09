@@ -46,7 +46,7 @@ flowchart LR
 
 | Element | Technology | Status |
 |---|---|---|
-| Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root exists (`create_app`, `run`); D-Bus interfaces in F1, unit file and activation in F6 |
+| Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root serves the `Recording1` D-Bus interface (`create_app`, `serve`, `run`); more interfaces in later phases, unit file and activation in F6 |
 | GNOME extension | GJS, thin client, no ML | planned (F2), [ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md) |
 | Capture | ffmpeg on PipeWire, 2-channel 30 s chunks | adapter built (F1.3), wiring planned (F1.4), [ADR-002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) |
 | Transcription | faster-whisper `large-v3-turbo`, float16, CUDA | planned (F3) |
@@ -117,7 +117,7 @@ Inside every package the dependency direction is `infrastructure` -> `applicatio
 |---|---|---|
 | `domain/` | Entities, value objects, ports, errors | stdlib, pydantic, returns. No framework code. |
 | `application/` | `*_controller.py` returning `Result[T, E]` | its own `domain` |
-| `infrastructure/` | Adapters, `dbus/*_interface.py` (planned, F1), repositories | `application`, `domain`, frameworks |
+| `infrastructure/` | Adapters, `dbus/*_interface.py`, repositories | `application`, `domain`, frameworks |
 
 Cross-package rules: `recording`, `transcription`, `speakers` and `summaries` never import each other. Only
 `meetings` depends on them, and only through their `application` layer. `base` depends on no domain, and no
@@ -181,17 +181,17 @@ Target GPU: RTX 5060 Laptop, 8 GB.
 
 ---
 
-## 6. D-Bus API (planned, F1)
+## 6. D-Bus API (`Recording1` implemented, others planned)
 
 All clients (extension, review app, e2e tests) use the session bus; there is no HTTP server ([ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md)).
-Names are proposed and renamable until F6. The contract will live in `docs/architecture/api-contracts.md`.
+Names are proposed and renamable until F6. The contract lives in [`docs/architecture/api-contracts.md`](docs/architecture/api-contracts.md).
 
 | Item | Value |
 |---|---|
 | Bus name | `dev.meetingscribe.Service` |
 | Object path | `/dev/meetingscribe/Service` |
-| `dev.meetingscribe.Recording1` | `Start`, `Stop`; properties `State`, `ElapsedSeconds`; signal `StateChanged` |
-| `dev.meetingscribe.Meetings1` | list/get; signal `ProcessingFinished` |
+| `dev.meetingscribe.Recording1` (implemented, F1.4) | `Start`, `Stop`; properties `State`, `SessionId`, `ElapsedSeconds`, `Directory`, `FailureReason`; signal `StateChanged` |
+| `dev.meetingscribe.Meetings1` (planned) | list/get; signal `ProcessingFinished` |
 | `dev.meetingscribe.Speakers1` | rename, merge, sample path |
 | `dev.meetingscribe.Summaries1` | generate/read summary |
 | Errors | `dev.meetingscribe.Error.<ERROR_CODE>` (see [error codes](docs/architecture/error-codes-catalog.md)) |
@@ -200,7 +200,10 @@ Names are proposed and renamable until F6. The contract will live in `docs/archi
 Trust boundary: the session bus is per-user and unreachable from websites; any process of the same user can call the
 service, the same boundary as the user's files. The service runs one asyncio loop; ML work runs off the event loop
 so D-Bus stays responsive. The review app runs on system Python ([ADR-005](docs/decisions/005-review-ui-native-gtk-app.md)).
-Tooling: `gdbus call` or `busctl --user`; e2e tests under `dbus-run-session`.
+Tooling: `gdbus call` or `busctl --user`. E2E tests (`@pytest.mark.dbus`) start a private `dbus-daemon`, connect to its
+address explicitly and wire the controller with fakes; they never touch the user's session bus or an audio device.
+The service itself runs in the foreground (`make run`, `meeting-scribe`), exits non-zero if the bus name is already
+owned, and stops an active recording on SIGINT/SIGTERM.
 
 ---
 
