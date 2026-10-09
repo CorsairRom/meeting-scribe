@@ -52,6 +52,7 @@ import-linter, errors as `returns.Result`.
 | Wire a new D-Bus interface or adapter | `src/meeting_scribe/main.py` (composition root)               |
 | Change an import contract            | `pyproject.toml` `[tool.importlinter]`                         |
 | Package or activate the service      | `packaging/` + `docs/runbooks/record-via-gdbus.md`             |
+| Set up or debug processing and models | `docs/runbooks/processing.md`                                 |
 | Pack, try or install the extension   | `docs/runbooks/gnome-extension.md`                             |
 | Write a doc                          | `docs/README.md` (taxonomy) and `docs/_templates/`             |
 | Know when to update docs             | `docs/project/doc-sync-protocol.md`                            |
@@ -71,7 +72,7 @@ import-linter, errors as `returns.Result`.
 ## Tooling
 
 - **Package manager**: `uv` (Python ~=3.12). Dev tools are in the `quality-assurance` extra.
-- **Make targets**: `make setup` (`uv sync --extra ml --extra quality-assurance`), `make lint` (ruff + pyrefly + import-linter), `make format` (auto-fix), `make imports` (architecture contracts), `make test` (`pytest -m 'not gpu'`; GPU tests only with `uv run pytest -m gpu`), `make test-extension` (extension logic and D-Bus client against a private `dbus-daemon`, `gjs -m`), `make check` (lint + test + test-extension), `make install` / `make uninstall` (one-command plug-and-play install of service + extension; agents run them only on the user's explicit go), `make run` (development only, foreground service), `make extension-pack` (build the extension zip into `dist/`), `make extension-install` (install it, does not enable).
+- **Make targets**: `make setup` (`uv sync --extra ml --extra quality-assurance`), `make lint` (ruff + pyrefly + import-linter), `make format` (auto-fix), `make imports` (architecture contracts), `make test` (`pytest -m 'not gpu'`; GPU tests only with `uv run pytest -m gpu`), `make test-extension` (extension logic and D-Bus client against a private `dbus-daemon`, `gjs -m`), `make check` (lint + test + test-extension), `make install` / `make uninstall` (one-command plug-and-play install of service, ML stack, models and extension; agents run them only on the user's explicit go; `meeting-scribe prefetch-models` downloads the models and follows the same rule), `make run` (development only, foreground service), `make extension-pack` (build the extension zip into `dist/`), `make extension-install` (install it, does not enable).
 - **Linter/formatter**: ruff (`ruff.toml`, line length 100). **Type checker**: pyrefly (`pyrefly.toml`).
 - **Search/read tools**: prefer `rg`, `fd`, `bat`, `eza` over `grep`, `find`, `cat`, `ls`.
 

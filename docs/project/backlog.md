@@ -46,10 +46,10 @@ Fine-grained task tracking lives in [`odd/tasks/meeting-scribe.md`](../../odd/ta
 - [x] F3.1 `meetings` domain: `Meeting` entity and processing state machine, `MeetingRepository` (folder + versioned `meeting.json`), FIFO queue, worker protocol and subprocess runner (timeouts, termination), resume at service start
 - [x] F3.2 `transcription` domain + faster-whisper worker stage (lazy import, CUDA preload with logging, no silent CPU fallback, params-keyed `words.json`), ML-isolation import contract
 - [x] F3.3a `speakers` domain: word assignment, utterances, numbering, transcript rendering, "Me" by per-frame energy dominance with bleed compensation, voice samples (PRs #65, #66)
-- [ ] F3.3b pyannote diarization worker stage on the system channel
+- [x] F3.3b pyannote diarization worker stage on the system channel
 - [x] F3.4a Wiring: Stop enqueues processing, recording preempts GPU work; D-Bus `Meetings1` (`List`, `Get`, `Reprocess`, processing signals); desktop notification
-- [ ] F3.4b Extension shows the processing state (`Meetings1` proxy, menu line)
-- [ ] F3.5 `make install` with the ML extra, runbook (Hugging Face login, first run), real-recording validation with consent
+- [x] F3.4b Extension shows the processing state (`Meetings1` proxy, menu line)
+- [ ] F3.5 `make install` with the ML extra and model prefetch, runbook [`processing.md`](../runbooks/processing.md) (done); real-recording validation with consent (pending, run by the user)
 
 ---
 

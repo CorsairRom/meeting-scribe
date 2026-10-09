@@ -194,3 +194,12 @@ def test_the_hook_ignores_unknown_steps_and_zero_totals() -> None:
     hook("segmentation", None, total=0, completed=0)
 
     assert seen == [0.0]
+
+
+def test_an_offline_cache_miss_tells_the_user_to_run_the_installer_again() -> None:
+    class LocalEntryNotFoundError(FileNotFoundError):
+        pass
+
+    message = str(map_pyannote_error(LocalEntryNotFoundError("offline"), "p"))
+
+    assert "make install" in message

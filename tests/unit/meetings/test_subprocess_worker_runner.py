@@ -111,6 +111,16 @@ def test_the_child_environment_opts_out_of_every_telemetry(harness: Harness) -> 
     ]
 
 
+def test_the_child_runs_offline_whatever_the_user_environment_says(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HF_HUB_OFFLINE", "0")  # models are fetched at install time only (OQ-7)
+
+    harness.run([{"echo_env": ["HF_HUB_OFFLINE"]}, {"emit": RESULT}])
+
+    assert harness.events == [CacheHitEvent(artifact="HF_HUB_OFFLINE=1")]
+
+
 def test_an_error_event_with_exit_1_is_the_workers_own_failure(harness: Harness) -> None:
     result = harness.run(
         [

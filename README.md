@@ -37,7 +37,11 @@ as NOT active and exits non-zero. A failing extension step is reported in the su
    the installer exits non-zero.
 2. Installs and enables the `systemd --user` unit and the D-Bus activation file, then starts the service
    (on upgrade it restarts it).
-3. Packs, installs and enables the GNOME extension. On Wayland a brand-new extension is discovered only after you
+3. Downloads the speech models with `meeting-scribe prefetch-models` (a visible step; needs the network and, for the gated
+   diarization model, `hf auth login` plus accepted terms, see [`processing.md`](docs/runbooks/processing.md)). The service
+   is installed with the `ml` extra, and processing then runs offline (`HF_HUB_OFFLINE=1`). A failed download does not
+   fail the install: the summary says `models: NOT downloaded` and `make install` again fixes it.
+4. Packs, installs and enables the GNOME extension. On Wayland a brand-new extension is discovered only after you
    log out and back in once; the installer tells you when that is needed.
 
 Upgrading from an install made before versioned installs (the service ran from `~/.local/bin/meeting-scribe`): the first
@@ -76,6 +80,7 @@ stops the recording first.
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | System context, bounded contexts, layering, GPU policy, configuration |
 | [`AGENTS.md`](AGENTS.md) | Conventions and workflow for AI agents and contributors (`CLAUDE.md` links to it) |
 | [`docs/runbooks/record-via-gdbus.md`](docs/runbooks/record-via-gdbus.md) | Record and stop a meeting by hand over D-Bus (records real audio) |
+| [`docs/runbooks/processing.md`](docs/runbooks/processing.md) | Hugging Face login, models downloaded by `make install`, first run, troubleshooting by error code |
 | [`docs/runbooks/gnome-extension.md`](docs/runbooks/gnome-extension.md) | Try the panel indicator in a nested shell and install it in your session |
 | [`docs/`](docs/README.md) | Taxonomy: project scope and rules, architecture, ADRs, specs, runbooks, ideas |
 

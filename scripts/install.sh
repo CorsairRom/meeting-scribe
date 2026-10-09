@@ -7,6 +7,11 @@
 # `current` symlink atomically, so the environment a running service was loaded from is never
 # replaced. Old versions are pruned only once the service runs the new one. If the new version
 # fails to start, `current` (or, on a migration, the unit) is restored to what worked before.
+#
+# The ML models are downloaded as a visible step AFTER the switch (OQ-7): recording never needs
+# them, so a missing network or Hugging Face login must not block installing the service. A failed
+# download is reported in the summary (the worker runs offline and says MODEL_UNAVAILABLE until a
+# later `make install` fetches them); it never fails the install.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -62,7 +67,7 @@ abort_before_switch() {
 echo "==> Installing the service with uv (Python 3.12) into $version_dir"
 mkdir -p "$VERSIONS_DIR"
 if ! UV_TOOL_DIR="$version_dir/tools" UV_TOOL_BIN_DIR="$version_dir/bin" \
-  uv tool install --force --reinstall --python 3.12 "$REPO_ROOT"; then
+  uv tool install --force --reinstall --python 3.12 "meeting-scribe[ml] @ $REPO_ROOT"; then
   abort_before_switch "uv tool install failed"
 fi
 if [[ ! -x "$version_dir/bin/meeting-scribe" ]]; then
@@ -147,6 +152,13 @@ elif ((legacy_tool)) && [[ -z "$rolled_back" ]]; then
   migration_note="the old uv tool is kept while the old service may still run; remove it later with: uv tool uninstall meeting-scribe"
 fi
 
+echo "==> Downloading the speech models (Hugging Face cache; needs the network and 'hf auth login')"
+models_state="downloaded (Hugging Face cache; processing runs offline)"
+models_failed=0
+if ! "$version_dir/bin/meeting-scribe" prefetch-models; then
+  models_failed=1
+fi
+
 echo "==> Installing the GNOME extension"
 extension_failed=""
 extension_state="enabled"
@@ -200,6 +212,13 @@ if [[ -n "$extension_failed" ]]; then
   echo "  extension: FAILED ($extension_failed)"
 else
   echo "  extension: $extension_state ($EXTENSION_UUID)"
+fi
+if ((models_failed)); then
+  echo "  models:    NOT downloaded; recording works, processing will fail with MODEL_UNAVAILABLE."
+  echo "             Run 'hf auth login' once, accept the terms at"
+  echo "             https://hf.co/pyannote/speaker-diarization-community-1, then run 'make install' again."
+else
+  echo "  models:    $models_state"
 fi
 echo "  config:    $CONFIG_HOME/meeting-scribe/.env (optional, see .env.example)"
 if ((start_failed || reload_failed)) || [[ -n "$extension_failed" ]]; then

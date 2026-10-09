@@ -53,7 +53,16 @@ case "$1 $2" in
     [ "${FAKE_UV_FAIL:-0}" = 1 ] && { mkdir -p "$UV_TOOL_DIR"; echo "uv: boom" >&2; exit 2; }
     mkdir -p "$UV_TOOL_BIN_DIR"
     [ "${FAKE_UV_NO_EXE:-0}" = 1 ] && exit 0
-    : > "$UV_TOOL_BIN_DIR/meeting-scribe"
+    # the installed entry point: only `prefetch-models` is ever run by the scripts
+    cat > "$UV_TOOL_BIN_DIR/meeting-scribe" <<'EOS'
+#!/usr/bin/env bash
+echo "meeting-scribe $* (from $0)" >> "$FAKE_LOG"
+if [ "$1" = prefetch-models ]; then
+  echo "fake prefetch output"
+  [ "${FAKE_PREFETCH_FAIL:-0}" = 1 ] && { echo "FAILED [ACCESS_DENIED]" >&2; exit 1; }
+fi
+exit 0
+EOS
     chmod +x "$UV_TOOL_BIN_DIR/meeting-scribe" ;;
   "tool dir")
     echo "uv-env-dir UV_TOOL_DIR=${UV_TOOL_DIR:-}" \\
@@ -233,8 +242,49 @@ def test_scripts_never_hardcode_an_absolute_path_to_a_tool(script: Path, tool: s
 def test_install_uses_a_python_312_uv_tool_install_of_the_repo(sandbox: Env) -> None:
     result = sandbox.run(INSTALL)
     assert result.returncode == 0, result.stderr
-    expected = f"uv tool install --force --reinstall --python 3.12 {ROOT}"
-    assert expected in sandbox.calls()
+    expected = f"uv tool install --force --reinstall --python 3.12 meeting-scribe[ml] @ {ROOT}"
+    assert expected in sandbox.calls()  # the ml extra: faster-whisper, torch, pyannote
+
+
+def _prefetches(sandbox: Env) -> list[str]:
+    return [line for line in sandbox.calls() if line.startswith("meeting-scribe prefetch-models")]
+
+
+def test_install_downloads_the_models_with_the_new_version_after_it_is_active(
+    sandbox: Env,
+) -> None:
+    result = sandbox.run(INSTALL, **IDLE)
+    assert result.returncode == 0, result.stderr
+    (version,) = sandbox.versions
+    (call,) = _prefetches(sandbox)
+    assert call == f"meeting-scribe prefetch-models (from {version}/bin/meeting-scribe)"
+    calls = sandbox.calls()
+    assert _index(calls, f"systemctl --user enable --now {UNIT}") < _index(
+        calls, "meeting-scribe prefetch-models"
+    )
+    assert _index(calls, "meeting-scribe prefetch-models") < _index(calls, "gnome-extensions pack")
+    assert "==> Downloading the speech models" in result.stdout
+    assert "fake prefetch output" in result.stdout  # visible, not swallowed
+    assert "models:    downloaded" in result.stdout
+
+
+def test_a_failed_model_download_does_not_fail_the_service_install_but_is_loud(
+    sandbox: Env,
+) -> None:
+    result = sandbox.run(INSTALL, FAKE_PREFETCH_FAIL="1", **IDLE)
+    assert result.returncode == 0, result.stderr
+    assert sandbox.exe.exists()  # the service and the unit are installed and switched
+    assert sandbox.unit_path.exists()
+    summary = result.stdout.split("meeting-scribe installed")[1]
+    assert "models:    NOT downloaded" in summary
+    assert "hf auth login" in summary
+    assert "make install" in summary  # run it again once fixed
+
+
+def test_no_model_download_when_the_install_is_refused_or_uv_fails(sandbox: Env) -> None:
+    sandbox.run(INSTALL, FAKE_GDBUS_MODE="recording")
+    sandbox.run(INSTALL, FAKE_UV_FAIL="1", **IDLE)
+    assert _prefetches(sandbox) == []
 
 
 def test_install_renders_the_unit_with_the_absolute_exec_start(sandbox: Env) -> None:

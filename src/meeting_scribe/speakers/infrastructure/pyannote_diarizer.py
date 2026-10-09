@@ -227,8 +227,9 @@ def map_pyannote_error(error: Exception, pipeline: str) -> MeetingScribeError:
         )
     if names & _MODEL_LOOKUP_ERRORS:
         return ModelUnavailableError(
-            f"The pipeline '{pipeline}' is not in the Hugging Face cache and could not be "
-            f"downloaded ({type(error).__name__}). Check the pipeline name and the network."
+            f"The pipeline '{pipeline}' is not in the Hugging Face cache and the worker runs "
+            f"offline ({type(error).__name__}). Run `make install` again to download the models "
+            "(or check SPEAKERS_PIPELINE), then reprocess the meeting."
         )
     if isinstance(error, ImportError):
         return DiarizationError(
