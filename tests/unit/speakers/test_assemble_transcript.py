@@ -15,19 +15,10 @@ from meeting_scribe.speakers.domain.me_detection import DiarizedChannel
 from meeting_scribe.speakers.domain.params import AssemblyParams
 from meeting_scribe.speakers.domain.turns import TimedWord, Turn
 from tests.unit.speakers.envelopes import SPEECH, envelope
-from tests.unit.speakers.fakes import FakeTranscriptFiles, InMemoryTurnsCache
+from tests.unit.speakers.fakes import SPEAKERS_SPEC, FakeTranscriptFiles, InMemoryTurnsCache
 
 MEETING = Path("/meetings/m1")
-SPEC = {
-    "utterance_gap_seconds": 5.0,
-    "me_dominance_db": 6.0,
-    "me_noise_margin_db": 10.0,
-    "me_min_turn_seconds": 0.5,
-    "sample_max_clips": 3,
-    "sample_target_seconds": 15.0,
-    "sample_min_clip_seconds": 1.5,
-    "sample_max_clip_seconds": 6.0,
-}
+SPEC = SPEAKERS_SPEC
 # 90 s meeting: the user speaks 10-20 s (mic only), a remote voice 30-60 s (system channel only)
 MIC = envelope(90, [(10, 20, SPEECH)])
 SYSTEM = envelope(90, [(30, 60, SPEECH)])
@@ -128,7 +119,10 @@ def test_me_with_loudspeaker_bleed_gets_no_sample_from_the_noisy_stretch() -> No
 
     outcome = harness.run([_word(12, "hola")], system=system).unwrap()
 
-    assert all(s.sample == "" for s in outcome.speakers if s.id == "ME")
+    me = [s for s in outcome.speakers if s.id == "ME"]
+    assert len(me) == 1  # Me is listed (it spoke) ...
+    assert me[0].sample == ""  # ... but the noisy stretch gave no clean sample
+    assert "ME" not in harness.files.samples
 
 
 def test_in_person_meetings_diarize_the_mic_skip_me_and_sample_the_mic() -> None:
@@ -170,7 +164,7 @@ def test_the_stage_event_comes_after_assignment_and_before_any_file() -> None:
 
     assert harness.events == ["extracting_samples"]
     assert harness.files.calls[0] == "EVENT"
-    assert harness.files.calls[1:] == ["reset", "sample", "utterances", "transcript"]
+    assert harness.files.calls[1:] == ["begin", "sample", "utterances", "transcript", "commit"]
 
 
 def test_the_me_turns_and_bleed_are_added_to_turns_json() -> None:
@@ -192,8 +186,8 @@ def test_a_missing_cache_document_is_not_an_error() -> None:
     assert isinstance(harness.run([_word(12, "hola")]), Success)
 
 
-@pytest.mark.parametrize("step", ["reset", "sample", "utterances", "transcript"])
-def test_a_file_failure_fails_the_stage_with_its_error(step: str) -> None:
+@pytest.mark.parametrize("step", ["begin", "sample", "utterances", "transcript", "commit"])
+def test_a_file_failure_fails_the_stage_and_discards_what_was_staged(step: str) -> None:
     harness = Harness()
     harness.files.fail_on = step
 
@@ -201,6 +195,8 @@ def test_a_file_failure_fails_the_stage_with_its_error(step: str) -> None:
 
     assert isinstance(result, Failure)
     assert result.failure().error_code == "DIARIZATION_FAILED"
+    assert harness.files.calls[-1] == "discard"
+    assert ("commit" in harness.files.calls) == (step == "commit")
 
 
 def test_an_audio_failure_while_cutting_samples_fails_the_stage() -> None:
@@ -208,6 +204,8 @@ def test_an_audio_failure_while_cutting_samples_fails_the_stage() -> None:
     harness.load_error = MeetingScribeError("cannot read")
 
     assert isinstance(harness.run([_word(35, "buenas")]), Failure)
+    assert harness.files.calls[-1] == "discard"
+    assert "commit" not in harness.files.calls
 
 
 def test_an_invalid_spec_is_an_invalid_value_error() -> None:

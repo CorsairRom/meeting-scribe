@@ -17,6 +17,7 @@ _FRAME_BYTES = CHANNELS * SAMPLE_WIDTH_BYTES
 _SCALE = 1 / 32768
 _ENERGY_FRAME_SAMPLES = SAMPLE_RATE // 10  # 100 ms, spec 2.4
 _INDEX = {"mic": 0, "system": 1}
+_BLOCK_FRAMES = 128  # energy frames squared at a time: 128 x 1 600 samples x 8 B = 1.6 MB
 
 
 class WavChannelReader:
@@ -49,18 +50,33 @@ class WavChannelReader:
             signal = self.read_channel(meeting_dir, timeline, channel)
             if isinstance(signal, Failure):
                 return signal
-            envelopes[channel] = frame_energies(signal.unwrap())  # the signal is freed here
+            envelopes[channel] = frame_energies(signal.unwrap())
+            del signal  # drop this channel before the next one is decoded: one at a time
         return Success(ChannelEnergies(mic=envelopes["mic"], system=envelopes["system"]))
 
 
 def frame_energies(signal: Samples) -> list[float]:
-    """Mean square per 100 ms frame; the last frame averages only the samples it has."""
+    """Mean square per 100 ms frame; the last frame averages only the samples it has.
+
+    Computed in blocks so the float64 working copy stays a few MB whatever the meeting length
+    (a whole-signal copy plus its square was about 1 GB per meeting-hour).
+    """
     if not len(signal):
         return []
     whole = len(signal) // _ENERGY_FRAME_SAMPLES
-    squares = signal.astype(np.float64) ** 2
-    energies = squares[: whole * _ENERGY_FRAME_SAMPLES].reshape(whole, -1).mean(axis=1).tolist()
-    tail = squares[whole * _ENERGY_FRAME_SAMPLES :]
+    energies: list[float] = []
+    squares = np.empty(_BLOCK_FRAMES * _ENERGY_FRAME_SAMPLES, dtype=np.float64)  # reused
+    for first in range(0, whole, _BLOCK_FRAMES):
+        frames = min(_BLOCK_FRAMES, whole - first)
+        block = signal[first * _ENERGY_FRAME_SAMPLES : (first + frames) * _ENERGY_FRAME_SAMPLES]
+        work = squares[: len(block)]
+        np.multiply(block, block, out=work, dtype=np.float64)
+        energies.extend(work.reshape(frames, _ENERGY_FRAME_SAMPLES).mean(axis=1).tolist())
+    tail = signal[whole * _ENERGY_FRAME_SAMPLES :]
     if len(tail):
-        energies.append(float(tail.mean()))
+        energies.append(_mean_square(tail))
     return energies
+
+
+def _mean_square(samples: Samples) -> float:
+    return float(np.mean(np.square(samples, dtype=np.float64)))

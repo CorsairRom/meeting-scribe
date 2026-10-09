@@ -1,3 +1,4 @@
+import tracemalloc
 import wave
 from pathlib import Path
 
@@ -73,3 +74,33 @@ def test_read_energies_gives_one_envelope_per_channel(tmp_path: Path) -> None:
 
     assert energies.mic == pytest.approx([0.25, 0.25])
     assert energies.system == [0.0, 0.0]
+
+
+def _peak_bytes(work) -> int:
+    tracemalloc.start()
+    try:
+        work()
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+def test_frame_energies_do_not_copy_the_whole_signal_to_float64() -> None:
+    signal = np.random.default_rng(0).uniform(-1, 1, 16_000 * 300).astype(np.float32)
+
+    peak = _peak_bytes(lambda: frame_energies(signal))
+
+    assert peak < signal.nbytes / 4  # blockwise: the old whole-signal float64 copy was 2x
+
+
+def test_read_energies_never_holds_two_whole_channels(tmp_path: Path) -> None:
+    rng = np.random.default_rng(1)
+    for index in range(20):  # 20 chunks of 5 s: 100 s, a channel is 6.4 MB as float32
+        samples = rng.integers(-3000, 3000, 80_000)
+        _chunk(tmp_path / "audio" / f"chunk_{index:05d}.wav", samples, samples)
+    timeline, reader = _timeline(tmp_path), WavChannelReader()
+    channel_bytes = timeline.total_frames * 4
+
+    peak = _peak_bytes(lambda: reader.read_energies(tmp_path, timeline).unwrap())
+
+    assert peak < channel_bytes * 1.5  # one channel plus a chunk, not channel + channel

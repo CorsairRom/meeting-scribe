@@ -48,16 +48,20 @@ class TurnsCache(Protocol):
 
 
 class TranscriptFiles(Protocol):
-    """The files the extraction step writes into the meeting folder (all atomic)."""
+    """The files the extraction step writes into the meeting folder.
 
-    def reset_samples(self, meeting_dir: Path) -> Result[None, DiarizationError]:
-        """Remove the voice samples of a previous run (speakers may have changed)."""
+    A run is staged: ``write_*`` go to a staging area and nothing of the previous run changes
+    until ``commit``, so a failure anywhere keeps the last good samples, utterances and transcript.
+    """
+
+    def begin(self, meeting_dir: Path) -> Result[None, DiarizationError]:
+        """Open an empty staging area (any left by a crashed run is dropped)."""
         ...
 
     def write_sample(
         self, meeting_dir: Path, speaker_id: str, signal: Samples, clips: Sequence[Clip]
     ) -> Result[str, DiarizationError]:
-        """Join the clips of ``signal`` into ``samples/<speaker_id>.wav``; the relative path."""
+        """Stage ``samples/<speaker_id>.wav`` from the clips; returns its final relative path."""
         ...
 
     def write_utterances(
@@ -66,9 +70,17 @@ class TranscriptFiles(Protocol):
         utterances: Sequence[Utterance],
         labels: Mapping[str, SpeakerLabel],
     ) -> Result[str, DiarizationError]:
-        """``utterances.json``, each utterance under its stable speaker id; the file name."""
+        """Stage ``utterances.json``, each utterance under its stable speaker id; the file name."""
         ...
 
     def write_transcript(self, meeting_dir: Path, text: str) -> Result[str, DiarizationError]:
-        """``transcript.md``; the file name."""
+        """Stage ``transcript.md``; the file name."""
+        ...
+
+    def commit(self, meeting_dir: Path) -> Result[None, DiarizationError]:
+        """Replace the previous run's samples (stale speakers too), utterances and transcript."""
+        ...
+
+    def discard(self, meeting_dir: Path) -> None:
+        """Drop the staging area, keeping the previous run. Never fails."""
         ...

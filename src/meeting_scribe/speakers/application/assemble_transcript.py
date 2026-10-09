@@ -31,7 +31,14 @@ from meeting_scribe.speakers.domain.samples import (
     select_sample_clips,
 )
 from meeting_scribe.speakers.domain.transcript import number_speakers, render_transcript
-from meeting_scribe.speakers.domain.turns import ME, UNKNOWN, SpeakerLabel, TimedWord, Turn
+from meeting_scribe.speakers.domain.turns import (
+    ME,
+    UNKNOWN,
+    SpeakerLabel,
+    TimedWord,
+    Turn,
+    Utterance,
+)
 from meeting_scribe.speakers.domain.utterances import group_utterances
 
 logger = logging.getLogger(__name__)
@@ -141,17 +148,11 @@ class AssembleTranscript:
         self._remember_me(meeting_dir, detection)
 
         reporter.extracting_samples()
-        samples = self._write_samples(meeting_dir, request, detection, labels)
-        if isinstance(samples, Failure):
-            return samples
-        utterances_file = self._files.write_utterances(meeting_dir, utterances, labels)
-        if isinstance(utterances_file, Failure):
-            return utterances_file
-        transcript_file = self._files.write_transcript(
-            meeting_dir, render_transcript(utterances, labels)
-        )
-        if isinstance(transcript_file, Failure):
-            return transcript_file
+        staged = self._stage_files(meeting_dir, request, detection, labels, utterances)
+        if isinstance(staged, Failure):
+            self._files.discard(meeting_dir)  # the previous run's outputs stay as they were
+            return staged
+        samples, artifacts = staged.unwrap()
 
         talk: dict[str, float] = defaultdict(float)
         count: dict[str, int] = defaultdict(int)
@@ -165,19 +166,48 @@ class AssembleTranscript:
                 is_me=label.id == ME,
                 talk_seconds=round(talk[speaker], 3),
                 utterance_count=count[speaker],
-                sample=samples.unwrap().get(speaker, ""),
+                sample=samples.get(speaker, ""),
             )
             for speaker, label in labels.items()
         )
         return Success(
             AssemblyOutcome(
-                artifacts={
-                    "utterances": utterances_file.unwrap(),
-                    "transcript": transcript_file.unwrap(),
-                },
+                artifacts=artifacts,
                 speakers=speakers,
             )
         )
+
+    def _stage_files(
+        self,
+        meeting_dir: Path,
+        request: AssemblyRequest,
+        detection: MeDetection,
+        labels: Mapping[str, SpeakerLabel],
+        utterances: Sequence[Utterance],
+    ) -> Result[tuple[dict[str, str], dict[str, str]], MeetingScribeError]:
+        """Stage every output, then commit them together; ``(sample paths, artifacts)``."""
+        begun = self._files.begin(meeting_dir)
+        if isinstance(begun, Failure):
+            return begun
+        samples = self._write_samples(meeting_dir, request, detection, labels)
+        if isinstance(samples, Failure):
+            return samples
+        utterances_file = self._files.write_utterances(meeting_dir, utterances, labels)
+        if isinstance(utterances_file, Failure):
+            return utterances_file
+        transcript_file = self._files.write_transcript(
+            meeting_dir, render_transcript(utterances, labels)
+        )
+        if isinstance(transcript_file, Failure):
+            return transcript_file
+        committed = self._files.commit(meeting_dir)
+        if isinstance(committed, Failure):
+            return committed
+        artifacts = {
+            "utterances": utterances_file.unwrap(),
+            "transcript": transcript_file.unwrap(),
+        }
+        return Success((samples.unwrap(), artifacts))
 
     @staticmethod
     def _detect(request: AssemblyRequest) -> MeDetection:
@@ -214,9 +244,6 @@ class AssembleTranscript:
         labels: Mapping[str, SpeakerLabel],
     ) -> Result[dict[str, str], MeetingScribeError]:
         """``speaker key -> relative sample path`` for every listed speaker with a clean turn."""
-        reset = self._files.reset_samples(meeting_dir)
-        if isinstance(reset, Failure):
-            return reset
         params = request.params.sample_params()
         diarized = [
             speaker for speaker in labels if speaker not in (*_MIC_SPEAKERS, FALLBACK_SPEAKER)

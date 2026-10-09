@@ -21,6 +21,7 @@ from meeting_scribe.base.domain.errors import (
     ModelUnavailableError,
 )
 from meeting_scribe.speakers.domain.diarization import (
+    CUDA_REMEDY,
     Device,
     DiarizationResult,
     check_device_available,
@@ -35,7 +36,7 @@ _NO_CUDA = (
     "no cuda-capable device",
     "driver version is insufficient",
     "unsupported device cuda",
-    "cuda driver",
+    "cuda driver initialization failed",
     "found no nvidia driver",
 )
 _ACCESS_ERRORS = frozenset({"GatedRepoError", "RepositoryNotFoundError", "LocalTokenNotFoundError"})
@@ -216,10 +217,7 @@ def map_pyannote_error(error: Exception, pipeline: str) -> MeetingScribeError:
     if "OutOfMemoryError" in names or "out of memory" in lowered:
         return GpuOutOfMemoryError(f"The GPU ran out of memory: {message}")
     if any(marker in lowered for marker in _NO_CUDA):
-        return GpuUnavailableError(
-            f"CUDA is not usable ({message}). Fix the NVIDIA driver, or set "
-            "PROCESSING_DEVICE=cpu to run on the CPU explicitly (slow)."
-        )
+        return GpuUnavailableError(f"CUDA is not usable ({message}). {CUDA_REMEDY}")
     status = getattr(getattr(error, "response", None), "status_code", None)
     if names & _ACCESS_ERRORS or status in _ACCESS_STATUS:
         return DiarizationModelAccessError(

@@ -24,6 +24,17 @@ from meeting_scribe.speakers.infrastructure.pyannote_diarizer import (
 PARAMS = DiarizationParams(
     pipeline="pyannote/speaker-diarization-community-1", me_noise_margin_db=10.0
 )
+SPEAKERS_SPEC = {
+    "utterance_gap_seconds": 5.0,
+    "me_dominance_db": 6.0,
+    "me_noise_margin_db": 10.0,
+    "me_min_turn_seconds": 0.5,
+    "sample_max_clips": 3,
+    "sample_target_seconds": 15.0,
+    "sample_min_clip_seconds": 1.5,
+    "sample_max_clip_seconds": 6.0,
+}
+"""The assembly thresholds of the job spec; mirrors the ``SpeakersSettings`` defaults."""
 FINGERPRINT = (("chunk_00000.wav", 480_640, 1_922_604), ("chunk_00001.wav", 480_320, 1_921_324))
 VERSIONS = {"pyannote.audio": "4.0.7", "torch": "2.14.1"}
 TURNS = (
@@ -189,8 +200,8 @@ class FakeTranscriptFiles:
         self.calls.append(name)
         return Failure(DiarizationError(f"cannot write {name}")) if self.fail_on == name else None
 
-    def reset_samples(self, meeting_dir: Path) -> Result[None, DiarizationError]:
-        return self._fails("reset") or Success(None)
+    def begin(self, meeting_dir: Path) -> Result[None, DiarizationError]:
+        return self._fails("begin") or Success(None)
 
     def write_sample(
         self, meeting_dir: Path, speaker_id: str, signal: Samples, clips: Sequence[Clip]
@@ -212,3 +223,9 @@ class FakeTranscriptFiles:
     def write_transcript(self, meeting_dir: Path, text: str) -> Result[str, DiarizationError]:
         self.transcript = text
         return self._fails("transcript") or Success("transcript.md")
+
+    def commit(self, meeting_dir: Path) -> Result[None, DiarizationError]:
+        return self._fails("commit") or Success(None)
+
+    def discard(self, meeting_dir: Path) -> None:
+        self.calls.append("discard")

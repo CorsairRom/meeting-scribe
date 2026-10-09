@@ -8,18 +8,9 @@ import pytest
 np = pytest.importorskip("numpy")
 
 from meeting_scribe.worker import build_diarize_stage, main
-from tests.unit.speakers.fakes import PARAMS, FakeBackend
+from tests.unit.speakers.fakes import PARAMS, SPEAKERS_SPEC, FakeBackend
 
-SPEAKERS = {
-    **PARAMS.model_dump(),
-    "utterance_gap_seconds": 5.0,
-    "me_dominance_db": 6.0,
-    "me_min_turn_seconds": 0.5,
-    "sample_max_clips": 3,
-    "sample_target_seconds": 15.0,
-    "sample_min_clip_seconds": 1.5,
-    "sample_max_clip_seconds": 6.0,
-}
+SPEAKERS = {**PARAMS.model_dump(), **SPEAKERS_SPEC}
 
 
 def _meeting(tmp_path: Path, system_amplitude: float, words: bool = True) -> Path:
@@ -168,3 +159,16 @@ def test_an_invalid_speakers_section_is_an_invalid_value_error(tmp_path: Path) -
 
     assert code == 1
     assert json.loads(events.getvalue())["error_code"] == "INVALID_VALUE"
+
+
+def test_a_meeting_without_words_fails_before_any_pipeline_is_built(tmp_path: Path) -> None:
+    meeting = _meeting(tmp_path, 0.5, words=False)
+    backend = FakeBackend()
+
+    code, events = _drive(meeting, backend)
+
+    assert code == 1
+    assert [e["event"] for e in events] == ["error"]
+    assert events[0]["error_code"] == "TRANSCRIPTION_FAILED"
+    assert backend.events == []  # nothing was prepared, loaded or run
+    assert not (meeting / "turns.json").exists()

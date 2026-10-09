@@ -16,6 +16,9 @@ type Device = Literal["cuda", "cpu"]
 
 CACHE_VERSION = 1
 TURNS_FILE = "turns.json"
+CUDA_REMEDY = (
+    "Fix the NVIDIA driver, or set PROCESSING_DEVICE=cpu to run on the CPU explicitly (slow)."
+)
 
 type CacheKey = dict[str, JsonValue]
 type Fingerprint = Sequence[tuple[str, int, int]]
@@ -40,12 +43,7 @@ def check_device_available(
 ) -> Result[Device, GpuUnavailableError]:
     """``cuda`` without a CUDA device fails; nothing here (or after) falls back to the CPU."""
     if device == "cuda" and cuda_device_count < 1:
-        return Failure(
-            GpuUnavailableError(
-                "No usable CUDA device was found. Fix the NVIDIA driver, or set "
-                "PROCESSING_DEVICE=cpu to run on the CPU explicitly (slow)."
-            )
-        )
+        return Failure(GpuUnavailableError(f"No usable CUDA device was found. {CUDA_REMEDY}"))
     return Success(device)
 
 

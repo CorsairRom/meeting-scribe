@@ -6,6 +6,7 @@ from meeting_scribe.base.domain.errors import (
     GpuUnavailableError,
     ModelUnavailableError,
 )
+from meeting_scribe.speakers.domain.diarization import CUDA_REMEDY, check_device_available
 from meeting_scribe.speakers.domain.errors import DiarizationError, DiarizationModelAccessError
 from meeting_scribe.speakers.domain.turns import Turn
 from meeting_scribe.speakers.infrastructure.pyannote_diarizer import (
@@ -126,6 +127,34 @@ def test_other_failures_keep_their_class_and_message() -> None:
         map_pyannote_error(RuntimeError("Found no NVIDIA driver on your system"), "p"),
         GpuUnavailableError,
     )
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "CUDA driver initialization failed, you might not have a CUDA gpu.",
+        "CUDA driver version is insufficient for CUDA runtime version",
+        "no CUDA-capable device is detected",
+    ],
+)
+def test_real_cuda_absence_maps_to_gpu_unavailable(message: str) -> None:
+    assert isinstance(map_pyannote_error(RuntimeError(message), "p"), GpuUnavailableError)
+
+
+def test_a_mid_run_cuda_driver_failure_on_a_present_device_is_not_gpu_unavailable() -> None:
+    error = RuntimeError("CUDA driver error: an illegal memory access was encountered")
+
+    mapped = map_pyannote_error(error, "p")
+
+    assert isinstance(mapped, DiarizationError)
+    assert not isinstance(mapped, GpuUnavailableError)
+
+
+def test_the_cuda_remedy_is_one_shared_text() -> None:
+    absent = map_pyannote_error(RuntimeError("Found no NVIDIA driver"), "p")
+
+    assert CUDA_REMEDY in str(absent)
+    assert CUDA_REMEDY in str(check_device_available("cuda", 0).failure())
 
 
 def test_an_offline_cache_miss_is_a_model_unavailable_error() -> None:
