@@ -9,6 +9,7 @@ from returns.result import Failure, Result, Success
 
 from meeting_scribe.base.domain.errors import MeetingScribeError
 from meeting_scribe.recording.domain.errors import (
+    AudioCaptureError,
     NoActiveRecordingError,
     RecordingAlreadyActiveError,
 )
@@ -83,6 +84,10 @@ class RecordingController:
     def stop(self) -> Result[RecordingSession, MeetingScribeError]:
         if self._session.state != "RECORDING" or self._session.is_null:
             return Failure(NoActiveRecordingError("No recording is in progress."))
+        if not self._capture.is_running():
+            self._detect_crash()
+            self._capture.stop()  # best effort: reap the dead process, the session already failed
+            return Failure(AudioCaptureError(CAPTURE_CRASHED_REASON))
         match self._capture.stop():
             case Failure(error):
                 self._fail(str(error))

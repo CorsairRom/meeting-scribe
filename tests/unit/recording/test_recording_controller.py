@@ -190,6 +190,22 @@ def test_status_detects_crashed_capture_and_marks_failed(rig: Rig) -> None:
     assert controller.status().elapsed_seconds == 30.0
 
 
+def test_stop_after_crash_reports_failure_without_calling_status_first(rig: Rig) -> None:
+    controller = rig.controller()
+    controller.start()
+    rig.clock.advance(30)
+    rig.capture.crash()
+
+    result = controller.stop()
+
+    assert isinstance(result, Failure)
+    assert isinstance(result.failure(), AudioCaptureError)
+    status = controller.status()
+    assert status.state == "FAILED"
+    assert status.failure_reason == "capture process exited unexpectedly"
+    assert rig.capture.stop_calls == 1  # still reaps the dead process
+
+
 def test_start_after_crash_is_allowed_without_calling_status_first(rig: Rig) -> None:
     controller = rig.controller()
     controller.start()
