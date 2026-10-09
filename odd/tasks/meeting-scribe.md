@@ -439,6 +439,24 @@ own meeting, without reading its content into the repo or logs.
       (client RED via stub swap after it was written first). GREEN 760 python / 104 extension.
 - [ ] F3.5 Install/packaging update (ML deps in the versioned install), runbook, real-recording
       validation with consent.
+  - [x] F3.5a Code + docs (delegated writers; route: delegated direct, 2+ non-trivial files).
+        `a2993f6` review follow-ups (enqueue-failure notification, exit 4 = processing outlived the
+        shutdown bound, extension stale last result / proxy error log); `1202d85` `uv tool install
+        "meeting-scribe[ml] @ <repo>"` + `meeting-scribe prefetch-models` (console script
+        `meeting_scribe.cli:run`; pyannote first, then Whisper; worker env forces HF_HUB_OFFLINE=1);
+        `d497289` `docs/runbooks/processing.md`; `d12ca59`/`f15a006`/`62914be` prefetch skipped after
+        rollback, bounded by MEETING_SCRIBE_PREFETCH_TIMEOUT (3600 s, validated), explicit outcome
+        status, accurate messages, CLI wiring test; KillMode=mixed kills a stray worker before restart
+        (man systemd.kill, GO-026). RED observed per behavior (commit-point matrix and CLI wiring are
+        characterization). GREEN 802 python / 108 extension, 8 contracts kept. Reviews
+        review-97213a81aa56a412, review-dbd9549303e5d65f, review-74262dea92e82e8b approved and
+        acknowledged. Integrated #76–#78; origin/feat/processing tree == local.
+        Follow-ups (not fixed, avoid review loop): exit 137 may be an OOM kill rather than the
+        timeout (summary would say "timed out"); summary `*)` branch prints "downloaded" for an
+        unknown status; prefetch hint hard-codes setting names.
+  - [ ] F3.5b Real validation with user consent: `hf auth login` + accept community-1 terms,
+        `make install` (prefetch), `uv run pytest -m gpu`, one real meeting checked by states/counts
+        only.
 ### F4 Review UI — pending
 ### F5 Summaries — pending
 ### F6 Install — pending
