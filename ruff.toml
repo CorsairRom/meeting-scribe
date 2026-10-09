@@ -51,6 +51,9 @@ lint.ignore = [
     "S101",
     "PLR2004",
     "SLF001",
+    "ARG001",  # fakes and scripted behaviours implement ports and ignore some arguments
+    "ARG002",
+    "ARG005",
 ]
 
 # D-Bus member names are PascalCase by convention (api-contracts.md).

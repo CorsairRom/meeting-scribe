@@ -65,6 +65,8 @@ All classes derive from `MeetingScribeError` in `src/meeting_scribe/base/domain/
 | `WorkerCrashedError` | `WORKER_CRASHED` | `meetings`: a processing worker process exited abnormally | `dev.meetingscribe.Error.WORKER_CRASHED` |
 | `WorkerTimeoutError` | `WORKER_TIMEOUT` | `meetings`: a processing worker exceeded its stage timeout | `dev.meetingscribe.Error.WORKER_TIMEOUT` |
 | `WorkerProtocolError` | `WORKER_PROTOCOL_ERROR` | `meetings`: a worker emitted an unparseable or out-of-order event | `dev.meetingscribe.Error.WORKER_PROTOCOL_ERROR` |
+| `WorkerReportedError` | instance code from the worker (`GPU_OUT_OF_MEMORY`, ...; class default `WORKER_REPORTED_ERROR`) | `meetings`: the worker's own `error` event, carried into `processing.failure` | the worker's code under `dev.meetingscribe.Error.` |
+| `WorkerCancelledError` | `WORKER_CANCELLED` | `meetings`: the worker was stopped on request (preemption or shutdown); internal, the job is not failed and it never reaches a client | not exposed |
 
 Domain packages add their own subclasses next to their domain code (for example a `recording` error) and
 register them in this table.
