@@ -416,7 +416,7 @@ own meeting, without reading its content into the repo or logs.
       (14 failures / collection errors) — not strict TDD; noted for future briefs. GREEN 672 python.
       The model was NOT downloaded/loaded (user's HF login not authorized yet): the real GPU test
       `tests/gpu/test_diarize_worker.py` (A-5) runs in F3.5 with consent.
-- [ ] F3.4 Wiring (F3.4a done; F3.4b extension pending): Stop enqueues processing; D-Bus `Meetings1` (list/get, processing state,
+- [x] F3.4 Wiring (F3.4a + F3.4b done): Stop enqueues processing; D-Bus `Meetings1` (list/get, processing state,
       `ProcessingFinished`); desktop notification; extension shows processing state.
       F3.3b integrated (#68–#70; reviews d2b70651, 9f53b245, e9dfff1c approved; deps split from code to
       fit the lens budget). F3.4a (delegated, test-first enforced): `7447def` diarization review fixes
@@ -429,6 +429,14 @@ own meeting, without reading its content into the repo or logs.
       adapter ("Meeting processed: N speakers"), private-bus e2e with fake worker + fake notifier.
       GREEN 732 python / 75 extension; no stray daemons/workers. Open (F3.5): a stopped session that
       cannot be enqueued (storage error) is only logged; loop outliving the shutdown bound exits 0.
+      F3.4a integrated (#71–#73; reviews 1a45351a, 03eb3d7c, 1117f150 approved). F3.4b (delegated):
+      `5a3d14d` outputs committed as one set (backup dir + manifest, `.commit.done` as commit point,
+      interrupted commits rolled back; 23 failure-injection cases, 14 RED before), handoff release in
+      `finally`, unexpected crash → FAILED announced, failed ProcessingFinished asserted e2e;
+      `15f9618` extension MeetingsClient + menu processing lines (running stage, queued count, last
+      result "Last meeting processed: N speakers" / "no speech detected", FAILED → Reprocess action;
+      panel shows "…" while processing; click still only opens the menu). RED observed per behavior
+      (client RED via stub swap after it was written first). GREEN 760 python / 104 extension.
 - [ ] F3.5 Install/packaging update (ML deps in the versioned install), runbook, real-recording
       validation with consent.
 ### F4 Review UI — pending
