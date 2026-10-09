@@ -191,7 +191,32 @@ repo from F1).
       foreground on the real session bus, name owned after ~200 ms; `Start` → RECORDING; after
       10.5 s `Stop` → STOPPED; Ctrl+C → exit 0; no ffmpeg left. Chunk: 2 ch, 16 kHz, s16, 10.5 s;
       per-channel RMS mic 525 / system 552 (both non-silent); empty ffmpeg.log. Recording deleted.
-### F2 GNOME extension — pending
+### F2 GNOME extension — integration branch `feat/gnome-extension` (from `main` after #15)
+
+Goal: start/stop recording from a GNOME Shell 50.4 panel indicator (Wayland) talking to
+`dev.meetingscribe.Recording1` over the session bus; timer + status.
+UX decision (user, 2026-10-09): idle `●` → one click starts; while recording `■ HH:MM:SS` → click
+opens a menu with status and "Stop recording" (no accidental stop). UI strings in English via
+gettext (translatable later). Environment: gjs 1.88.1, `gnome-shell --devkit` for a nested shell.
+Safety: tests never touch the real session bus or the running shell; installing/enabling the
+extension in the user's session, or running the nested shell, only with the user's consent.
+
+- [x] F2.1 Pure presentation logic (TDD, `gjs -m` test runner, no Shell imports): D-Bus state →
+      view model (icon, label, click action, menu items, failure/unavailable messages),
+      `formatElapsed`, D-Bus error name → user message; `make test-extension` wired into
+      `make check`. Branch `f2/feat-indicator-logic`.
+      Route: delegated writer. Commit `51ce0d7` (+442/-8, ~220 tests). TDD with a gjs harness
+      (`tests/harness.js` + explicit imports in `tests/run.js`, GO-027): RED `ImportError` → stub
+      `0 passed, 1 failed` → … → GREEN `22 passed, 0 failed`. States: unavailable ○ dimmed/menu,
+      IDLE/STOPPED ● start, RECORDING ■ HH:MM:SS menu+Stop, FAILED ⚠ menu+reason+Start, busy → no-op.
+      `make check` runs python + extension tests.
+- [ ] F2.2 D-Bus client (`Gio.DBusProxy`, name watching for service availability,
+      `PropertiesChanged`/`StateChanged`), tested against a private bus where practical.
+- [ ] F2.3 Extension shell (`extension.js`, `metadata.json` shell-version 50, `stylesheet.css`):
+      `PanelMenu.Button`, 1 s timer only while recording, full cleanup in `disable()` (EGO rules).
+- [ ] F2.4 Packaging + runbook: `make extension-pack` (`gnome-extensions pack`), runbook for the
+      nested `--devkit` shell and for installing in the real session (logout/login on Wayland);
+      manual verification only with consent.
 ### F3 Processing — pending
 ### F4 Review UI — pending
 ### F5 Summaries — pending
@@ -288,4 +313,4 @@ it (F1.4). Items below kept for traceability.
 F0 merged to `main` (#2, squash). F1 complete on integration branch `feat/recording`: F1.1–F1.5
 integrated (#14, #16–#31; packaging/runbook #28–#30, smoke test #31). Final tail review
 `review-0b5874936265a288` approved. Tracker #15 is ready for the owner to merge into `main`.
-Next: F2 GNOME extension, after the owner's go (installing/enabling the extension needs consent).
+F1 merged to `main` (#15, merge commit 7301d96). F2 started on `feat/gnome-extension`; current: F2.2.
