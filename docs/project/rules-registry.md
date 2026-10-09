@@ -131,6 +131,13 @@ ai_instructions:
 - **Source**: [ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md); [`error-codes-catalog.md`](../architecture/error-codes-catalog.md)
 - **Verifiable in**: `docs/architecture/api-contracts.md`; `tests/e2e/recording/` (private `dbus-daemon`)
 
+### CR-012 — Extension logic lives in pure modules under `lib/`; Shell glue stays thin
+- **Date**: 2026-10-09
+- **Status**: active
+- **Rule**: Presentation logic of the GNOME extension lives in ES modules under `gnome-extension/meeting-scribe@meetingscribe.dev/lib/` with no `gi://` or `resource:///org/gnome/shell/` imports, so it runs under plain `gjs` and is unit-tested. Strings are wrapped with an injected `_` (identity by default), never imported from the Shell. `extension.js` and the D-Bus client only wire these modules.
+- **Source**: [ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md); F2.1
+- **Verifiable in**: `gnome-extension/tests/` (`make test-extension`)
+
 ---
 
 ## Gotchas (GO)
@@ -269,6 +276,11 @@ ai_instructions:
 - **Status**: active
 - **Detail**: `serve` waits for `stop` or `bus.wait_for_disconnect()` (dbus-fast 5.2.0 raises or resolves when the connection closes). A lost bus is logged at ERROR, the active recording is stopped, and the exit code is 3. Exit codes: 0 clean, 1 name taken, 2 shutdown stop failed, 3 bus disconnected (disconnect wins over a stop failure). `_publish` catches emit errors so a dead bus cannot abort shutdown.
 
+### GO-027 — Run extension tests as ES modules: `gjs -m`, explicit imports, `System.exit`
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `gjs -m <file>` runs the entry file as a module (ESM specifiers need the `.js` extension and relative paths). gjs has no directory discovery, so `gnome-extension/tests/run.js` imports each `*.test.js` explicitly (add new files there). A failing run must end with `System.exit(1)` (`import System from 'system'`); an uncaught exception also exits 1 but only logs `Gjs-CRITICAL`. The uuid directory contains `@`, which is valid in a relative import specifier.
+
 ---
 
 ## Anti-Patterns (AP)
@@ -300,12 +312,12 @@ ai_instructions:
 | Category | Active | Superseded | Deprecated |
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
-| CR | 11 | 0 | 0 |
-| GO | 26 | 0 | 0 |
+| CR | 12 | 0 | 0 |
+| GO | 27 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-026 — 2026-10-09
-**Next available IDs**: BR-005, CR-012, GO-027, AP-005
+**Last rule added**: GO-027 — 2026-10-09
+**Next available IDs**: BR-005, CR-013, GO-028, AP-005
 
 ---
 

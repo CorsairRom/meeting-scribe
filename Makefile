@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup lint format imports test check run
+.PHONY: help setup lint format imports test test-extension check run
 
 help: ## List available targets
 	@awk -F':.*## ' '/^[a-z-]+:.*## / {printf "%s\t%s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -20,7 +20,10 @@ imports: ## Check architecture contracts only
 test: ## Run the test suite
 	scripts/run-tests.sh
 
-check: lint test ## lint + test
+test-extension: ## Run the GNOME extension unit tests (gjs)
+	gjs -m gnome-extension/tests/run.js
+
+check: lint test test-extension ## lint + test + test-extension
 
 run: ## Start the local service
 	uv run meeting-scribe
