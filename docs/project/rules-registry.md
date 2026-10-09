@@ -131,6 +131,20 @@ ai_instructions:
 - **Source**: [ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md); [`error-codes-catalog.md`](../architecture/error-codes-catalog.md)
 - **Verifiable in**: `docs/architecture/api-contracts.md`; `tests/e2e/recording/` (private `dbus-daemon`)
 
+### CR-012 — Extension logic lives in pure modules under `lib/`; Shell glue stays thin
+- **Date**: 2026-10-09
+- **Status**: active
+- **Rule**: Presentation logic of the GNOME extension lives in ES modules under `gnome-extension/meeting-scribe@meetingscribe.dev/lib/` with no `gi://` or `resource:///org/gnome/shell/` imports, so it runs under plain `gjs` and is unit-tested. Strings are wrapped with an injected `_` (identity by default), never imported from the Shell. `extension.js` and the D-Bus client only wire these modules.
+- **Source**: [ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md); F2.1
+- **Verifiable in**: `gnome-extension/tests/` (`make test-extension`)
+
+### CR-013 — The panel button intercepts `menu.toggle()`, not the click event
+- **Date**: 2026-10-09
+- **Status**: active
+- **Rule**: In GNOME Shell 50 `PanelMenu.Button` opens its menu from a `Clutter.ClickGesture` (`recognize` calls `this.menu?.toggle()`), so overriding `vfunc_event` or `button-press-event` no longer controls it. The indicator passes `dontCreateMenu = true` and installs its own `PopupMenu` subclass through `setMenu()` whose `toggle()` calls the controller's `onPrimaryClick()` and only calls `super.toggle()` for `open-menu`. Since the 2026-10-09 decision the controller only returns `open-menu`/`close-menu`, so the hook always falls through to `super.toggle()`; it is kept on purpose as the single click decision point (nobody should look for a click-to-start path, and any future click action must go through it). Every state opens the menu on click (idle/stopped offer Start, recording offers Stop): a stray click on the top bar must never record (user decision 2026-10-09, replacing the earlier one-click start).
+- **Source**: gnome-shell `gnome-50` `js/ui/panelMenu.js` and `popupMenu.js`; [ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md); F2.3
+- **Verifiable in**: `gnome-extension/meeting-scribe@meetingscribe.dev/lib/panelIndicator.js` (needs a manual check in a real shell, F2.4); controller behaviour in `gnome-extension/tests/indicatorController.test.js`
+
 ---
 
 ## Gotchas (GO)
@@ -269,6 +283,31 @@ ai_instructions:
 - **Status**: active
 - **Detail**: `serve` waits for `stop` or `bus.wait_for_disconnect()` (dbus-fast 5.2.0 raises or resolves when the connection closes). A lost bus is logged at ERROR, the active recording is stopped, and the exit code is 3. Exit codes: 0 clean, 1 name taken, 2 shutdown stop failed, 3 bus disconnected (disconnect wins over a stop failure). `_publish` catches emit errors so a dead bus cannot abort shutdown.
 
+### GO-027 — Run extension tests as ES modules: `gjs -m`, explicit imports, `System.exit`
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `gjs -m <file>` runs the entry file as a module (ESM specifiers need the `.js` extension and relative paths). gjs has no directory discovery, so `gnome-extension/tests/run.js` imports each `*.test.js` explicitly (add new files there). A failing run must end with `System.exit(1)` (`import System from 'system'`); an uncaught exception also exits 1 but only logs `Gjs-CRITICAL`. The uuid directory contains `@`, which is valid in a relative import specifier.
+
+### GO-028 — GJS D-Bus proxies: unannounced properties go stale, and error names must be read before stripping
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: verified against GJS 1.88.1 with a private bus. (1) A `Gio.DBusProxy` property getter reads the proxy cache, which only refreshes on `PropertiesChanged`; a property the service never announces (`ElapsedSeconds`) stays at its construction-time value, so read it with an explicit `org.freedesktop.DBus.Properties.Get` and count locally afterwards (`recordingClient.js`). (2) Proxy-wrapper methods have `<Name>Async()` promise variants that resolve with the unpacked out args array. (3) On a failed call, read `Gio.DBusError.get_remote_error(e)` first: `strip_remote_error(e)` rewrites `e.message` in place. (4) `connectSignal` ids are released with `proxy.disconnectSignal(id)`, `g-properties-changed` ids with `proxy.disconnect(id)`. (5) Watch a name with `Gio.bus_watch_name_on_connection(..., Gio.BusNameWatcherFlags.NONE, ...)` and create the proxy with `Gio.DBusProxyFlags.DO_NOT_AUTO_START` so merely watching never launches the service. Sources: gjs.guide D-Bus guide (Context7) plus the tests in `gnome-extension/tests/recordingClient.test.js`.
+
+### GO-029 — Extension D-Bus tests run on a private daemon and must always clean up
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `gnome-extension/tests/privateBus.js` starts `dbus-daemon --config-file=<temp> --nofork --print-address=1` (no service directories, like GO-025) via `Gio.Subprocess` and connects with `Gio.DBusConnection.new_for_address`; the session bus is never used. The harness timeout rejects a test but cannot cancel it, so a body that waits forever would leak the daemon: every wait inside a fixture (daemon address, connect, name acquisition in `FakeRecordingService.appear()` which also rejects on name-lost, daemon exit, close) is bounded by `withTimeout` at 2 s, and client calls in tests use a short `callTimeoutMs`, so `finally` runs `bus.stop()`. `stop()` is idempotent, force-exits the daemon by PID first and removes the temp dir including the socket the killed daemon leaves behind. As a backstop, `PrivateBus.start()` registers `stop()` with the harness (`registerCleanup`); the harness runs registered cleanups after every test, even a timed-out one, and `run.js` runs them again before `System.exit`. Production `RecordingClient` calls default to a 20 s timeout (`Stop` blocks up to `RECORDING_STOP_TIMEOUT_SECONDS` + 4 s in the service). A leaked daemon also keeps a piped stdout open, so run the suite with output redirected to a file when debugging. Check with `pgrep -a dbus-daemon` after a run.
+
+### GO-030 — Extension lifecycle: create everything in `enable()`, release everything in `disable()` (EGO)
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: GNOME Extensions review rules (gjs.guide review guidelines) forbid work in the constructor or at module scope and require that `disable()` leaves nothing behind. `extension.js` only imports at module scope; `enable()` creates the scheduler, indicator, `RecordingClient` (session bus by default) and controller, and `disable()` destroys them in reverse order and nulls the references. Timers come from `GLibScheduler` (`GLib.timeout_add_seconds`), which tracks every source and calls `GLib.source_remove` on cancel and destroy; the client unwatches its bus name and disconnects its proxy handlers. Signal callbacks passed into the client and indicator dereference `this._controller` lazily with `?.`, so a late callback after `disable()` is a no-op. Errors are shown with `Main.notify(title, body)` (gnome-50 `main.js`: a transient notification on `MessageTray.getSystemSource()`). `metadata.json` declares `uuid`, `name`, `description`, `shell-version: ["50"]`, `gettext-domain` and `url`; translation uses `this.gettext()` from `Extension`. No synchronous I/O runs in the shell: all D-Bus calls are async.
+
+### GO-031 — Shell-only files are checked statically, never executed by tests
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `extension.js` and `lib/panelIndicator.js` import `resource:///org/gnome/shell/...`, which plain `gjs` cannot load. `gnome-extension/tests/shellGlue.test.js` parses them with `node --check --input-type=module -` (source piped through stdin, so no scratch file; `node` is required to run `make test-extension`), checks that relative imports exist and that other imports are `gi://` or Shell modules, keeps `lib/indicatorModel.js` and `lib/indicatorController.js` free of `gi://` and Shell imports (CR-012), and validates `metadata.json`. The same test feeds deliberately broken source to the checker to prove it fails on a syntax error. This catches syntax and wiring mistakes only; Shell API use is verified manually in F2.4.
+
 ---
 
 ## Anti-Patterns (AP)
@@ -300,12 +339,12 @@ ai_instructions:
 | Category | Active | Superseded | Deprecated |
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
-| CR | 11 | 0 | 0 |
-| GO | 26 | 0 | 0 |
+| CR | 13 | 0 | 0 |
+| GO | 31 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-026 — 2026-10-09
-**Next available IDs**: BR-005, CR-012, GO-027, AP-005
+**Last rule added**: GO-031 — 2026-10-09
+**Next available IDs**: BR-005, CR-014, GO-032, AP-005
 
 ---
 

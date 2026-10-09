@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+# One-command install: service (uv tool), systemd --user unit, D-Bus activation, GNOME extension.
+# Idempotent; safe to re-run to upgrade. Refuses to run while a recording is in progress, or its
+# state is unknown unless FORCE=1 (FORCE never overrides a recording).
+#
+# Every run installs into a fresh versions/<id>/ directory, verifies it, and only then repoints the
+# `current` symlink atomically, so the environment a running service was loaded from is never
+# replaced. Old versions are pruned only once the service runs the new one. If the new version
+# fails to start, `current` (or, on a migration, the unit) is restored to what worked before.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/_common.sh
+source "$REPO_ROOT/scripts/_common.sh"
+
+# Decide before touching anything.
+refuse_unless_safe "'make install'" unknown || exit 1
+
+# Repoints `current` atomically through a uniquely named temporary link, so a leftover link from
+# an interrupted run can never collide. $1 is the link target, relative to $INSTALL_ROOT.
+point_current() {
+  local link_tmp
+  link_tmp="$(mktemp -u "$INSTALL_ROOT/current.new.XXXXXX")"
+  ln -s "$1" "$link_tmp"
+  mv -T "$link_tmp" "$CURRENT_LINK"
+}
+
+# The target `current` points at now (a working versioned install), or empty on a first install
+# or a migration. It is what a failed start rolls back to.
+previous=""
+if [[ -L "$CURRENT_LINK" && -d "$CURRENT_LINK" ]]; then
+  previous="$(readlink "$CURRENT_LINK")"
+fi
+
+# The legacy install: a unit from before versioned installs whose ExecStart is exactly the default
+# uv tool bin directory's executable (queried without the versioned UV_TOOL_* variables). A
+# hand-edited or foreign unit is not the legacy install and never triggers `uv tool uninstall`.
+legacy_tool=0
+legacy_exec=""
+unit_backup=""
+if [[ -f "$UNIT_PATH" ]]; then
+  unit_backup="$(<"$UNIT_PATH")"
+  if ! grep -qFx "ExecStart=$EXEC_START" "$UNIT_PATH"; then
+    legacy_bin_dir="$(env -u UV_TOOL_DIR -u UV_TOOL_BIN_DIR uv tool dir --bin 2>/dev/null)" || legacy_bin_dir=""
+    if [[ -n "$legacy_bin_dir" ]] && grep -qFx "ExecStart=$legacy_bin_dir/meeting-scribe" "$UNIT_PATH"; then
+      legacy_tool=1
+      legacy_exec="$legacy_bin_dir/meeting-scribe"
+    fi
+  fi
+fi
+
+version="$(date +%Y%m%d%H%M%S)-$$"
+version_dir="$VERSIONS_DIR/$version"
+
+# Before the switch nothing is changed: drop the new directory and stop.
+abort_before_switch() {
+  rm -rf "$version_dir"
+  echo "error: $1; the installed version was left untouched." >&2
+  exit 1
+}
+
+echo "==> Installing the service with uv (Python 3.12) into $version_dir"
+mkdir -p "$VERSIONS_DIR"
+if ! UV_TOOL_DIR="$version_dir/tools" UV_TOOL_BIN_DIR="$version_dir/bin" \
+  uv tool install --force --reinstall --python 3.12 "$REPO_ROOT"; then
+  abort_before_switch "uv tool install failed"
+fi
+if [[ ! -x "$version_dir/bin/meeting-scribe" ]]; then
+  abort_before_switch "$version_dir/bin/meeting-scribe was not created by uv tool install"
+fi
+
+# Render in bash (no sed replacement): the path may contain '&', '|' or '\'. Check it before
+# anything is switched.
+template="$(<"$REPO_ROOT/packaging/systemd/$UNIT_NAME.in")"
+rendered="${template%%@EXEC_START@*}$EXEC_START${template#*@EXEC_START@}"
+if ! printf '%s\n' "$rendered" | grep -qFx "ExecStart=$EXEC_START"; then
+  abort_before_switch "the rendered unit does not contain ExecStart=$EXEC_START"
+fi
+
+echo "==> Installing the systemd user unit and the D-Bus activation file"
+# Atomic switch: a running service keeps using the real versioned path it started from.
+point_current "versions/$version"
+mkdir -p "$(dirname "$UNIT_PATH")" "$(dirname "$ACTIVATION_PATH")"
+printf '%s\n' "$rendered" >"$UNIT_PATH"
+cp "$REPO_ROOT/packaging/dbus/$BUS_NAME.service" "$ACTIVATION_PATH"
+
+echo "==> Enabling and starting the service"
+was_active=0
+if unit_active; then was_active=1; fi
+start_failed=0
+reload_failed=0
+restart_skipped=0
+activated=0
+systemctl --user daemon-reload || reload_failed=1
+if ((was_active)); then
+  if systemctl --user enable "$UNIT_NAME"; then
+    # Re-check: a recording may have started while uv was installing. Never kill it.
+    # FORCE=1 also replaces a wedged service whose state stays unreadable, never a recording.
+    restart_state="$(service_state)"
+    if [[ "$restart_state" == unknown && "${FORCE:-0}" == 1 ]]; then
+      restart_state=idle
+    fi
+    case "$restart_state" in
+      none | idle)
+        if systemctl --user restart "$UNIT_NAME"; then activated=1; else start_failed=1; fi ;;
+      *)
+        restart_skipped=1
+        echo "warning: not restarting $UNIT_NAME because a recording is running or its state is unknown; the new version takes effect on the next restart or login." >&2 ;;
+    esac
+  else
+    start_failed=1
+  fi
+else
+  if systemctl --user enable --now "$UNIT_NAME"; then activated=1; else start_failed=1; fi
+fi
+
+# A new version that cannot start must not stay in charge: Restart=on-failure and D-Bus activation
+# would keep launching it. Go back to what worked and keep the new directory for inspection.
+rolled_back=""
+if ((start_failed)) && [[ -n "$previous" || $legacy_tool == 1 ]]; then
+  echo "==> The new version failed to start; rolling back" >&2
+  if [[ -n "$previous" ]]; then
+    point_current "$previous"
+    rolled_back="${previous##*/}"
+  else
+    # Migration: the old uv tool is still installed; point the unit back at it.
+    rm -f "$CURRENT_LINK"
+    printf '%s\n' "$unit_backup" >"$UNIT_PATH"
+    rolled_back="the legacy service ($legacy_exec)"
+  fi
+  systemctl --user daemon-reload || reload_failed=1
+  if ((was_active)); then
+    systemctl --user restart "$UNIT_NAME" || echo "warning: restarting the previous version failed too." >&2
+  fi
+fi
+
+migration_note=""
+if ((activated)) && unit_active; then
+  # The service now runs the new version: older versions and the legacy uv tool are unused.
+  for old in "$VERSIONS_DIR"/*; do
+    if [[ -d "$old" && "$old" != "$version_dir" ]]; then rm -rf "$old"; fi
+  done
+  if ((legacy_tool)); then
+    uv tool uninstall meeting-scribe || migration_note="old uv tool could not be removed (uv tool uninstall meeting-scribe)"
+  fi
+elif ((legacy_tool)) && [[ -z "$rolled_back" ]]; then
+  migration_note="the old uv tool is kept while the old service may still run; remove it later with: uv tool uninstall meeting-scribe"
+fi
+
+echo "==> Installing the GNOME extension"
+extension_failed=""
+extension_state="enabled"
+pack_dir="$(mktemp -d)"
+trap 'rm -rf "$pack_dir"' EXIT
+if ! gnome-extensions pack "$REPO_ROOT/gnome-extension/$EXTENSION_UUID" --extra-source=lib --force \
+  -o "$pack_dir"; then
+  extension_failed="pack failed (gnome-extensions pack)"
+elif ! gnome-extensions install --force "$pack_dir/$EXTENSION_UUID.shell-extension.zip"; then
+  extension_failed="install failed (gnome-extensions install)"
+elif ! gnome-extensions enable "$EXTENSION_UUID" 2>/dev/null \
+  || ! gnome-extensions info "$EXTENSION_UUID" >/dev/null 2>&1; then
+  extension_state="installed, will appear after you log out and back in"
+  if unit_active; then
+    echo "Extension installed: log out and back in once so GNOME Shell discovers it (the service is already running)."
+  else
+    echo "Extension installed: log out and back in once so GNOME Shell discovers it (the service is NOT active, see the summary)."
+  fi
+fi
+
+echo
+echo "meeting-scribe installed"
+if [[ -n "$rolled_back" ]]; then
+  echo "  version:   $rolled_back (rolled back; $version failed to start)"
+  echo "  rollback:  new version failed to start; rolled back to $rolled_back; the new version is kept in versions/$version for inspection"
+  echo "             Details: journalctl --user -u $UNIT_NAME"
+else
+  echo "  version:   $version"
+fi
+if unit_active; then
+  echo "  service:   active ($UNIT_NAME)"
+else
+  echo "  service:   NOT active (check: systemctl --user status $UNIT_NAME)"
+  if ((start_failed)); then
+    echo "  cause:     starting the service failed. Possible causes: another instance (for example"
+    echo "             'make run') owns the bus name (stop it with Ctrl+C, then run"
+    echo "             'systemctl --user restart $UNIT_NAME'), or the unit or executable is broken."
+    echo "             Details: journalctl --user -u $UNIT_NAME"
+  fi
+fi
+if ((restart_skipped)); then
+  echo "  restart:   skipped (recording or unknown state); the new version takes effect on the next restart or login"
+fi
+if ((reload_failed)); then
+  echo "  cause:     daemon-reload failed (systemctl --user daemon-reload); the unit file may not be loaded."
+fi
+if [[ -n "$migration_note" ]]; then
+  echo "  migration: $migration_note"
+fi
+if [[ -n "$extension_failed" ]]; then
+  echo "  extension: FAILED ($extension_failed)"
+else
+  echo "  extension: $extension_state ($EXTENSION_UUID)"
+fi
+echo "  config:    $CONFIG_HOME/meeting-scribe/.env (optional, see .env.example)"
+if ((start_failed || reload_failed)) || [[ -n "$extension_failed" ]]; then
+  exit 1
+fi

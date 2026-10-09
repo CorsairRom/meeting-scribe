@@ -9,21 +9,50 @@ unless you explicitly ask for a cloud summary.
 
 ## Quickstart
 
-Requires Python 3.12 and [`uv`](https://docs.astral.sh/uv/).
+Prerequisites: Fedora with GNOME on Wayland, [`uv`](https://docs.astral.sh/uv/), `ffmpeg` and PipeWire (with the
+PulseAudio shim).
 
 ```bash
-make setup   # install runtime + dev dependencies
-make check   # ruff, pyrefly, import-linter contracts, pytest
-make run     # serve the D-Bus API in the foreground (Ctrl+C to stop)
+make install     # everything: service, systemd user unit, D-Bus activation, GNOME extension
+make uninstall   # reverse it (keeps your meetings and your .env)
 ```
 
-Copy `.env.example` to `~/.config/meeting-scribe/.env` (or `$XDG_CONFIG_HOME/meeting-scribe/.env`) to override
-settings (`LOG_LEVEL`, `STORAGE_MEETINGS_DIR`); a `./.env` in the project directory is the development fallback.
-Run `make help` to list all targets.
+You never start the service by hand. `make install` does the following, and is safe to re-run to upgrade. It checks
+the recording first: while a recording is in progress, or its state cannot be read, it changes nothing and exits with an
+error (stop the recording from the top-bar menu, then run it again). If only the state is unreadable, `FORCE=1 make install`
+overrides that (never a positive recording). The state is re-checked right before the service restarts; if a recording started
+meanwhile the restart is skipped with a warning and the new version applies on the next restart or login. If the service
+fails to start (for example a `make run` instance owns the bus name), it still installs the extension, reports the service
+as NOT active and exits non-zero. A failing extension step is reported in the summary the same way (exit non-zero).
+
+1. Installs the service as a `uv` tool (Python 3.12) from this checkout into its own directory,
+   `${XDG_DATA_HOME:-~/.local/share}/meeting-scribe/versions/<timestamp>-<pid>/` (`tools/` and `bin/`), then repoints the
+   `current` symlink next to `versions/` atomically. The unit always runs `.../meeting-scribe/current/bin/meeting-scribe`,
+   so a running service never has its environment replaced underneath it. Older versions are pruned once the service runs
+   the new one (kept while the restart was skipped or failed). The new version is verified (executable present, unit
+   rendered) before `current` moves; if it then fails to start, `current` is restored to the previous version (or, on a
+   migration, the unit to the old tool), the previous service is restarted, the new directory is kept for inspection and
+   the installer exits non-zero.
+2. Installs and enables the `systemd --user` unit and the D-Bus activation file, then starts the service
+   (on upgrade it restarts it).
+3. Packs, installs and enables the GNOME extension. On Wayland a brand-new extension is discovered only after you
+   log out and back in once; the installer tells you when that is needed.
+
+Upgrading from an install made before versioned installs (the service ran from `~/.local/bin/meeting-scribe`): the first
+`make install` rewrites the unit to the `current/` path and, only after the service is active on it, runs
+`uv tool uninstall meeting-scribe` to drop the old tool (only when the old unit ran from the default uv tool bin
+directory; a hand-edited unit is left alone). If the restart was skipped (recording), the old tool stays and the
+summary says how to remove it later. `make uninstall` removes the whole `meeting-scribe/` versions tree.
+
+Configure by creating `~/.config/meeting-scribe/.env` (or `$XDG_CONFIG_HOME/meeting-scribe/.env`; template:
+`.env.example`) with `LOG_LEVEL`, `STORAGE_MEETINGS_DIR` and so on, then `systemctl --user restart meeting-scribe.service`.
+
+Development: `make setup` (dev dependencies), `make check` (ruff, pyrefly, import-linter, pytest, extension tests),
+`make run` (foreground service on your session bus, stop the installed one first). `make help` lists all targets.
 
 ## Try the D-Bus API
 
-Run the service in the foreground (`make run`), then from another terminal use `gdbus` against your session bus
+Once installed the service is already running (or starts on the first call). Use `gdbus` against your session bus
 (contract: [`api-contracts.md`](docs/architecture/api-contracts.md)):
 
 ```bash
@@ -34,7 +63,7 @@ gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meeting
   --method dev.meetingscribe.Recording1.Stop
 ```
 
-A second `make run` exits with an error while one instance owns the bus name. Stopping the service while recording
+`make run` exits with an error while another instance (such as the installed service) owns the bus name. Stopping the service while recording
 stops the recording first.
 
 ## Documentation
@@ -45,6 +74,7 @@ stops the recording first.
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | System context, bounded contexts, layering, GPU policy, configuration |
 | [`AGENTS.md`](AGENTS.md) | Conventions and workflow for AI agents and contributors (`CLAUDE.md` links to it) |
 | [`docs/runbooks/record-via-gdbus.md`](docs/runbooks/record-via-gdbus.md) | Record and stop a meeting by hand over D-Bus (records real audio) |
+| [`docs/runbooks/gnome-extension.md`](docs/runbooks/gnome-extension.md) | Try the panel indicator in a nested shell and install it in your session |
 | [`docs/`](docs/README.md) | Taxonomy: project scope and rules, architecture, ADRs, specs, runbooks, ideas |
 
 ## Safety

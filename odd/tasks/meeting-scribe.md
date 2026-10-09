@@ -191,7 +191,145 @@ repo from F1).
       foreground on the real session bus, name owned after ~200 ms; `Start` → RECORDING; after
       10.5 s `Stop` → STOPPED; Ctrl+C → exit 0; no ffmpeg left. Chunk: 2 ch, 16 kHz, s16, 10.5 s;
       per-channel RMS mic 525 / system 552 (both non-silent); empty ffmpeg.log. Recording deleted.
-### F2 GNOME extension — pending
+### F2 GNOME extension — integration branch `feat/gnome-extension` (from `main` after #15)
+
+Goal: start/stop recording from a GNOME Shell 50.4 panel indicator (Wayland) talking to
+`dev.meetingscribe.Recording1` over the session bus; timer + status.
+UX decision (user, 2026-10-09, revised the same day after real use): every click opens the
+drop-down menu; Start/Stop are explicit menu actions (the first one-click-start design recorded by accident). UI strings in English via
+gettext (translatable later). Environment: gjs 1.88.1, `gnome-shell --devkit` for a nested shell.
+Safety: tests never touch the real session bus or the running shell; installing/enabling the
+extension in the user's session, or running the nested shell, only with the user's consent.
+
+- [x] F2.1 Pure presentation logic (TDD, `gjs -m` test runner, no Shell imports): D-Bus state →
+      view model (icon, label, click action, menu items, failure/unavailable messages),
+      `formatElapsed`, D-Bus error name → user message; `make test-extension` wired into
+      `make check`. Branch `f2/feat-indicator-logic`.
+      Route: delegated writer. Commit `51ce0d7` (+442/-8 authored, ~220 of them test lines; 22 tests). TDD with a gjs harness
+      (`tests/harness.js` + explicit imports in `tests/run.js`, GO-027): RED `ImportError` → stub
+      `0 passed, 1 failed` → … → GREEN `22 passed, 0 failed`. States: unavailable ○ dimmed/menu,
+      IDLE/STOPPED ● start, RECORDING ■ HH:MM:SS menu+Stop, FAILED ⚠ menu+reason+Start, busy → no-op.
+      `make check` runs python + extension tests.
+      RDD (479 lines, medium): user granted; lineage `review-e811248a1c6784f1` approved + acked.
+      Fixed inline with TDD: `fill()` expanded `$&`/`$$` from service text (RED garbled failure
+      reason → replacer function → GREEN 23 passed); the harness now fails when no tests are
+      registered (RED exit 0 → exit 1).
+- [x] F2.2 D-Bus client (`Gio.DBusProxy`, name watching for service availability,
+      `PropertiesChanged`/`StateChanged`), tested against a private bus where practical.
+      Route: delegated writer. Commits `1691884` (async harness, per-test timeout; +30/-5) and
+      `6a32093` (`RecordingClient`, private-bus fixture with a fake Recording1 in GJS; +679/-5,
+      ~330 tests). TDD: async throw passed falsely → fixed; client RED `ImportError` → stub
+      `26/11` → GREEN `37 passed` (3 green runs); no leftover dbus-daemon. Facts (GO-028/029):
+      ElapsedSeconds is not in the proxy cache updates → read once via Properties.Get, then local
+      monotonic clock; read `get_remote_error` before `strip_remote_error`; watcher NONE + proxy
+      DO_NOT_AUTO_START so watching never launches the service. Orchestrator verified tests always
+      inject the private connection.
+      RDD (#34 + F2.2, 776 lines): user granted; lineage `review-27a7ef9a81ecff7e` approved + acked.
+      F2.2b fixes (delegated writer): `5e9d9ea` per-recording token drops stale ElapsedSeconds seeds
+      (RED `expected 5, got 100`), FAILED reads FailureReason before emitting (RED interim empty
+      reason), client call timeout 20 s (> 14 s worst-case Stop); `ceb25d7` every fixture wait
+      bounded at 2 s, name-lost rejects, harness cleanup registry run before exit. GREEN 41 passed
+      ×3, no leftover daemons. Note: if `RECORDING_STOP_TIMEOUT_SECONDS` is raised above ~16 s the
+      20 s client timeout must follow.
+- [x] F2.3 Extension shell (`extension.js`, `metadata.json` shell-version 50, `stylesheet.css`):
+      `PanelMenu.Button`, 1 s timer only while recording, full cleanup in `disable()` (EGO rules).
+      Route: delegated writer. Commits `e8ad042` (pure `indicatorController`, 15 tests; +311) and
+      `3b25864` (`extension.js`, `panelIndicator.js`, `glibScheduler.js`, metadata, stylesheet,
+      static checks; +331/-5). TDD: controller RED `ImportError` → 56 passed; glue RED 7 failing
+      → 70 passed. Click interception verified against GNOME 50 sources: `PanelMenu.Button` opens
+      its menu from a `Clutter.ClickGesture` calling `menu.toggle()`, so the button uses
+      `dontCreateMenu` + a `PopupMenu` subclass whose `toggle()` asks the controller (CR-013,
+      GO-030/031). Static check: `node --check --input-type=module` via stdin (proven on broken
+      sources); `make test-extension` now needs node (fails loudly if missing). NOT yet run in a
+      shell — F2.4, with consent.
+      RDD (#37 + F2.3, 958 lines): user granted; lineage `review-365649800a580c9f` approved + acked.
+      Fixed inline with TDD: a click on an open menu now only closes it (the decision moved into the
+      controller as `close-menu`; RED `expected "close-menu", got "start"`), and the orchestrator
+      found `extension.js` wrapped the callback without forwarding `{menuOpen}` — fixed plus a
+      static guard (RED → GREEN); a throwing tick no longer kills the GLib timer (RED `expected 2,
+      got 1`). GREEN 73 passed.
+- [x] F2.4 Packaging + runbook: `make extension-pack` (`gnome-extensions pack`), runbook for the
+      nested `--devkit` shell and for installing in the real session (logout/login on Wayland);
+      manual verification only with consent.
+      Route: delegated writer. Commits `613b2a6` (`extension-pack`/`extension-install`, pack test;
+      +66/-2), `f629901` (runbook `docs/runbooks/gnome-extension.md`; +172/-2), `c360b58`
+      (`gnome-extensions pack` segfaults without the output dir → `mkdir -p`). TDD: pack test RED
+      (target missing) → GREEN; zip = metadata, stylesheet, extension.js, lib/*.js only.
+      Nested shell on GNOME 49+: `dbus-run-session gnome-shell --devkit --wayland` needs the
+      `mutter-devkit` package (not installed here); extensions load from a throwaway
+      `XDG_DATA_HOME` (no `--extension-dir` option). Nothing installed or run.
+      RDD (#40 + F2.4, 328 lines, high) under the standing consent: lineage
+      `review-a6b681e2a2ff5906` approved + acked. Applied: standing-consent row scoped to review
+      consent only (R1); failing tick logged once (R4); blocking, roomier scheduler test (R3);
+      forwarding guard asserts the wrapper parameter reaches the controller (mutation
+      `onPrimaryClick()` → test fails); pack fixture closes the zip; runbook symptom row split.
+      Follow-up RDD on #42 (219 lines, standing consent): lineage `review-0cfac5dd209f0f94`
+      approved + acked. Fixed: blocking `spin()` could hang if the regression returned → guard
+      timeout source (mutation dropping the source now FAILS in 13 s instead of hanging); the
+      log-once flag resets after a successful tick (RED `expected 2, got 1` → GREEN 74 passed).
+      Extension packed and installed (not enabled) in the user's session with consent;
+      manual check pending (logout/login, enable, `make run`, click).
+- [x] F2.5 Plug-and-play install (user feedback 2026-10-09, after enabling the extension and
+      finding the service not running: "installing must bring everything up, including enabling the
+      extension"). Pulls the install part of F6 forward: `make install` = `uv tool install` of the
+      service, render + install the systemd user unit and the D-Bus activation file,
+      `systemctl --user enable --now`, pack + install + enable the extension; idempotent;
+      `make uninstall` reverses it. Tested with fake `systemctl`/`gnome-extensions`/`uv` on PATH
+      and a temp HOME/XDG tree. Branch `f2/feat-plug-and-play-install`.
+      Route: delegated writer. Commits `539b324` (install/uninstall/_common scripts, Makefile,
+      18 tests with fake tools on an isolated PATH; +403/-4) and `cb25d05` (docs; +49/-32).
+      `uv tool install --force --reinstall --python 3.12 <repo>`; unit ExecStart from
+      `uv tool dir --bin`; `enable --now` first time, `restart` on re-install only when not
+      RECORDING; extension pack+install+enable with a log-out-once hint on Wayland. TDD RED (no
+      scripts) → GREEN 193 python / 74 extension. Nothing run against the real system by the writer.
+      RDD (509 lines, high, standing consent): lineage `review-d68c3b4ec4043d18` approved + acked.
+      F2.5b (`9b31798`, +179/-42): recording state checked BEFORE reinstalling; state read fails
+      closed (UNKNOWN refuses install/uninstall without FORCE; gdbus `--timeout 5`); a failed
+      service start no longer aborts (extension still installed, cause printed, exit 1); honest
+      PATH-isolation tests with decoy tools. RED 14 → GREEN 228 python / 75 extension.
+      RDD on F2.5b (226 lines, high, standing consent): lineage `review-132aff3a2e6ad58c` approved +
+      acked. F2.5c (`ac96995`, +97/-13): state re-checked right before restart (a recording started
+      during the reinstall is never killed; restart skipped with a warning), `FORCE=1` overrides only
+      `unknown` for install, explicit IDLE/STOPPED/FAILED matching (anything else → unknown), real
+      PATH assertion, separate daemon-reload cause. RED 6 → GREEN 237 python / 75 extension.
+      RDD on F2.5c (115 lines, standing consent): lineage `review-65c7e305b205e63c` approved + acked.
+      Fixed inline: `FORCE=1` now also restarts an active service whose state stays unknown (the
+      documented wedged-service remedy), never a recording (RED 2 → GREEN 240 python).
+- [x] F2.6 Menu-only click (user feedback 2026-10-09 after a stray click recorded 4 s): every
+      state opens the drop-down; Start/Stop are explicit menu actions. Inline TDD in a worktree:
+      RED 5 failing → GREEN 75; guard test "no state starts a recording on a plain click".
+      Merged as #44 (78 lines, under budget). Supersedes the 2026-10-09 one-click-start decision.
+- [x] F2 real-session verification (user, 2026-10-09): `make install` run by the orchestrator with the
+      user's go (exit 0: uv tool at `~/.local/bin/meeting-scribe`, unit enabled + active, activation
+      file installed, extension reinstalled + enabled; service answered `IDLE`). After one
+      logout/login the user confirmed the menu-only indicator and recorded successfully.
+- [x] F2.7 Installer polish (Gentle AI review `review-a96ff3aaa6a272a2`): versioned tool install with
+      an atomic switch so a recording that starts mid-reinstall never runs on a swapped venv; extension
+      pack/install failures keep the summary; log-out hint and start-failure cause reflect the real
+      state; one FORCE contract shared by install/uninstall; escaped ExecStart rendering + assertion;
+      tests for the untested reinstall branches; CR-013 notes the toggle hook is now a kept extension
+      point. Branch `f2/fix-installer-polish`.
+      Route: delegated writer. `fbe11c4` (+403/-50): versions under `~/.local/share/meeting-scribe/
+      versions/<ts>-<pid>/{tools,bin}` via `UV_TOOL_DIR`/`UV_TOOL_BIN_DIR` (verified with uv 0.10.9),
+      `current` symlink switched with `mv -T`, ExecStart stable at `current/bin`, prune after a
+      successful restart only, migration uninstalls the legacy uv tool after the new unit is active;
+      extension failures keep the summary; truthful hints; shared FORCE scope; ExecStart rendered in
+      bash and checked with `grep -Fx`. `7578713` CR-013 note. RED 49 → GREEN 88 install tests.
+      Orchestrator fix: uninstall removed the whole `~/.local/share/meeting-scribe` (future caches)
+      → now only `versions/` + `current` (RED test → GREEN; `rmdir` added to the sandbox whitelist).
+      `make check` → 262 python / 75 extension.
+      RDD (442 lines, standing consent): `review-3c906d6d33a4ced9` approved + acked. F2.7b
+      (`e71917e`, +206/-37): rollback to the previous version (or the legacy unit on migration)
+      when the new one fails to start; switch only after the unit render and executable are
+      verified; explicit legacy-tool detection; behavioural FORCE tests. RED per item → GREEN
+      269 python / 75 extension. RDD `review-b082c4e0acfdc610` approved + acked. Accepted as-is
+      (single-user edge cases, noted for F6): restoring a hand-edited custom unit on a failed
+      first upgrade, rollback summary wording/README precision, a test for rollback with an
+      inactive service.
+      Live migration (user's go, 2026-10-09): `make install` exit 0 → version
+      `20261009173638-2310554`, `current` → that version, ExecStart `…/current/bin/meeting-scribe`,
+      legacy `~/.local/bin/meeting-scribe` removed, service active (`IDLE`), extension enabled.
+      Cosmetic follow-up: silence uv's "bin is not on your PATH" warning for versioned bins.
 ### F3 Processing — pending
 ### F4 Review UI — pending
 ### F5 Summaries — pending
@@ -206,6 +344,7 @@ repo from F1).
 | gitignore fix | inline | one mechanical file, root cause already understood |
 | F0.3 + F0.4 | delegated (1 writer, ran in parallel with the code review — disjoint files) | 30+ doc files |
 | review suggestions | inline | two mechanical one-line doc edits |
+| RDD consent | standing | user instruction 2026-10-09: always answer `granted` to Gentle AI review-consent envelopes in this repo. Scope: review consent ONLY — it does not cover recordings, installing/enabling the extension, running a nested shell, product decisions or pushes; those still need explicit consent. |
 
 ## Accepted deviations from HANDOFF (verified by mapping)
 
@@ -288,4 +427,4 @@ it (F1.4). Items below kept for traceability.
 F0 merged to `main` (#2, squash). F1 complete on integration branch `feat/recording`: F1.1–F1.5
 integrated (#14, #16–#31; packaging/runbook #28–#30, smoke test #31). Final tail review
 `review-0b5874936265a288` approved. Tracker #15 is ready for the owner to merge into `main`.
-Next: F2 GNOME extension, after the owner's go (installing/enabling the extension needs consent).
+F1 merged to `main` (#15, merge commit 7301d96). F2 started on `feat/gnome-extension`; current: F2.4 done; F2.1–F2.3 integrated (#33–#34, #36–#40); F2 complete and verified in the real session (#33–#48); tracker #35 ready for the owner. Next: F3 Processing.

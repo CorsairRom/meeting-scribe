@@ -27,18 +27,14 @@ output format without listening to it.
 
 ## Preconditions
 
-- `make setup` done.
+- `make install` done (the service runs as a user service). For development without installing: `make setup`, and stop the installed one first with `systemctl --user stop meeting-scribe.service`.
 - PipeWire (with the PulseAudio shim) running, and a real microphone set as the default source (not a monitor).
 - `ffmpeg`, `ffprobe`, `pactl` and `gdbus` installed.
 - Optional config in `${XDG_CONFIG_HOME:-~/.config}/meeting-scribe/.env` (template: `.env.example`).
 
 ## Steps
 
-1. Terminal A, start the service in the foreground:
-
-   ```bash
-   make run
-   ```
+1. Make sure the service is running (`systemctl --user is-active meeting-scribe.service`; D-Bus activation also starts it on the first call). Development only: `make run` in terminal A serves it in the foreground.
 
 2. Terminal B, start recording (this opens the microphone; tell the people around you):
 
@@ -100,11 +96,14 @@ Expect `2 channels` (mic left, system audio right), `16000 Hz`, `s16`. Chunks ar
 
 Delete the test session folder (`rm -r <session-dir>`) once you have checked the format. Do not keep test audio.
 
-## Install as a user service (F6)
+## Install as a user service
 
-Installation arrives in F6 (`make install`); nothing here installs anything. Two packaging files prepare it:
+`make install` (F2.5) installs everything, `make uninstall` removes it. Two packaging files are involved:
 
 - `packaging/systemd/meeting-scribe.service.in`: the `systemd --user` unit template (`Type=dbus`, restart on failure
-  but not on exit 1, ordered after PipeWire). `make install` will render `@EXEC_START@`.
+  but not on exit 1, ordered after PipeWire). `scripts/install.sh` renders `@EXEC_START@` with the stable `.../meeting-scribe/current/bin/meeting-scribe` path
+  (each install lives in `.../meeting-scribe/versions/<timestamp>/`, see the README).
+  Both scripts read the recording state first (bounded by a timeout) and refuse while it is `RECORDING` or cannot be read;
+  `FORCE=1` overrides an unreadable state for both, and additionally a running recording for `make uninstall` only.
 - `packaging/dbus/dev.meetingscribe.Service.service`: the D-Bus activation file; it hands activation to
   `meeting-scribe.service`, so the first call on the bus starts the service.

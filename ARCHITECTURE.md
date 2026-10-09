@@ -46,7 +46,7 @@ flowchart LR
 
 | Element | Technology | Status |
 |---|---|---|
-| Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root serves the `Recording1` D-Bus interface (`create_app`, `serve`, `run`); more interfaces in later phases, unit file and activation in F6 |
+| Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root serves the `Recording1` D-Bus interface (`create_app`, `serve`, `run`); more interfaces in later phases, unit file and activation installed by `make install` (F2.5) |
 | GNOME extension | GJS, thin client, no ML | planned (F2), [ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md) |
 | Capture | ffmpeg on PipeWire, 2-channel 30 s chunks | adapter built (F1.3), wiring planned (F1.4), [ADR-002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) |
 | Transcription | faster-whisper `large-v3-turbo`, float16, CUDA | planned (F3) |
@@ -105,7 +105,15 @@ on its own, `AudioCapture.exit_detail()` gives the exit code plus the `ffmpeg.lo
 as the session `failure_reason` (generic text only when empty). Opening `ffmpeg.log` and spawning ffmpeg fail with
 distinct messages. Not yet wired into `main.py` (F1.4).
 
-The GNOME extension lives in `gnome-extension/` (planned, F2) and the GTK review app in a separate top-level directory (planned, F4), both outside the Python package. Packaging files (systemd `--user` unit template and D-Bus activation file, installed in F6) live in `packaging/`.
+The GNOME extension lives in `gnome-extension/` (F2 in progress) and the GTK review app in a separate top-level directory (planned, F4), both outside the Python package. Packaging files (systemd `--user` unit template and D-Bus activation file, installed by `make install`) live in `packaging/`.
+
+Extension layout (`gnome-extension/`): the extension itself is `meeting-scribe@meetingscribe.dev/`. Presentation logic (view model, elapsed formatting, D-Bus error to message mapping) lives in pure ES modules under `lib/` with no `gi://` or `resource:///org/gnome/shell/` imports, translated through an injected `_` function, and is unit-tested with `gjs -m` (`make test-extension`, tests in `gnome-extension/tests/`). Code that touches the Shell (`extension.js`, `lib/panelIndicator.js`, `lib/glibScheduler.js`) stays thin and only wires those modules.
+
+Extension layering is model, then controller, then Shell glue. `lib/indicatorModel.js` turns a client snapshot into a view model. `lib/indicatorController.js` (pure, with injected `client`, `view`, `scheduler`, `notify` and `_`) renders on every client change, runs a 1 s tick only while the state is `RECORDING` (cancelled on stop, failure, service loss and `destroy()`), performs the model's `clickAction`, and reports failed calls through `notify` with `errorMessage()`. `lib/panelIndicator.js` is the `PanelMenu.Button` that renders the model; it replaces the button's menu with a subclass whose `toggle()` asks the controller first, and every state opens the menu: starting and stopping are always explicit menu actions, so a stray click never records (CR-013). `extension.js` creates the scheduler, indicator, client and controller in `enable()`, adds the button with `Main.panel.addToStatusArea()` and destroys everything in reverse order in `disable()` (GO-030). Shell-only files are never executed by tests: `make test-extension` parses them with `node --check` and validates `metadata.json` (GO-031).
+
+Packaging: `make extension-pack` runs `gnome-extensions pack` with `--extra-source=lib` (it picks up `metadata.json`, `extension.js` and `stylesheet.css` itself) into `dist/`; `make extension-install` installs the zip without enabling it. Try-out and install steps are in [the runbook](docs/runbooks/gnome-extension.md).
+
+The D-Bus client (`lib/recordingClient.js`) takes an injectable bus connection and clock, does nothing until `connect()` and releases everything in `destroy()`. It watches the service's bus name (no autostart, so the extension never launches the service) and creates the `Recording1` proxy only while the name has an owner. Its snapshot (`available`, `busy`, `state`, `sessionId`, `elapsedSeconds`, `failureReason`) feeds `viewModel()` and updates from `PropertiesChanged` and `StateChanged`. The service does not announce `ElapsedSeconds`, so the client reads it once when a recording starts (or is joined) and counts locally on the monotonic clock; the shell's 1 s timer (F2.3) only re-reads `snapshot`. A late seed reply from an earlier recording is dropped (a counter bumped on every entry into RECORDING), a transition into `FAILED` is reported only once its `FailureReason` is known (read with `Properties.Get`, because `StateChanged` carries none), and every call uses a 20 s timeout (`callTimeoutMs`: `Stop` blocks up to `RECORDING_STOP_TIMEOUT_SECONDS` + 4 s in the service). Tests run it against a fake `Recording1` on a private `dbus-daemon` (`gnome-extension/tests/privateBus.js`, GO-029).
 
 ---
 
@@ -195,14 +203,14 @@ Names are proposed and renamable until F6. The contract lives in [`docs/architec
 | `dev.meetingscribe.Speakers1` | rename, merge, sample path |
 | `dev.meetingscribe.Summaries1` | generate/read summary |
 | Errors | `dev.meetingscribe.Error.<ERROR_CODE>` (see [error codes](docs/architecture/error-codes-catalog.md)) |
-| Activation | `systemd --user` unit plus D-Bus session activation file (F6) |
+| Activation | `systemd --user` unit plus D-Bus session activation file, installed by `make install` |
 
 Trust boundary: the session bus is per-user and unreachable from websites; any process of the same user can call the
 service, the same boundary as the user's files. The service runs one asyncio loop; ML work runs off the event loop
 so D-Bus stays responsive. The review app runs on system Python ([ADR-005](docs/decisions/005-review-ui-native-gtk-app.md)).
 Tooling: `gdbus call` or `busctl --user`. E2E tests (`@pytest.mark.dbus`) start a private `dbus-daemon`, connect to its
 address explicitly and wire the controller with fakes; they never touch the user's session bus or an audio device.
-The service itself runs in the foreground (`make run`, `meeting-scribe`), exits non-zero if the bus name is already
+`make install` (`scripts/install.sh`) installs the service as a `uv tool` (Python 3.12), renders the unit with the absolute `ExecStart`, copies the activation file, runs `systemctl --user enable --now` (restart on upgrade, never while recording) and packs, installs and enables the extension; `make uninstall` reverses it and never touches the meetings directory or `.env`. The service can also run in the foreground for development (`make run`, `meeting-scribe`); it exits non-zero if the bus name is already
 owned (1), stops an active recording on SIGINT/SIGTERM, exits 2 if that stop fails and 3 if the bus connection is lost
 (the recording is stopped first, so ffmpeg is never left running unreachable). Shutdown lets the crash monitor finish
 its current poll before stopping, so controller calls never overlap.
