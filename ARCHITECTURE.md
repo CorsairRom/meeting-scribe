@@ -72,6 +72,26 @@ Source root: `src/meeting_scribe/`. Each package has `domain/`, `application/`, 
 | `settings.py` | Root `Settings` composed of per-domain settings classes |
 | `main.py` | Composition root: `create_app(settings)`, `run()` |
 
+### Recording session
+
+`RecordingController` (application) holds the single in-progress `RecordingSession` (domain entity) in memory and
+talks to the outside only through ports: `Clock`, `AudioDeviceResolver`, `AudioCapture`, `RecordingStorage`.
+Session id and folder name are the local start time, `YYYY-MM-DD_HHMMSS`; audio chunks go to `<folder>/audio/`.
+
+```mermaid
+stateDiagram-v2
+  [*] --> IDLE
+  IDLE --> RECORDING: start (devices resolved, folder prepared, capture started)
+  RECORDING --> STOPPED: stop (capture stopped cleanly)
+  RECORDING --> FAILED: capture start/stop error, or capture process exited
+  STOPPED --> RECORDING: start (new session)
+  FAILED --> RECORDING: start (new session)
+```
+
+`IDLE` is the absence of a session (null object); the entity itself only has `RECORDING`, `STOPPED` and `FAILED`.
+`status()` detects a crashed capture (`is_running()` false while `RECORDING`) and moves the session to `FAILED`;
+chunks already on disk are kept.
+
 The GNOME extension lives in `gnome-extension/` (planned, F2) and the GTK review app in a separate top-level directory (planned, F4), both outside the Python package.
 
 ---

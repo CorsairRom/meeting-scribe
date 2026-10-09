@@ -209,6 +209,11 @@ ai_instructions:
 - **Status**: active
 - **Detail**: the project venv is uv Python 3.12 (required by torch, ctranslate2 and pyannote), where the system `gi` is not importable. The GTK4 review app runs with `/usr/bin/python3` and system PyGObject (Fedora 44: python3-gobject 3.56.3, gtk4 4.22.4, libadwaita 1.9.3). Keep presenters free of `gi` so pytest in the venv can test them. Building PyGObject into the venv needs `gobject-introspection-devel` and `cairo-gobject-devel`; revisit only if the split causes friction ([ADR-005](../decisions/005-review-ui-native-gtk-app.md)).
 
+### GO-015 — Session folder creation must fail on an existing folder
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `audio_dir.mkdir(parents=True, exist_ok=False)` alone succeeds when the session folder already exists without `audio/`, so a second recording started in the same second could reuse a folder. `FilesystemRecordingStorage.prepare` creates the session directory with `exist_ok=False` first, then `audio/`. Session ids have one-second resolution (`YYYY-MM-DD_HHMMSS`).
+
 ---
 
 ## Anti-Patterns (AP)
@@ -241,11 +246,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 11 | 0 | 0 |
-| GO | 14 | 0 | 0 |
+| GO | 15 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: AP-004 — 2026-10-09
-**Next available IDs**: BR-005, CR-012, GO-015, AP-005
+**Last rule added**: GO-015 — 2026-10-09
+**Next available IDs**: BR-005, CR-012, GO-016, AP-005
 
 ---
 
