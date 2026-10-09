@@ -1,0 +1,6 @@
+# D-Bus session activation file. Bus activation is delegated to systemd, so the first call to
+# dev.meetingscribe.Service starts meeting-scribe.service; Exec is a required placeholder.
+[D-BUS Service]
+Name=dev.meetingscribe.Service
+Exec=/bin/false
+SystemdService=meeting-scribe.service
