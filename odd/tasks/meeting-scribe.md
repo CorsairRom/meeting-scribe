@@ -205,11 +205,15 @@ extension in the user's session, or running the nested shell, only with the user
       view model (icon, label, click action, menu items, failure/unavailable messages),
       `formatElapsed`, D-Bus error name → user message; `make test-extension` wired into
       `make check`. Branch `f2/feat-indicator-logic`.
-      Route: delegated writer. Commit `51ce0d7` (+442/-8, ~220 tests). TDD with a gjs harness
+      Route: delegated writer. Commit `51ce0d7` (+442/-8 authored, ~220 of them test lines; 22 tests). TDD with a gjs harness
       (`tests/harness.js` + explicit imports in `tests/run.js`, GO-027): RED `ImportError` → stub
       `0 passed, 1 failed` → … → GREEN `22 passed, 0 failed`. States: unavailable ○ dimmed/menu,
       IDLE/STOPPED ● start, RECORDING ■ HH:MM:SS menu+Stop, FAILED ⚠ menu+reason+Start, busy → no-op.
       `make check` runs python + extension tests.
+      RDD (479 lines, medium): user granted; lineage `review-e811248a1c6784f1` approved + acked.
+      Fixed inline with TDD: `fill()` expanded `$&`/`$$` from service text (RED garbled failure
+      reason → replacer function → GREEN 23 passed); the harness now fails when no tests are
+      registered (RED exit 0 → exit 1).
 - [ ] F2.2 D-Bus client (`Gio.DBusProxy`, name watching for service availability,
       `PropertiesChanged`/`StateChanged`), tested against a private bus where practical.
 - [ ] F2.3 Extension shell (`extension.js`, `metadata.json` shell-version 50, `stylesheet.css`):
