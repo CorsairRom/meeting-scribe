@@ -108,12 +108,17 @@ test('controller restarts the tick on a second recording', () => {
     assertEqual(f.scheduler.active.size, 1);
 });
 
-test('primary click starts when idle or stopped, without asking to open the menu', async () => {
-    const f = fixture();
-    f.controller.refresh();
-    assertEqual(f.controller.onPrimaryClick(), 'start');
-    await flush();
-    assertDeepEqual(f.client.calls, ['start']);
+test('primary click only opens the menu when idle or stopped; Start comes from the menu', async () => {
+    for (const s of [snap({}), snap({state: 'STOPPED'})]) {
+        const f = fixture(s);
+        f.controller.refresh();
+        assertEqual(f.controller.onPrimaryClick(), 'open-menu');
+        await flush();
+        assertDeepEqual(f.client.calls, [], 'a click alone never records: ');
+        f.controller.onMenuAction('start');
+        await flush();
+        assertDeepEqual(f.client.calls, ['start']);
+    }
 });
 
 test('primary click asks to open the menu while recording, failed or unavailable', () => {
@@ -156,7 +161,7 @@ test('a failed call notifies with the mapped message', async () => {
         name: 'dev.meetingscribe.Error.AUDIO_DEVICE_NOT_FOUND', message: 'raw',
     })});
     f.controller.refresh();
-    f.controller.onPrimaryClick();
+    f.controller.onMenuAction('start');
     await flush();
     assertEqual(f.notes.length, 1);
     assertEqual(f.notes[0][0], 'Meeting Scribe');
@@ -206,7 +211,7 @@ test('an error that arrives after destroy is not notified', async () => {
         reject = rej;
     })});
     f.controller.refresh();
-    f.controller.onPrimaryClick();
+    f.controller.onMenuAction('start');
     f.controller.destroy();
     reject({name: '', message: 'late'});
     await flush();

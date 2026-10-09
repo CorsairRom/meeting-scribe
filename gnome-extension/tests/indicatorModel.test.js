@@ -92,12 +92,12 @@ test('icons are distinct named constants', () => {
     assertEqual(ICON_RECORDING, '■');
 });
 
-test('IDLE shows the idle glyph and one click starts', () => {
+test('IDLE shows the idle glyph and a click opens a menu with Start (never starts directly)', () => {
     const m = vm({});
     assertEqual(m.icon, ICON_IDLE);
     assertEqual(m.label, '');
-    assertEqual(m.clickAction, 'start');
-    assertDeepEqual(m.menuItems, []);
+    assertEqual(m.clickAction, 'open-menu');
+    assertDeepEqual(m.menuItems, [{kind: 'action', text: 'Start recording', action: 'start'}]);
     assertEqual(m.tooltip, 'Start recording');
     assertEqual(m.dimmed, false);
 });
@@ -120,16 +120,28 @@ test('RECORDING without a session id omits the id from the status line', () => {
     assertEqual(m.menuItems[0].text, 'Recording in progress');
 });
 
-test('STOPPED looks idle, click starts, menu can show the last session', () => {
+test('STOPPED looks idle, click opens a menu with the last session and Start', () => {
     const m = vm({state: 'STOPPED', sessionId: 's1'});
     assertEqual(m.icon, ICON_IDLE);
     assertEqual(m.label, '');
-    assertEqual(m.clickAction, 'start');
-    assertDeepEqual(m.menuItems, [{kind: 'status', text: 'Last recording: s1'}]);
+    assertEqual(m.clickAction, 'open-menu');
+    assertDeepEqual(m.menuItems, [
+        {kind: 'status', text: 'Last recording: s1'},
+        {kind: 'separator'},
+        {kind: 'action', text: 'Start recording', action: 'start'},
+    ]);
 });
 
-test('STOPPED without a session id has an empty menu', () => {
-    assertDeepEqual(vm({state: 'STOPPED'}).menuItems, []);
+test('STOPPED without a session id offers only Start', () => {
+    assertDeepEqual(vm({state: 'STOPPED'}).menuItems,
+        [{kind: 'action', text: 'Start recording', action: 'start'}]);
+});
+
+test('no state starts a recording on a plain click', () => {
+    for (const state of ['IDLE', 'STOPPED', 'RECORDING', 'FAILED']) {
+        const m = vm({state, sessionId: 's1'});
+        assertEqual(m.clickAction === 'start', false, `${state}: `);
+    }
 });
 
 test('FAILED shows a warning, click opens a menu with reason and Start', () => {

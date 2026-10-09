@@ -23,8 +23,8 @@ and install it in your real session. The extension is a thin D-Bus client of the
 
 ## Privacy warning
 
-> **Clicking the idle indicator starts a recording of your real microphone and the system audio** whenever the
-> service is reachable on the same session bus, including inside a nested shell. Start the service only knowingly,
+> **Choosing "Start recording" in the indicator menu records your real microphone and the system audio** whenever
+> the service is reachable on the same session bus, including inside a nested shell. A plain click only opens the menu. Start the service only knowingly,
 > tell anyone who can be heard, and never commit or share the output. An AI agent must not run these steps for you.
 
 ## Preconditions
@@ -41,7 +41,7 @@ Derived from `lib/indicatorModel.js`:
 
 | State | Icon and label | Click | Menu |
 |---|---|---|---|
-| `IDLE`, `STOPPED` | `●` | Starts a recording, no menu opens | Empty (after `STOPPED`: "Last recording: `<session id>`") |
+| `IDLE`, `STOPPED` | `●` | Opens the menu | "Start recording" (after `STOPPED`, preceded by "Last recording: `<session id>`") |
 | `RECORDING` | `■ HH:MM:SS` (elapsed, ticks every second) | Opens the menu | "Recording in progress", **Stop recording** |
 | `FAILED` | `⚠` | Opens the menu | "Recording failed: `<reason>`", **Start recording** |
 | Service unavailable | `○`, dimmed | Opens the menu | "The Meeting Scribe service is not running." and how to start it |

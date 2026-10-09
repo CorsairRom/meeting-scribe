@@ -77,13 +77,18 @@ function stateModel({state, sessionId, elapsedSeconds, failureReason}, _) {
     switch (state) {
     case 'IDLE':
     case 'STOPPED':
+        // A click only opens the menu: starting is always an explicit menu action, so a
+        // stray click on the top bar can never record (user decision, 2026-10-09).
         return {
             icon: ICON_IDLE,
             label: '',
-            clickAction: 'start',
-            menuItems: state === 'STOPPED' && sessionId
-                ? [status(fill(_('Last recording: %s'), sessionId))]
-                : [],
+            clickAction: 'open-menu',
+            menuItems: [
+                ...(state === 'STOPPED' && sessionId
+                    ? [status(fill(_('Last recording: %s'), sessionId)), SEPARATOR]
+                    : []),
+                action(_('Start recording'), 'start'),
+            ],
             tooltip: _('Start recording'),
             dimmed: false,
         };
