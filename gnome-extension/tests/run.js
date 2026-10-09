@@ -2,8 +2,15 @@
 // gjs has no module-directory discovery, so each test file is imported explicitly.
 import System from 'system';
 
-import {runAll} from './harness.js';
+import {runAll, runCleanups} from './harness.js';
 import './indicatorModel.test.js';
+import './privateBus.test.js';
 import './recordingClient.test.js';
 
-System.exit(await runAll() === 0 ? 0 : 1);
+let failed = 1;
+try {
+    failed = await runAll();
+} finally {
+    await runCleanups(); // never leave a private dbus-daemon behind, whatever happened
+}
+System.exit(failed === 0 ? 0 : 1);

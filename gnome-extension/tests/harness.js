@@ -4,6 +4,27 @@ import GLib from 'gi://GLib';
 const TEST_TIMEOUT_SECONDS = 5;
 
 const tests = [];
+const cleanups = [];
+
+/**
+ * Register an async cleanup (idempotent) the harness runs after every test, even one that
+ * timed out, and once more before the run ends. Fixtures register what they must not leak.
+ */
+export function registerCleanup(fn) {
+    cleanups.push(fn);
+}
+
+async function runCleanups() {
+    while (cleanups.length > 0) {
+        try {
+            await cleanups.pop()();
+        } catch (e) {
+            print(`cleanup failed: ${e.message}`);
+        }
+    }
+}
+
+export {runCleanups};
 
 export function test(name, fn) {
     tests.push({name, fn});
@@ -69,6 +90,7 @@ export async function runAll() {
             print(`FAIL ${name}\n     ${e.message}`);
         } finally {
             timeout.cancel();
+            await runCleanups();
         }
     }
     if (tests.length === 0) {
