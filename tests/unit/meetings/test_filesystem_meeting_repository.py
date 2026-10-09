@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import stat
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -13,7 +14,9 @@ from meeting_scribe.meetings.domain.errors import (
 )
 from meeting_scribe.meetings.domain.meeting import (
     NULL_MEETING,
+    AudioInfo,
     Meeting,
+    ProcessingDevice,
     ProcessingParams,
     RecordingInfo,
 )
@@ -197,3 +200,51 @@ def test_list_fails_when_the_directory_cannot_be_read(tmp_path: Path) -> None:
     not_a_dir.write_text("x", encoding="utf-8")
 
     assert isinstance(FilesystemMeetingRepository(not_a_dir).list_all(), Failure)
+
+
+def test_save_refuses_a_directory_that_is_not_the_meeting_folder(tmp_path: Path) -> None:
+    repo = FilesystemMeetingRepository(tmp_path)
+    meeting = _meeting(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    outside = tmp_path.parent / meeting.id
+
+    for directory in (other, outside, tmp_path / meeting.id / "nested", tmp_path):
+        result = repo.save(meeting.model_copy(update={"directory": directory}))
+        assert isinstance(result.failure(), MeetingStorageError)
+
+    assert not (other / "meeting.json").exists()
+    assert repo.get(meeting.id).unwrap().is_null
+
+
+def test_save_fsyncs_the_parent_directory_after_the_rename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synced_directories: list[bool] = []
+    real_fsync = os.fsync
+
+    def recording_fsync(fd: int) -> None:
+        synced_directories.append(stat.S_ISDIR(os.fstat(fd).st_mode))
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+
+    FilesystemMeetingRepository(tmp_path).save(_meeting(tmp_path)).unwrap()
+
+    assert synced_directories == [False, True]  # temp file first, then its folder
+
+
+def test_audio_and_device_survive_a_save_get_round_trip(tmp_path: Path) -> None:
+    repo = FilesystemMeetingRepository(tmp_path)
+    meeting = _meeting(tmp_path)
+    updated = meeting.with_audio(
+        AudioInfo(chunk_count=3, total_frames=1_440_960, duration_seconds=90.06)
+    ).with_device(ProcessingDevice(transcription="cpu/int8", diarization="cpu"))
+
+    repo.save(updated).unwrap()
+
+    stored = repo.get(meeting.id).unwrap()
+    assert stored == updated
+    assert stored.processing.audio is not None
+    assert stored.processing.audio.chunk_count == 3
+    assert stored.processing.device.transcription == "cpu/int8"

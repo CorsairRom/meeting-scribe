@@ -10,7 +10,9 @@ from meeting_scribe.base.domain.errors import InvalidStateTransitionError
 from meeting_scribe.meetings.domain.errors import MeetingProcessingActiveError
 from meeting_scribe.meetings.domain.meeting import (
     NULL_MEETING,
+    AudioInfo,
     Meeting,
+    ProcessingDevice,
     ProcessingFailure,
     ProcessingParams,
     RecordingInfo,
@@ -29,9 +31,15 @@ def _queued() -> Meeting:
 
 def _at(state: str) -> Meeting:
     meeting = _queued()
+    start = lambda m: m.start(T0, PARAMS)  # noqa: E731
     steps = {
-        "TRANSCRIBING": [lambda m: m.start(T0, PARAMS)],
-        "DIARIZING": [lambda m: m.start(T0, PARAMS), lambda m: m.transcription_done()],
+        "TRANSCRIBING": [start],
+        "DIARIZING": [start, lambda m: m.transcription_done()],
+        "EXTRACTING_SAMPLES": [
+            start,
+            lambda m: m.transcription_done(),
+            lambda m: m.diarization_done(),
+        ],
     }
     for step in steps.get(state, []):
         meeting = step(meeting).unwrap()
@@ -95,6 +103,9 @@ def test_processing_transitions_follow_the_state_machine() -> None:
         ("TRANSCRIBING", lambda m: m.diarization_done()),
         ("DIARIZING", lambda m: m.transcription_done()),
         ("DIARIZING", lambda m: m.complete(T0, (), {}, "")),
+        ("EXTRACTING_SAMPLES", lambda m: m.start(T0, PARAMS)),
+        ("EXTRACTING_SAMPLES", lambda m: m.transcription_done()),
+        ("EXTRACTING_SAMPLES", lambda m: m.diarization_done()),
     ],
 )
 def test_out_of_order_transitions_are_refused(state: str, transition: Callable) -> None:  # type: ignore[type-arg]
@@ -108,7 +119,7 @@ def test_skipping_a_stage_is_an_invalid_state_transition() -> None:
     assert "QUEUED" in str(result.failure())
 
 
-@pytest.mark.parametrize("state", ["QUEUED", "TRANSCRIBING", "DIARIZING"])
+@pytest.mark.parametrize("state", ["QUEUED", "TRANSCRIBING", "DIARIZING", "EXTRACTING_SAMPLES"])
 def test_fail_is_allowed_from_every_non_terminal_state(state: str) -> None:
     failed = _at(state).fail(FAILURE, T0 + timedelta(minutes=9)).unwrap()
 
@@ -142,7 +153,7 @@ def test_reprocess_requeues_a_done_meeting() -> None:
     assert done.reprocess(T0).unwrap().processing.state == "QUEUED"
 
 
-@pytest.mark.parametrize("state", ["QUEUED", "TRANSCRIBING", "DIARIZING"])
+@pytest.mark.parametrize("state", ["QUEUED", "TRANSCRIBING", "DIARIZING", "EXTRACTING_SAMPLES"])
 def test_reprocess_is_refused_while_processing_is_active(state: str) -> None:
     result = _at(state).reprocess(T0)
 
@@ -162,3 +173,15 @@ def test_null_meeting_is_null_and_refuses_transitions() -> None:
     assert not _queued().is_null
     assert isinstance(NULL_MEETING.reprocess(T0), Failure)
     assert isinstance(NULL_MEETING.start(T0, PARAMS), Failure)
+
+
+def test_with_audio_and_with_device_set_processing_fields_and_keep_state() -> None:
+    audio = AudioInfo(chunk_count=2, total_frames=960_960, duration_seconds=60.06)
+    device = ProcessingDevice(transcription="cuda/float16")
+    base = _at("DIARIZING")
+
+    updated = base.with_audio(audio).with_device(device)
+
+    assert (updated.processing.audio, updated.processing.device) == (audio, device)
+    assert updated.processing.state == "DIARIZING"
+    assert base.processing.audio is None  # immutable
