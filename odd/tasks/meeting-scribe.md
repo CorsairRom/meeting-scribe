@@ -457,6 +457,15 @@ own meeting, without reading its content into the repo or logs.
   - [ ] F3.5b Real validation with user consent: `hf auth login` + accept community-1 terms,
         `make install` (prefetch), `uv run pytest -m gpu`, one real meeting checked by states/counts
         only.
+    - [x] `make install` (user go, 2026-10-09): exit 0, version 20261009204854-3729151, service active,
+          extension enabled, "Models ready: 2 of 2" with the stored login (no new login needed).
+          Measured: 7.1 GB per version, models 1.6 GB (turbo) + 32 MB (community-1).
+    - [x] `uv run pytest -m gpu`: first run RED, diarization chose `mic` because the synthetic
+          system channel had a tone in every frame (10th-percentile floor = the tone, OQ-4 reads it
+          silent); fixture fixed with pauses (`c9b899d`), GREEN: community-1 peak 517 MiB over 13 MiB,
+          load 4.0 s, VRAM back to baseline; Whisper peak 2075 MiB. Review review-3aca299aef832622
+          approved. Integrated #79. Follow-up: no unit test pins the continuous-sound edge of OQ-4.
+    - [ ] One real meeting processed (needs the user's go), checked by states and counts only.
 ### F4 Review UI — pending
 ### F5 Summaries — pending
 ### F6 Install — pending
