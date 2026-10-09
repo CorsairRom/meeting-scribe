@@ -49,11 +49,11 @@ flowchart LR
 | Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root serves the `Recording1` D-Bus interface (`create_app`, `serve`, `run`); more interfaces in later phases, unit file and activation installed by `make install` (F2.5) |
 | GNOME extension | GJS, thin client, no ML | done (F2), [ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md) |
 | Capture | ffmpeg on PipeWire, 2-channel 30 s chunks | adapter built (F1.3) and wired in `main.py` (F1.4), [ADR-002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) |
-| Transcription | faster-whisper `large-v3-turbo`, float16, CUDA, in a short-lived worker process | built (F3.2), not yet wired into `main.py`; [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
-| Diarization | pyannote `speaker-diarization-community-1` on the system channel (the microphone in person), in a short-lived worker process; then "Me", assignment, `transcript.md` and per-speaker voice samples | worker stage implemented (F3.3b; the real model run is pending the user's consent), not yet wired into `main.py`, [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
+| Transcription | faster-whisper `large-v3-turbo`, float16, CUDA, in a short-lived worker process | built (F3.2) and wired into the service (F3.4a); [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
+| Diarization | pyannote `speaker-diarization-community-1` on the system channel (the microphone in person), in a short-lived worker process; then "Me", assignment, `transcript.md` and per-speaker voice samples | worker stage implemented (F3.3b; the real model run is pending the user's consent) and wired into the service (F3.4a), [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
 | Review UI | Native GTK4 + libadwaita app on system python, thin D-Bus client | planned (F4), [ADR-005](docs/decisions/005-review-ui-native-gtk-app.md) |
 | Summaries | `SummaryProvider` port, OpenAI-compatible adapter | planned (F5), [ADR-006](docs/decisions/006-summary-provider-openai-compatible.md) |
-| Storage | folder per meeting + versioned `meeting.json` | built (F3.1), not yet wired into `main.py`, [ADR-004](docs/decisions/004-folder-per-meeting-json-storage.md) |
+| Storage | folder per meeting + versioned `meeting.json` | built (F3.1) and wired into the service (F3.4a), [ADR-004](docs/decisions/004-folder-per-meeting-json-storage.md) |
 
 ---
 
@@ -174,7 +174,7 @@ sequenceDiagram
   MT->>N: "Meeting processed: N speakers"
 ```
 
-Orchestration lives in `meetings` (built in F3.1; wiring to Stop and the D-Bus `Meetings1` interface are F3.4): one FIFO queue persisted in each `meeting.json`, states `QUEUED`, `TRANSCRIBING`, `DIARIZING`, `EXTRACTING_SAMPLES`, `DONE` or `FAILED`, resumed at service start. Transcription hears the mean of both channels; diarization runs on the system channel only, and "Me" comes from per-frame mic versus system energy dominance with loudspeaker bleed compensation (ADR-002). The contract is the [processing spec](docs/specs/processing.md). Decision records: [ADR-003](docs/decisions/003-process-after-stop-single-gpu-worker.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md).
+Orchestration lives in `meetings` (built in F3.1, wired in F3.4a: `main.py` builds `ProcessingConfig` from the settings, `meeting_scribe/handoff.py` adapts the `RecordingListener` port to `ProcessingController`, and `serve()` resumes unfinished jobs and runs the loop in its own thread; the D-Bus `Meetings1` interface is the rest of F3.4): one FIFO queue persisted in each `meeting.json`, states `QUEUED`, `TRANSCRIBING`, `DIARIZING`, `EXTRACTING_SAMPLES`, `DONE` or `FAILED`, resumed at service start. Transcription hears the mean of both channels; diarization runs on the system channel only, and "Me" comes from per-frame mic versus system energy dominance with loudspeaker bleed compensation (ADR-002). The contract is the [processing spec](docs/specs/processing.md). Decision records: [ADR-003](docs/decisions/003-process-after-stop-single-gpu-worker.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md).
 
 ---
 
@@ -184,7 +184,7 @@ Target GPU: RTX 5060 Laptop, 8 GB.
 
 - **Lazy load**: a model is loaded when its stage starts, never at service start.
 - **Release by process exit** (ADR-007): each GPU stage runs in its own short-lived worker process (`python -m meeting_scribe.worker transcribe|diarize`), so Whisper and pyannote are never resident together and all VRAM, including the CUDA context, returns when the worker exits. `torch.cuda.empty_cache()` alone cannot guarantee that. The service process never imports torch, CTranslate2, faster-whisper or pyannote.
-- **One GPU job at a time**: a single queue drains jobs FIFO; recording itself uses no GPU, and no worker runs while a recording is active (preemption pending the user's answer, spec OQ-3).
+- **One GPU job at a time**: a single queue drains jobs FIFO; recording itself uses no GPU, and a recording that starts stops the running worker (its job returns to the queue head in its current state) and no worker runs until the recording ends (spec OQ-3, `RecordingListener`).
 - **Resume**: unfinished jobs are re-enqueued at service start; stage caches keyed on parameters and audio skip completed work.
 - **Explicit failures**: CUDA library preload failures are logged; `PROCESSING_DEVICE=cuda` never falls back silently (`GPU_UNAVAILABLE`), the CPU is used only when configured, and a worker crash or timeout fails the job without touching the service.
 

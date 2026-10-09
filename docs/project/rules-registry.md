@@ -399,6 +399,13 @@ ai_instructions:
 - **Status**: active
 - **Detail**: after pyannote (`DIARIZING`) the same worker process runs `AssembleTranscript` without a model resident: "Me" detection over the two envelopes (skipped when the mic was diarized, in person), `merge_turns` (Me wins its overlaps), `assign_speakers`, `group_utterances`, `number_speakers`, then it emits the `stage` event `EXTRACTING_SAMPLES` and writes the samples, `utterances.json` and `transcript.md`. `words.json` is read first, before any GPU work, and any file under its own key is accepted (`LoadWords`): a missing file fails the job with `TRANSCRIPTION_FAILED` instead of yielding an empty meeting. Samples: remote speakers (and every speaker in an in-person meeting) are cut from the diarized channel using the regular, overlapping annotation's clean turns; "Me" and "Unknown" from the microphone using only turns during which the system channel is quiet (`me_turns_with_quiet_system`). Each source channel is decoded at most once, only when somebody needs a sample from it. A run is staged under `.assembling/` and committed together after every file is written (`samples/` is swapped in whole, so a speaker that disappeared between runs leaves no stale file, then `utterances.json` and `transcript.md` are replaced); a failure before the commit discards the staging and keeps the previous run's samples, utterances and transcript (each file is also written as `.<name>.tmp` then renamed); a sample is peak-normalized to -3 dBFS and clips are 0.4 s apart. `turns.json` gets `bleed`, `me_turns` and `unknown_turns` added to its `data` after every run (the key does not change, so the cache still hits). `utterances.json` lists `{speaker, start, end, text}` with the stable speaker id (`ME`, `S1`...), never the pyannote label. A speaker is listed only when it owns an utterance; `talk_seconds` is the sum of its utterance durations.
 
+### GO-045 — Processing is wired through a recording port, one loop thread and a bounded shutdown
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `recording` defines `RecordingListener` (`on_started`, `on_finished`; a null object by default) and knows nothing about who listens; `meeting_scribe/handoff.py` (composition level, the only module that sees both domains) adapts it to `ProcessingController`. `on_started` fires once capture is running (a failed `Start` is never announced) and calls `preempt()`; `on_finished` fires once per started session, however it ends (clean stop, crash found by the poll or by `Stop`, a stop that failed), enqueues it (a `FAILED` capture too, OQ-1) and then `release()`s the GPU. A listener exception is logged and never changes the recording. A session that cannot be enqueued is logged at ERROR with its code; there is no automatic folder scan (OQ-2), so it is not resumed. `serve()` calls `resume()` after it owns the bus name (a second instance resumes nothing), then runs `serve_forever` in a daemon thread; at shutdown it stops the recording first (which queues its meeting for the next start), then `shutdown()` and a bounded `join` in a worker thread so the event loop is never blocked (`SHUTDOWN_TIMEOUT_SECONDS`, 20 s: 5 s grace plus kill and the post-result wait). A loop that outlives the bound is logged at ERROR; the job stays resumable on disk. `build_processing_config` copies every setting into the job (`ProcessingSettings` plus `TranscriptionSettings.params()` and the whole `SpeakersSettings` dump, which `DiarizationParams` and `AssemblyParams` each narrow); a test compares every field, so a new setting that is not forwarded fails it.
+- **Source**: [processing spec](../specs/processing.md) section 1 and 6.3 (OQ-1, OQ-3)
+- **Verifiable in**: `tests/unit/test_handoff.py`, `tests/unit/test_main.py`, `tests/e2e/processing/`
+
 ---
 
 ## Statistics (keep updated)
@@ -407,11 +414,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 44 | 0 | 0 |
+| GO | 45 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-044 — 2026-10-09
-**Next available IDs**: BR-005, CR-014, GO-045, AP-005
+**Last rule added**: GO-045 — 2026-10-09
+**Next available IDs**: BR-005, CR-014, GO-046, AP-005
 
 ---
 

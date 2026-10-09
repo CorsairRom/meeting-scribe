@@ -1,6 +1,7 @@
 """Recording use cases: start, stop and status of the single in-progress recording."""
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
@@ -17,6 +18,8 @@ from meeting_scribe.recording.domain.ports import (
     AudioCapture,
     AudioDeviceResolver,
     Clock,
+    NullRecordingListener,
+    RecordingListener,
     RecordingStorage,
 )
 from meeting_scribe.recording.domain.recording_session import (
@@ -51,12 +54,14 @@ class RecordingController:
         capture: AudioCapture,
         storage: RecordingStorage,
         meetings_dir: Path,
+        listener: RecordingListener | None = None,
     ) -> None:
         self._clock = clock
         self._device_resolver = device_resolver
         self._capture = capture
         self._storage = storage
         self._meetings_dir = meetings_dir
+        self._listener: RecordingListener = listener or NullRecordingListener()
         self._session: RecordingSession = NULL_RECORDING_SESSION
 
     def start(self) -> Result[RecordingSession, MeetingScribeError]:
@@ -79,6 +84,7 @@ class RecordingController:
             self._fail(str(started.failure()))
             return self._log_start_failure(started)
         logger.info("Recording '%s' started.", self._session.id)
+        self._announce(self._listener.on_started)
         return Success(self._session)
 
     def stop(self) -> Result[RecordingSession, MeetingScribeError]:
@@ -92,10 +98,12 @@ class RecordingController:
             case Failure(error):
                 self._fail(str(error))
                 logger.error("Recording '%s' failed to stop: %s", self._session.id, error)
+                self._announce(self._listener.on_finished)
                 return Failure(error)
             case _:
                 self._apply(self._session.stop(self._clock.now()))
                 logger.info("Recording '%s' stopped.", self._session.id)
+                self._announce(self._listener.on_finished)
                 return Success(self._session)
 
     def status(self) -> RecordingStatus:
@@ -135,7 +143,15 @@ class RecordingController:
         reason = self._capture.exit_detail() or CAPTURE_CRASHED_REASON
         self._fail(reason)
         logger.error("Recording '%s': %s", self._session.id, reason)
+        self._announce(self._listener.on_finished)
         return reason
+
+    def _announce(self, hook: Callable[[RecordingSession], None]) -> None:
+        """Tell the listener about the current session; its failure is logged, never raised."""
+        try:
+            hook(self._session)
+        except Exception:
+            logger.exception("Recording listener failed for session '%s'.", self._session.id)
 
     @staticmethod
     def _log_start_failure(failure: Failure[MeetingScribeError]) -> Failure[MeetingScribeError]:
