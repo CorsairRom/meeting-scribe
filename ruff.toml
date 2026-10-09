@@ -51,10 +51,15 @@ lint.ignore = [
     "S101",
     "PLR2004",
     "SLF001",
-    "ARG001",  # fakes and scripted behaviours implement ports and ignore some arguments
-    "ARG002",
-    "ARG005",
 ]
+
+# Fakes and scripted behaviours implement ports and callbacks and ignore some arguments. Listed
+# per file so unused arguments stay flagged everywhere else, production code included.
+"tests/fakes/**" = ["ARG001", "ARG002", "ARG005"]
+"tests/unit/meetings/fakes.py" = ["ARG001", "ARG002", "ARG005"]
+"tests/unit/meetings/test_processing_controller.py" = ["ARG001", "ARG002", "ARG005"]
+"tests/unit/meetings/test_processing_queue.py" = ["ARG001", "ARG002", "ARG005"]
+"tests/unit/meetings/test_subprocess_worker_runner.py" = ["ARG001", "ARG002", "ARG005"]
 
 # D-Bus member names are PascalCase by convention (api-contracts.md).
 "src/**/infrastructure/dbus/*_interface.py" = ["N802"]

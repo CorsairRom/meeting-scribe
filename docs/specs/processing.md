@@ -858,5 +858,11 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
   same protocol and process-group termination, but testable with plain threads and no event loop (GO-033, GO-034).
   The protocol's event name key is `event`. A resumed job moves back to `TRANSCRIBING` through `Meeting.resume`
   (GO-035); the state diagram's "resume" is an in-progress state returning to its first worker.
+- 2026-10-09 (F3.1c): a job ends with an explicit `JobOutcome`. When a state change cannot be saved the job is
+  failed if that can be recorded, otherwise requeued at the tail (at most 3 runs in a row, then given up in memory
+  and left resumable on disk) so it is never silently dropped (GO-036). A worker that lingers more than 10 s after
+  its `result`/`error` event is terminated and the event kept (GO-034). `ProcessingConfig` and the runner's kill
+  grace take their values from `ProcessingSettings` (no second set of defaults). `enqueue` on a `DONE`/`FAILED`
+  meeting reprocesses it.
 - 2026-10-09: one worker process per GPU stage instead of one per job — guarantees Whisper and pyannote are never
   resident together without relying on CTranslate2 freeing memory on `del` (ADR-007).
