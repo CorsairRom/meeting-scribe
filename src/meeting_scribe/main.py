@@ -118,16 +118,14 @@ async def serve(
         if reply != RequestNameReply.PRIMARY_OWNER:
             logger.error("D-Bus name %s is already owned: another instance is running.", BUS_NAME)
             return EXIT_NAME_TAKEN
-        monitor = asyncio.create_task(recording.monitor())
+        recording.start_monitor()
         logger.info("meeting-scribe serving %s on the D-Bus session bus.", BUS_NAME)
         if ready is not None:
             ready.set()
         try:
             await stop.wait()
         finally:
-            monitor.cancel()
-            await asyncio.gather(monitor, return_exceptions=True)
-            await recording.stop_if_active()
+            await recording.shutdown()
         logger.info("meeting-scribe stopped.")
         return 0
     finally:
