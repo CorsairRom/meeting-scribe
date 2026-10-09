@@ -37,3 +37,19 @@ class InvalidStateTransitionError(MeetingScribeError):
 
 class InvalidValueError(MeetingScribeError):
     error_code = "INVALID_VALUE"
+
+
+class GpuUnavailableError(MeetingScribeError):
+    """No usable CUDA device or driver (shared by every GPU stage); never a silent CPU fallback."""
+
+    error_code = "GPU_UNAVAILABLE"
+
+
+class GpuOutOfMemoryError(MeetingScribeError):
+    error_code = "GPU_OUT_OF_MEMORY"
+
+
+class ModelUnavailableError(MeetingScribeError):
+    """A model is neither cached nor downloadable (offline, renamed or unknown)."""
+
+    error_code = "MODEL_UNAVAILABLE"

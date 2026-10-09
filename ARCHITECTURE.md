@@ -243,9 +243,15 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | `PROCESSING_WORKER_KILL_GRACE_SECONDS` | `ProcessingSettings.worker_kill_grace_seconds` | `5` | SIGTERM to SIGKILL grace (> 0) |
 | `PROCESSING_STORAGE_RETRY_DELAYS_SECONDS` | `ProcessingSettings.storage_retry_delays_seconds` | `[2, 8, 30]` | JSON list; delay before each retry of a job whose `meeting.json` could not be saved or read (each > 0, at least one) |
 | `PROCESSING_NOTIFY` | `ProcessingSettings.notify` | `true` | Desktop notification when a job ends (wired in F3.4) |
+| `TRANSCRIPTION_MODEL` | `TranscriptionSettings.model` | `large-v3-turbo` | faster-whisper model name or path (not empty) |
+| `TRANSCRIPTION_LANGUAGE` | `TranscriptionSettings.language` | `es` | ISO code, or `auto` to detect from the first 30 s |
+| `TRANSCRIPTION_COMPUTE_TYPE` | `TranscriptionSettings.compute_type` | `float16` | CTranslate2 compute type on CUDA |
+| `TRANSCRIPTION_CPU_COMPUTE_TYPE` | `TranscriptionSettings.cpu_compute_type` | `int8` | Compute type when `PROCESSING_DEVICE=cpu` |
+| `TRANSCRIPTION_BEAM_SIZE` | `TranscriptionSettings.beam_size` | `5` | Beam size (>= 1) |
+| `TRANSCRIPTION_VAD_FILTER` | `TranscriptionSettings.vad_filter` | `true` | Silero VAD pre-filter |
+| `TRANSCRIPTION_CONDITION_ON_PREVIOUS_TEXT` | `TranscriptionSettings.condition_on_previous_text` | `false` | Feed the previous text back as a prompt (off avoids repetition loops on long audio) |
 
-`RecordingSettings` lives in `recording/infrastructure/recording_settings.py`, `ProcessingSettings` in `meetings/infrastructure/processing_settings.py`. Future per-domain settings (for example `TRANSCRIPTION_`,
-`SUMMARIES_`) live in each domain's `infrastructure/` and are composed into `Settings` by the root. The planned F3 variables not built yet (`TRANSCRIPTION_*`, `SPEAKERS_*`) are listed in the [processing spec](docs/specs/processing.md) section 7 and move into this table when built.
+`RecordingSettings` lives in `recording/infrastructure/recording_settings.py`, `ProcessingSettings` in `meetings/infrastructure/processing_settings.py`, `TranscriptionSettings` in `transcription/infrastructure/transcription_settings.py`. Future per-domain settings (for example `SUMMARIES_`) live in each domain's `infrastructure/` and are composed into `Settings` by the root. The planned F3 variables not built yet (`SPEAKERS_*`) are listed in the [processing spec](docs/specs/processing.md) section 7 and move into this table when built.
 
 ---
 
