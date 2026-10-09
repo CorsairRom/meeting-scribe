@@ -142,6 +142,11 @@ repo from F1).
       Worst-case stop = stop timeout + terminate grace + kill grace = 14 s by default.
       Known edge: if ffmpeg cannot be reaped (D-state), the handle is kept and `start()` reports
       "already running" until it is reaped — acceptable, surfaced as FAILED with the reason.
+      RDD (476 lines, high): user granted; lineage `review-995050cae3b59cf8` approved + acked. Two
+      warnings fixed in `cb92113`: the bounded-stop test now asserts every wait timeout (mutation
+      `process.wait()` without timeout → test fails), and the env-source lookup is documented as
+      best effort (nested settings resolve their own env file). Remaining suggestions (tests via
+      private `_fail`, vacuous running-exit_detail test, hard-coded 14 s in a comment) left as is.
 - [ ] F1.4 D-Bus adapter (TDD): dbus-fast `dev.meetingscribe.Recording1` (`Start`, `Stop`,
       `State`, `ElapsedSeconds`, `StateChanged`), error mapping `dev.meetingscribe.Error.<CODE>`;
       `main.run()` becomes the asyncio service loop with SIGINT/SIGTERM handling; e2e under
