@@ -775,7 +775,7 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
 | F3.2 | `transcription` domain (words, params, cache key), faster-whisper adapter (lazy import, CUDA preload with logging, device policy), `meeting_scribe.worker transcribe`, `ml` extra (faster-whisper, nvidia libs), contract "the service never imports ML libraries", GPU-marked test | ~400 |
 | F3.3a | `speakers` pure functions: assignment, grouping, numbering, rendering, "Me" detection, sample selection | ~350 |
 | F3.3b | pyannote adapter (exclusive diarization, access and OOM error mapping, telemetry opt-out), `meeting_scribe.worker diarize`, `turns.json` cache, samples writer, `pyannote.audio` in the `ml` extra | ~350 |
-| F3.4a | `RecordingListener` port and wiring in `main.py`, preemption, `Meetings1` interface plus e2e tests, `Notifier`, `api-contracts.md`, error catalog | ~400 |
+| F3.4a | `RecordingListener` port and wiring in `main.py` (builds `ProcessingConfig` from `ProcessingSettings` and `ProcessingParams`, every field including `storage_retry_delays_seconds`, with a wiring test), preemption, `Meetings1` interface plus e2e tests, `Notifier`, `api-contracts.md`, error catalog | ~400 |
 | F3.4b | Extension: `Meetings1` proxy, processing line in the menu, `gjs -m` tests | ~250 |
 | F3.5 | `make install` with `.[ml]`, install summary, runbook (HF login, first run, troubleshooting), rules-registry gotchas, real-recording validation with consent | ~150 plus docs |
 
@@ -869,7 +869,8 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
 - 2026-10-09 (F3.1d): a storage retry waits for its delay (`PROCESSING_STORAGE_RETRY_DELAYS_SECONDS`, 2 s, 8 s,
   30 s) without blocking other queued jobs, so a job runs at most `len(delays) + 1` times in a row (4 by default; this
   supersedes the "3 runs" of F3.1c). When the budget is spent the job is not dropped silently: the controller logs one
-  ERROR and calls `ProcessingEvents.storage_failed`, and the meeting stays resumable on disk. A read failure is its own
+  ERROR and calls `ProcessingEvents.storage_failed(meeting_id, error_code)` (never the repository's error text, which
+  can quote `meeting.json` content), and the meeting stays resumable on disk. A read failure is its own
   outcome (`UNLOADED`) and follows the same backoff; a corrupt `meeting.json` or a newer schema (`UNREADABLE`) is
   reported through the same event at once and never retried. A `result` received before the stage deadline is kept even
   if the deadline passes during the post-result grace (GO-034). `ProcessingConfig.params` has no default either.

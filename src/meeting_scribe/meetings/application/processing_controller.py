@@ -41,6 +41,7 @@ from meeting_scribe.meetings.domain.ports import (
     ProcessingEvents,
     WorkerRunner,
 )
+from meeting_scribe.meetings.domain.retry_delays import check_retry_delays
 from meeting_scribe.meetings.domain.timeline import Timeline
 from meeting_scribe.meetings.domain.worker import (
     ProgressOrNotice,
@@ -83,10 +84,8 @@ class ProcessingConfig(BaseModel):
 
     @field_validator("storage_retry_delays_seconds")
     @classmethod
-    def _delays_are_positive(cls, delays: tuple[float, ...]) -> tuple[float, ...]:
-        if not delays or any(delay <= 0 for delay in delays):
-            raise ValueError("storage_retry_delays_seconds needs at least one delay, all > 0")
-        return delays
+    def _delays_are_valid(cls, delays: tuple[float, ...]) -> tuple[float, ...]:
+        return check_retry_delays(delays)
 
     def stage_timeout(self, audio_seconds: float) -> float:
         return max(self.worker_min_timeout_seconds, audio_seconds * self.worker_timeout_factor)
@@ -188,6 +187,12 @@ class ProcessingController:
             self._condition.notify_all()
 
     def queued_ids(self) -> tuple[str, ...]:
+        """Every job the controller still owes a run, each id once.
+
+        The ready queue in run order, then the jobs parked for a storage retry (in the order they
+        were parked, not by due time). The result mixes runnable and waiting jobs: it is a census
+        for a UI, not the execution order.
+        """
         with self._condition:
             return (*self._queue, *(meeting_id for _, meeting_id in self._delayed))
 
@@ -197,7 +202,10 @@ class ProcessingController:
         """Run jobs one at a time, first in first out, until ``shutdown``."""
         while True:
             with self._condition:
-                while not self._stopping and not self._can_start():
+                while not self._stopping:
+                    self._promote_due_retries()
+                    if self._can_start():
+                        break
                     self._condition.wait(self._seconds_until_next_retry())
                 if self._stopping:
                     return
@@ -206,6 +214,7 @@ class ProcessingController:
     def run_next(self) -> bool:
         """Run the job at the queue head to its end; False when nothing may start now."""
         with self._condition:
+            self._promote_due_retries()
             if self._stopping or not self._can_start():
                 return False
             meeting_id = self._queue.popleft()
@@ -221,12 +230,17 @@ class ProcessingController:
     # -- internals ------------------------------------------------------------------------
 
     def _can_start(self) -> bool:
-        """Caller holds the lock. Retries whose delay has passed join the queue tail first."""
+        """Caller holds the lock. Pure: a job is ready and no recording holds the GPU."""
+        return bool(self._queue) and not self._recording_active
+
+    def _promote_due_retries(self) -> None:
+        """Caller holds the lock. Retries whose delay has passed join the queue tail, once each."""
         now = self._monotonic()
         due = [meeting_id for at, meeting_id in self._delayed if at <= now]
         self._delayed = [(at, meeting_id) for at, meeting_id in self._delayed if at > now]
-        self._queue.extend(due)
-        return bool(self._queue) and not self._recording_active
+        for meeting_id in due:
+            if meeting_id not in self._queue:
+                self._queue.append(meeting_id)
 
     def _seconds_until_next_retry(self) -> float | None:
         """Caller holds the lock. How long the loop may sleep; ``None`` means until notified."""
@@ -271,12 +285,12 @@ class ProcessingController:
         if isinstance(loaded, Failure):
             error = loaded.failure()
             if isinstance(error, MeetingSchemaUnsupportedError | MeetingCorruptError):
-                logger.error("Meeting '%s' cannot be read and is skipped: %s", meeting_id, error)
-                self._notify_storage_failed(
-                    meeting_id, f"meeting.json cannot be read ({error.error_code}): {error}"
+                logger.error(
+                    "Meeting '%s' cannot be read and is skipped (%s).", meeting_id, error.error_code
                 )
+                self._notify_storage_failed(meeting_id, error.error_code)
                 return JobOutcome.UNREADABLE  # retrying cannot change a damaged or newer file
-            logger.warning("Cannot load meeting '%s': %s", meeting_id, error)
+            logger.warning("Cannot load meeting '%s' (%s).", meeting_id, error.error_code)
             return JobOutcome.UNLOADED
         if loaded.unwrap().processing.state not in UNFINISHED_STATES:
             logger.error("Meeting '%s' cannot be processed; skipped.", meeting_id)
@@ -331,9 +345,7 @@ class ProcessingController:
                     what,
                     runs,
                 )
-                self._notify_storage_failed(
-                    meeting_id, f"The meeting could not be {what} after {runs} runs."
-                )
+                self._notify_storage_failed(meeting_id, MeetingStorageError.error_code)
                 return
             self._storage_runs[meeting_id] = runs
             logger.warning(
@@ -350,12 +362,14 @@ class ProcessingController:
         with self._condition:
             if self._stopping:
                 return
+            if meeting_id in self._queue or any(mid == meeting_id for _, mid in self._delayed):
+                return  # already scheduled (enqueued again mid-run): one entry, one extra run
             self._delayed.append((self._monotonic() + seconds, meeting_id))
             self._condition.notify_all()
 
-    def _notify_storage_failed(self, meeting_id: str, reason: str) -> None:
+    def _notify_storage_failed(self, meeting_id: str, error_code: str) -> None:
         try:
-            self._events.storage_failed(meeting_id, reason)
+            self._events.storage_failed(meeting_id, error_code)
         except Exception:
             logger.warning(
                 "Processing observer failed for meeting '%s'.", meeting_id, exc_info=True

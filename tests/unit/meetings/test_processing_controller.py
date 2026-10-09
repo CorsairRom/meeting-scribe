@@ -345,7 +345,7 @@ def test_a_failing_events_observer_never_changes_the_job() -> None:
         def finished(self, meeting: Meeting) -> None:
             raise RuntimeError("boom")
 
-        def storage_failed(self, meeting_id: str, reason: str) -> None:
+        def storage_failed(self, meeting_id: str, error_code: str) -> None:
             raise RuntimeError("boom")
 
     fx.controller._events = Exploding()
@@ -405,7 +405,7 @@ def test_a_job_that_cannot_start_because_of_a_save_failure_is_requeued() -> None
 
 
 def _run_until_given_up(fx: Fixture) -> None:
-    for delay in (0.0, 2.0, 8.0, 30.0):  # first run, then one run per retry delay
+    for delay in (0.0, *fx.config.storage_retry_delays_seconds):  # first run, then one per retry
         fx.advance(delay)
         fx.run_all()
 
@@ -473,8 +473,7 @@ def test_giving_up_tells_the_observers_so_the_ui_can_show_it() -> None:
 
     _run_until_given_up(fx)
 
-    assert [m for m, _ in fx.events.storage_failures] == ["m1"]
-    assert "saved" in fx.events.storage_failures[0][1]
+    assert fx.events.storage_failures == [("m1", "MEETING_STORAGE_FAILED")]
 
 
 def test_a_transient_read_failure_is_its_own_outcome_and_backs_off(
@@ -509,8 +508,7 @@ def test_a_read_failure_that_never_clears_is_reported_after_the_budget() -> None
     _run_until_given_up(fx)
 
     assert fx.controller.queued_ids() == ()
-    assert [m for m, _ in fx.events.storage_failures] == ["m1"]
-    assert "read" in fx.events.storage_failures[0][1]
+    assert fx.events.storage_failures == [("m1", "MEETING_STORAGE_FAILED")]
 
 
 @pytest.mark.parametrize(
@@ -534,9 +532,58 @@ def test_a_permanent_read_failure_is_reported_and_skipped_without_retries(
     assert fx.controller.queued_ids() == ()
     assert fx.state("m2") == "DONE"
     assert fx.runner.stages_for("m1") == []
-    assert [m for m, _ in fx.events.storage_failures] == ["m1"]
+    assert fx.events.storage_failures == [("m1", error.error_code)]
     fx.advance(100.0)
     assert fx.controller.run_next() is False
+
+
+def test_the_storage_event_never_carries_what_the_repository_said() -> None:
+    fx = Fixture()
+    fx.seed("m1", 0, "QUEUED")
+    fx.controller.resume()
+    fx.repository.get_failures["m1"] = MeetingCorruptError("input_value='private words'")
+
+    fx.run_all()
+
+    assert fx.events.storage_failures == [("m1", "MEETING_CORRUPT")]
+
+
+def test_a_meeting_enqueued_during_a_storage_failing_run_is_queued_once() -> None:
+    fx = Fixture()
+
+    def behaviour(
+        job: WorkerJob, on_event: OnEvent, cancel: CancelSignal
+    ) -> Result[ResultEvent, MeetingScribeError]:
+        fx.repository.fail_saves = True
+        del fx.runner.behaviours[("m1", "transcribe")]
+        fx.controller.enqueue("m1", RECORDING).unwrap()  # the user asks again mid-run
+        return Success(ResultEvent())
+
+    fx.runner.behaviours[("m1", "transcribe")] = behaviour
+    fx.controller.enqueue("m1", RECORDING).unwrap()
+    fx.controller.run_next()
+    fx.repository.fail_saves = False
+
+    assert fx.controller.queued_ids() == ("m1",)
+    fx.advance(100.0)
+    fx.run_all()
+    assert fx.state("m1") == "DONE"
+    assert fx.runner.stages_for("m1") == ["transcribe", "transcribe", "diarize"]
+
+
+def test_checking_readiness_never_reorders_the_queue() -> None:
+    fx = Fixture()
+    fx.controller.enqueue("m1", RECORDING).unwrap()
+    fx.repository.fail_saves = True
+    fx.controller.run_next()
+    fx.advance(2.0)  # the retry is now due
+
+    with fx.controller._condition:
+        fx.controller._can_start()
+
+    assert list(fx.controller._queue) == []
+    fx.controller._promote_due_retries()
+    assert list(fx.controller._queue) == ["m1"]
 
 
 def test_serve_forever_wakes_up_for_a_waiting_retry() -> None:
