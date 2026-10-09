@@ -41,8 +41,8 @@ the first run, and what each failure code means. Design: [`../specs/processing.m
    - the diarization pipeline `pyannote/speaker-diarization-community-1` (`SPEAKERS_PIPELINE`) with the models it names,
    - the Whisper model `large-v3-turbo` (`TRANSCRIPTION_MODEL`).
 
-   Approximate size: the Python environment is several GB (torch with CUDA) and the Whisper model about 1.6 GB.
-   These are estimates from the spec, to be confirmed on the first real install (A-10). Later installs reuse the uv
+   Size, measured on the first real install (A-10): about 7.1 GB per installed version (torch with CUDA) and 1.7 GB
+   of models in the Hugging Face cache (`large-v3-turbo` 1.6 GB, community-1 32 MB). Later installs reuse the uv
    cache and the Hugging Face cache.
 2. Read the summary. The `models:` line says `downloaded`, or `NOT downloaded` with the fix. A failed download never
    fails the service install: recording works, processing does not until the models are cached. The download is
