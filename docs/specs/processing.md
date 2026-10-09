@@ -667,10 +667,10 @@ Each class inherits `MeetingScribeSettings`, lives in its domain's `infrastructu
 
 All numeric settings are validated (`gt`/`ge`), and an invalid value fails at load, like `RECORDING_*`.
 
-### 8. D-Bus `dev.meetingscribe.Meetings1` (planned, F3.4)
+### 8. D-Bus `dev.meetingscribe.Meetings1` (implemented, F3.4a)
 
-Same bus name and object path as `Recording1` (CR-011). The contract moves into
-[`api-contracts.md`](../architecture/api-contracts.md) in F3.4, before the code.
+Same bus name and object path as `Recording1` (CR-011). The contract lives in
+[`api-contracts.md`](../architecture/api-contracts.md).
 
 | Member | Kind | Signature | Description | Errors |
 |---|---|---|---|---|
@@ -944,3 +944,10 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
   resumes, runs the loop in a daemon thread and, at shutdown, stops the recording, then the loop with a bounded
   join (`shutdown_timeout`, 20 s by default); exceeding it is logged at ERROR and keeps the exit code, because the
   job is still resumable. GO-045.
+- 2026-10-09 (F3.4a, Meetings1 and notification): `ProcessingController` gained `get_meeting`, `list_meetings` and
+  `status()` (`ActiveMeetingId`, `ActiveState`, `QueuedCount`; the queue count excludes the active job) and
+  `ProcessingEvents.status_changed()`; a `ProcessingEventHub` fans the events out to the D-Bus interface and the
+  notifier. The notification is one text line: summary `Meeting processed: N speakers` (the spec's summary plus body
+  of section 8 merged to match AC-18), body empty; a failure uses summary `Meeting processing failed` and the
+  failure message's first line (200 characters at most) as body. `NOTIFICATION_FAILED` is a new, non-exposed code.
+  The adapter opens a short-lived session-bus connection per notification. GO-046.

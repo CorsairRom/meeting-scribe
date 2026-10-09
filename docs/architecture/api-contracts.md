@@ -5,7 +5,9 @@ last_updated: 2026-10-09
 mvp: true
 verifiable_by:
   - src/meeting_scribe/recording/infrastructure/dbus/recording_interface.py
+  - src/meeting_scribe/meetings/infrastructure/dbus/meetings_interface.py
   - tests/e2e/recording/test_recording_over_dbus.py
+  - tests/e2e/meetings/test_meetings_over_dbus.py
   - "busctl --user introspect dev.meetingscribe.Service /dev/meetingscribe/Service"
 ai_instructions:
   - "This doc is the SOURCE OF TRUTH for D-Bus contracts. If a method, property or signal changes, update THIS file in the same commit."
@@ -74,13 +76,49 @@ gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meeting
 
 Starting a recording opens the microphone and the system audio monitor: only call it when you intend to record.
 
+### `dev.meetingscribe.Meetings1`
+
+Lists meetings, reports what the processing pipeline is doing and retries a failed job. Same bus name and object
+path as `Recording1`. Processing starts by itself when a recording stops; nothing here starts it.
+
+| Member | Kind | Signature | Description | Errors |
+|---|---|---|---|---|
+| `List` | method | `() -> a(ssdsi)` | One row per meeting that has a readable `meeting.json`, newest first: `(id, started_at, duration_seconds, processing_state, speaker_count)`. `duration_seconds` is the audio length once known, else the recorded time, else `0.0`. A `meeting.json` from a newer schema is listed with state `UNSUPPORTED` | `MEETING_STORAGE_FAILED` |
+| `Get` | method | `(s) -> a{sv}` | Details of one meeting. Keys: `id` (s), `started_at` (s), `duration_seconds` (d), `directory` (s), `processing_state` (s), `failure_code` (s), `failure_reason` (s), `speaker_count` (i), `transcript_path` (s, absolute). Absent values are empty strings | `ENTITY_NOT_FOUND_MEETING` for an unknown id; `MEETING_SCHEMA_UNSUPPORTED`; `MEETING_CORRUPT`; `MEETING_STORAGE_FAILED` |
+| `Reprocess` | method | `(s) -> s` | Queue a `DONE` or `FAILED` meeting again and return its new state (`QUEUED`). Caches that are still valid are reused, so a failed diarization does not repeat the transcription | `ENTITY_NOT_FOUND_MEETING`; `MEETING_PROCESSING_ACTIVE` when it is queued or running; `MEETING_STORAGE_FAILED` |
+| `ActiveMeetingId` | property | `s` (read) | The meeting being processed; empty when idle | n/a |
+| `ActiveState` | property | `s` (read) | `IDLE`, or the active job's state: `TRANSCRIBING`, `DIARIZING` or `EXTRACTING_SAMPLES` | n/a |
+| `QueuedCount` | property | `u` (read) | Jobs waiting (not counting the active one) | n/a |
+| `ProcessingStateChanged` | signal | `(ss)` | `(meeting_id, state)` on every state change, after the new state is saved in `meeting.json` | n/a |
+| `ProcessingFinished` | signal | `(ssi)` | `(meeting_id, state, speaker_count)` when a job ends, with `state` `DONE` or `FAILED` (count `0` when `FAILED`) | n/a |
+
+`PropertiesChanged` is emitted with `ActiveMeetingId`, `ActiveState` and `QueuedCount` when any of them changes.
+The processing states are `QUEUED`, `TRANSCRIBING`, `DIARIZING`, `EXTRACTING_SAMPLES`, `DONE`, `FAILED` (and
+`UNSUPPORTED` in `List` only). A recording that starts while a job runs stops its worker; the job goes back to the
+queue head in the state it had, `ActiveState` returns to `IDLE` and no worker starts until the recording ends.
+
+**Desktop notification.** When a job ends the service calls `org.freedesktop.Notifications.Notify` on the session
+bus (app name "Meeting Scribe"): summary `Meeting processed: N speakers` (`no speech detected` for 0, plus `(CPU)`
+when it ran on the CPU), or `Meeting processing failed` with the failure message as body. The text never holds
+transcript content or speaker names. `PROCESSING_NOTIFY=false` turns it off. A notification service that is missing
+or fails is logged at WARNING and never changes the job. Clients must not send a second notification.
+
+Example calls (documentation only, run them against your own session bus):
+
+```bash
+gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service \
+  --method dev.meetingscribe.Meetings1.List
+gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service \
+  --method dev.meetingscribe.Meetings1.Reprocess "2026-10-09_101500"
+```
+
 ---
 
 ## Out-of-scope members (documented for visibility)
 
 | Member | Status | Reason |
 |---|---|---|
-| `dev.meetingscribe.Meetings1`, `Speakers1`, `Summaries1` | planned (F3.4+) | The domains exist (`Meetings1` arrives in F3.4); only their D-Bus adapters are missing |
+| `dev.meetingscribe.Speakers1`, `Summaries1` | planned (F4+) | The domains exist; only their D-Bus adapters are missing |
 
 ---
 

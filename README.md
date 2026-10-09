@@ -5,9 +5,9 @@ get a transcript with speakers told apart, name or merge speakers in a native GN
 with a local (Ollama) or opt-in cloud (DeepSeek) LLM. Everything runs on your machine; nothing leaves it
 unless you explicitly ask for a cloud summary.
 
-**Status**: F0, F1, F2 and F2.5 are done: recording over the D-Bus session bus (`dev.meetingscribe.Recording1`), a GNOME panel extension to start and stop, and `make install`. F3 (processing) is in progress: transcription, speaker assignment, the "Me" label and voice samples are built as worker stages, but the service does not queue processing after a recording yet and there is no review app. See the [scope](docs/project/mvp-scope.md).
+**Status**: F0, F1, F2 and F2.5 are done: recording over the D-Bus session bus (`dev.meetingscribe.Recording1`), a GNOME panel extension to start and stop, and `make install`. F3 (processing) is in progress: transcription, speaker assignment, the "Me" label and voice samples are built as worker stages, and the service queues processing after every recording (a desktop notification when it ends, `dev.meetingscribe.Meetings1` to list meetings and retry a failed one), but the panel menu does not show the processing state yet and there is no review app. See the [scope](docs/project/mvp-scope.md).
 
-What exists today: record from the top-bar menu or `gdbus`, audio saved in 2-channel chunks. Processing needs the `ml` extra (`make setup`) and an NVIDIA GPU; it is not wired to Stop yet.
+What exists today: record from the top-bar menu or `gdbus`, audio saved in 2-channel chunks. Processing needs the `ml` extra (`make setup`) and an NVIDIA GPU; it starts by itself after Stop and resumes unfinished meetings when the service starts.
 
 ## Quickstart
 

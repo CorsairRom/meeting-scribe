@@ -23,11 +23,20 @@ from meeting_scribe.main import (
     create_app,
     serve,
 )
-from meeting_scribe.meetings.domain.meeting import Meeting, RecordingInfo
+from meeting_scribe.meetings.domain.meeting import (
+    AudioInfo,
+    Meeting,
+    ProcessingFailure,
+    ProcessingParams,
+    RecordingInfo,
+    SpeakerEntry,
+)
+from meeting_scribe.meetings.infrastructure.processing_settings import ProcessingSettings
 from meeting_scribe.settings import Settings, StorageSettings
 from tests.unit.meetings.fakes import (
     T0,
     FakeAudioInspector,
+    FakeNotifier,
     InMemoryMeetingRepository,
     ScriptedRunner,
 )
@@ -46,13 +55,19 @@ WAIT = 5.0
 
 
 class ServiceRig:
-    def __init__(self, tmp_path: Path, runner: ScriptedRunner | None = None) -> None:
+    def __init__(
+        self, tmp_path: Path, runner: ScriptedRunner | None = None, *, notify: bool = True
+    ) -> None:
         self.meetings_dir = tmp_path / "meetings"
+        self.notifier = FakeNotifier()
         self.capture = FakeAudioCapture()
         self.repository = InMemoryMeetingRepository()
         self.runner = runner or ScriptedRunner()
         self.app: Application = create_app(
-            Settings(storage=StorageSettings(meetings_dir=self.meetings_dir)),
+            Settings(
+                storage=StorageSettings(meetings_dir=self.meetings_dir),
+                processing=ProcessingSettings(notify=notify),
+            ),
             recording_adapters=RecordingAdapters(
                 clock=FakeClock(),
                 device_resolver=FakeDeviceResolver(),
@@ -64,6 +79,7 @@ class ServiceRig:
                 runner=self.runner,
                 audio=FakeAudioInspector(),
                 clock=FakeMeetingsClock(),
+                notifier=self.notifier,
             ),
         )
 
@@ -73,7 +89,41 @@ class ServiceRig:
             started_at=T0 + timedelta(minutes=minutes),
             stopped_at=T0 + timedelta(minutes=minutes + 5),
         )
-        meeting = Meeting.enqueue(meeting_id, self.meetings_dir / meeting_id, recording, T0)
+        queued_at = recording.started_at  # resume order follows ``minutes``
+        meeting = Meeting.enqueue(meeting_id, self.meetings_dir / meeting_id, recording, queued_at)
+        self.repository.save(meeting).unwrap()
+        return meeting
+
+    def _recording(self, minutes: int) -> RecordingInfo:
+        return RecordingInfo(
+            started_at=T0 + timedelta(minutes=minutes),
+            stopped_at=T0 + timedelta(minutes=minutes + 5),
+        )
+
+    def seed_done(self, meeting_id: str, minutes: int, speakers: int = 2) -> Meeting:
+        meeting = Meeting.enqueue(
+            meeting_id, self.meetings_dir / meeting_id, self._recording(minutes), T0
+        )
+        meeting = meeting.with_audio(
+            AudioInfo(chunk_count=1, total_frames=16_000 * 90, duration_seconds=90.0)
+        )
+        meeting = meeting.start(T0, ProcessingParams()).unwrap().transcription_done().unwrap()
+        meeting = meeting.diarization_done().unwrap()
+        entries = tuple(
+            SpeakerEntry(id=f"S{n}", label=f"Speaker {n}") for n in range(1, speakers + 1)
+        )
+        meeting = meeting.complete(T0, entries, {"transcript": "transcript.md"}, "es").unwrap()
+        self.repository.save(meeting).unwrap()
+        return meeting
+
+    def seed_failed(self, meeting_id: str, minutes: int) -> Meeting:
+        meeting = Meeting.enqueue(
+            meeting_id, self.meetings_dir / meeting_id, self._recording(minutes), T0
+        )
+        failure = ProcessingFailure(
+            stage="QUEUED", error_code="MEETING_AUDIO_MISSING", message="no chunk"
+        )
+        meeting = meeting.fail(failure, T0).unwrap()
         self.repository.save(meeting).unwrap()
         return meeting
 

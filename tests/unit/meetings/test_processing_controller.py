@@ -11,12 +11,14 @@ from meeting_scribe.base.domain.errors import MeetingScribeError
 from meeting_scribe.meetings.application.processing_controller import (
     ProcessingConfig,
     ProcessingController,
+    ProcessingStatus,
 )
 from meeting_scribe.meetings.domain.errors import (
     MeetingCorruptError,
     MeetingProcessingActiveError,
     MeetingSchemaUnsupportedError,
     MeetingStorageError,
+    WorkerCancelledError,
     WorkerCrashedError,
     WorkerReportedError,
 )
@@ -44,7 +46,9 @@ from tests.unit.meetings.fakes import (
     OnEvent,
     RecordingEvents,
     ScriptedRunner,
+    diarize_ok,
     speakers,
+    transcribe_ok,
 )
 
 PARAMS = ProcessingParams(transcription={"model": "tiny"}, speakers={"pipeline": "p"})
@@ -346,6 +350,9 @@ def test_a_failing_events_observer_never_changes_the_job() -> None:
             raise RuntimeError("boom")
 
         def storage_failed(self, meeting_id: str, error_code: str) -> None:
+            raise RuntimeError("boom")
+
+        def status_changed(self) -> None:
             raise RuntimeError("boom")
 
     fx.controller._events = Exploding()
@@ -675,3 +682,85 @@ def test_processing_config_rejects_non_positive_retry_delays(delays: tuple[float
             params=PARAMS,
             storage_retry_delays_seconds=delays,
         )
+
+
+IDLE = ProcessingStatus(active_meeting_id="", active_state="IDLE", queued_count=0)
+
+
+def test_status_is_idle_with_nothing_queued() -> None:
+    assert Fixture().controller.status() == IDLE
+
+
+def test_status_counts_waiting_jobs_and_announces_every_change() -> None:
+    fx = Fixture()
+
+    fx.controller.enqueue("m1", RECORDING).unwrap()
+    fx.controller.enqueue("m2", RECORDING).unwrap()
+
+    assert fx.controller.status() == ProcessingStatus(
+        active_meeting_id="", active_state="IDLE", queued_count=2
+    )
+    assert fx.events.status_changes >= 2
+
+
+def test_status_follows_the_running_job_and_returns_to_idle() -> None:
+    fx = Fixture()
+    seen: list[ProcessingStatus] = []
+
+    def watch(job: WorkerJob, on_event: OnEvent, cancel: CancelSignal):
+        seen.append(fx.controller.status())
+        return (
+            diarize_ok(job, on_event, cancel)
+            if job.stage == "diarize"
+            else transcribe_ok(job, on_event, cancel)
+        )
+
+    fx.runner.behaviours[("m1", "transcribe")] = watch
+    fx.runner.behaviours[("m1", "diarize")] = watch
+    fx.controller.enqueue("m1", RECORDING).unwrap()
+    fx.controller.enqueue("m2", RECORDING).unwrap()
+
+    fx.controller.run_next()
+
+    assert seen == [
+        ProcessingStatus(active_meeting_id="m1", active_state="TRANSCRIBING", queued_count=1),
+        ProcessingStatus(active_meeting_id="m1", active_state="DIARIZING", queued_count=1),
+    ]
+    assert fx.controller.status() == ProcessingStatus(
+        active_meeting_id="", active_state="IDLE", queued_count=1
+    )
+
+
+def test_a_preempted_job_is_idle_and_waiting_again() -> None:
+    fx = Fixture()
+    fx.controller.enqueue("m1", RECORDING).unwrap()
+
+    def preempted(job: WorkerJob, on_event: OnEvent, cancel: CancelSignal):
+        fx.controller.preempt()
+        return Failure(WorkerCancelledError("stopped"))
+
+    fx.runner.behaviours[("m1", "transcribe")] = preempted
+
+    fx.controller.run_next()
+
+    assert fx.controller.status() == ProcessingStatus(
+        active_meeting_id="", active_state="IDLE", queued_count=1
+    )
+
+
+def test_get_and_list_read_through_the_repository() -> None:
+    fx = Fixture()
+    fx.seed("old", 0, "DONE")
+    fx.seed("new", 30, "QUEUED")
+
+    assert [m.id for m in fx.controller.list_meetings().unwrap()] == ["new", "old"]
+    assert fx.controller.get_meeting("old").unwrap().processing.state == "DONE"
+    missing = fx.controller.get_meeting("nope").failure()
+    assert missing.error_code == "ENTITY_NOT_FOUND_MEETING"
+
+
+def test_get_passes_a_storage_failure_through() -> None:
+    fx = Fixture()
+    fx.repository.get_failures["bad"] = MeetingCorruptError("damaged")
+
+    assert fx.controller.get_meeting("bad").failure().error_code == "MEETING_CORRUPT"

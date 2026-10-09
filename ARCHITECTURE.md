@@ -174,7 +174,7 @@ sequenceDiagram
   MT->>N: "Meeting processed: N speakers"
 ```
 
-Orchestration lives in `meetings` (built in F3.1, wired in F3.4a: `main.py` builds `ProcessingConfig` from the settings, `meeting_scribe/handoff.py` adapts the `RecordingListener` port to `ProcessingController`, and `serve()` resumes unfinished jobs and runs the loop in its own thread; the D-Bus `Meetings1` interface is the rest of F3.4): one FIFO queue persisted in each `meeting.json`, states `QUEUED`, `TRANSCRIBING`, `DIARIZING`, `EXTRACTING_SAMPLES`, `DONE` or `FAILED`, resumed at service start. Transcription hears the mean of both channels; diarization runs on the system channel only, and "Me" comes from per-frame mic versus system energy dominance with loudspeaker bleed compensation (ADR-002). The contract is the [processing spec](docs/specs/processing.md). Decision records: [ADR-003](docs/decisions/003-process-after-stop-single-gpu-worker.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md).
+Orchestration lives in `meetings` (built in F3.1, wired in F3.4a: `main.py` builds `ProcessingConfig` from the settings, `meeting_scribe/handoff.py` adapts the `RecordingListener` port to `ProcessingController`, and `serve()` resumes unfinished jobs and runs the loop in its own thread; the D-Bus `Meetings1` interface and the desktop notification are F3.4a too: `MeetingsInterface` is a `ProcessingEvents` observer on a `ProcessingEventHub`, so its signals and `PropertiesChanged` follow the persisted states, and `NotifyOnFinish` sends one `org.freedesktop.Notifications` message per finished job unless `PROCESSING_NOTIFY=false`; the extension is F3.4b): one FIFO queue persisted in each `meeting.json`, states `QUEUED`, `TRANSCRIBING`, `DIARIZING`, `EXTRACTING_SAMPLES`, `DONE` or `FAILED`, resumed at service start. Transcription hears the mean of both channels; diarization runs on the system channel only, and "Me" comes from per-frame mic versus system energy dominance with loudspeaker bleed compensation (ADR-002). The contract is the [processing spec](docs/specs/processing.md). Decision records: [ADR-003](docs/decisions/003-process-after-stop-single-gpu-worker.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md).
 
 ---
 
@@ -190,7 +190,7 @@ Target GPU: RTX 5060 Laptop, 8 GB.
 
 ---
 
-## 6. D-Bus API (`Recording1` implemented, others planned)
+## 6. D-Bus API (`Recording1` and `Meetings1` implemented, others planned)
 
 All clients (extension, review app, e2e tests) use the session bus; there is no HTTP server ([ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md)).
 Names are proposed and renamable until F6. The contract lives in [`docs/architecture/api-contracts.md`](docs/architecture/api-contracts.md).
@@ -200,7 +200,7 @@ Names are proposed and renamable until F6. The contract lives in [`docs/architec
 | Bus name | `dev.meetingscribe.Service` |
 | Object path | `/dev/meetingscribe/Service` |
 | `dev.meetingscribe.Recording1` (implemented, F1.4) | `Start`, `Stop`; properties `State`, `SessionId`, `ElapsedSeconds`, `Directory`, `FailureReason`; signal `StateChanged` |
-| `dev.meetingscribe.Meetings1` (planned, F3.4) | `List`, `Get`, `Reprocess`; properties `ActiveMeetingId`, `ActiveState`, `QueuedCount`; signals `ProcessingStateChanged`, `ProcessingFinished` ([spec](docs/specs/processing.md) section 8) |
+| `dev.meetingscribe.Meetings1` (implemented, F3.4a) | `List`, `Get`, `Reprocess`; properties `ActiveMeetingId`, `ActiveState`, `QueuedCount`; signals `ProcessingStateChanged`, `ProcessingFinished` ([spec](docs/specs/processing.md) section 8) |
 | `dev.meetingscribe.Speakers1` | rename, merge, sample path |
 | `dev.meetingscribe.Summaries1` | generate/read summary |
 | Errors | `dev.meetingscribe.Error.<ERROR_CODE>` (see [error codes](docs/architecture/error-codes-catalog.md)) |
@@ -244,7 +244,7 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | `PROCESSING_WORKER_MIN_TIMEOUT_SECONDS` | `ProcessingSettings.worker_min_timeout_seconds` | `900` | Lower bound of the stage timeout (> 0) |
 | `PROCESSING_WORKER_KILL_GRACE_SECONDS` | `ProcessingSettings.worker_kill_grace_seconds` | `5` | SIGTERM to SIGKILL grace (> 0) |
 | `PROCESSING_STORAGE_RETRY_DELAYS_SECONDS` | `ProcessingSettings.storage_retry_delays_seconds` | `[2, 8, 30]` | JSON list; delay before each retry of a job whose `meeting.json` could not be saved or read (each > 0, at least one) |
-| `PROCESSING_NOTIFY` | `ProcessingSettings.notify` | `true` | Desktop notification when a job ends (wired in F3.4) |
+| `PROCESSING_NOTIFY` | `ProcessingSettings.notify` | `true` | Desktop notification when a job ends (`false` turns it off) |
 | `TRANSCRIPTION_MODEL` | `TranscriptionSettings.model` | `large-v3-turbo` | faster-whisper model name or path (not empty) |
 | `TRANSCRIPTION_LANGUAGE` | `TranscriptionSettings.language` | `es` | ISO code, or `auto` to detect from the first 30 s |
 | `TRANSCRIPTION_COMPUTE_TYPE` | `TranscriptionSettings.compute_type` | `float16` | CTranslate2 compute type on CUDA |

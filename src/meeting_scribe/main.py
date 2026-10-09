@@ -13,6 +13,8 @@ from returns.result import Failure
 from meeting_scribe.base.infrastructure.dbus.constants import BUS_NAME, OBJECT_PATH
 from meeting_scribe.base.infrastructure.logging import configure_logging
 from meeting_scribe.handoff import ProcessingRecordingListener
+from meeting_scribe.meetings.application.event_hub import ProcessingEventHub
+from meeting_scribe.meetings.application.notifications import NotifyOnFinish
 from meeting_scribe.meetings.application.processing_controller import (
     ProcessingConfig,
     ProcessingController,
@@ -21,12 +23,15 @@ from meeting_scribe.meetings.domain.meeting import ProcessingParams
 from meeting_scribe.meetings.domain.ports import (
     AudioInspector,
     MeetingRepository,
+    Notifier,
     WorkerRunner,
 )
 from meeting_scribe.meetings.domain.ports import Clock as MeetingsClock
+from meeting_scribe.meetings.infrastructure.dbus.meetings_interface import MeetingsInterface
 from meeting_scribe.meetings.infrastructure.filesystem_meeting_repository import (
     FilesystemMeetingRepository,
 )
+from meeting_scribe.meetings.infrastructure.freedesktop_notifier import FreedesktopNotifier
 from meeting_scribe.meetings.infrastructure.subprocess_worker_runner import SubprocessWorkerRunner
 from meeting_scribe.meetings.infrastructure.wav_chunk_inspector import WavChunkInspector
 from meeting_scribe.recording.application.recording_controller import RecordingController
@@ -77,6 +82,7 @@ class ProcessingAdapters:
     runner: WorkerRunner
     audio: AudioInspector
     clock: MeetingsClock
+    notifier: Notifier
 
 
 @dataclass(frozen=True)
@@ -86,6 +92,7 @@ class Application:
     settings: Settings
     recording: RecordingController
     processing: ProcessingController
+    events: ProcessingEventHub  # D-Bus signals and notifications subscribe here
 
 
 def _real_recording_adapters(settings: Settings) -> RecordingAdapters:
@@ -113,6 +120,7 @@ def _real_processing_adapters(settings: Settings) -> ProcessingAdapters:
         ),
         audio=WavChunkInspector(),
         clock=SystemClock(),
+        notifier=FreedesktopNotifier(),
     )
 
 
@@ -153,6 +161,9 @@ def create_app(
         logger.info("config source: no .env file found, using process environment and defaults")
     adapters = recording_adapters or _real_recording_adapters(settings)
     processing_ports = processing_adapters or _real_processing_adapters(settings)
+    events = ProcessingEventHub()
+    if settings.processing.notify:
+        events.subscribe(NotifyOnFinish(processing_ports.notifier))
     processing = ProcessingController(
         repository=processing_ports.repository,
         runner=processing_ports.runner,
@@ -160,6 +171,7 @@ def create_app(
         clock=processing_ports.clock,
         meetings_dir=settings.storage.meetings_dir,
         config=build_processing_config(settings),
+        events=events,
     )
     recording = RecordingController(
         clock=adapters.clock,
@@ -169,7 +181,7 @@ def create_app(
         meetings_dir=settings.storage.meetings_dir,
         listener=ProcessingRecordingListener(processing),
     )
-    return Application(settings=settings, recording=recording, processing=processing)
+    return Application(settings=settings, recording=recording, processing=processing, events=events)
 
 
 def _start_processing(processing: ProcessingController) -> threading.Thread:
@@ -241,11 +253,14 @@ async def serve(
     bus = await MessageBus(bus_address=bus_address).connect()
     try:
         recording = RecordingInterface(app.recording, poll_interval=poll_interval)
+        meetings = MeetingsInterface(app.processing)
         bus.export(OBJECT_PATH, recording)
+        bus.export(OBJECT_PATH, meetings)
         reply = await bus.request_name(BUS_NAME, NameFlag.DO_NOT_QUEUE)
         if reply != RequestNameReply.PRIMARY_OWNER:
             logger.error("D-Bus name %s is already owned: another instance is running.", BUS_NAME)
             return EXIT_NAME_TAKEN
+        app.events.subscribe(meetings)
         processing_thread = _start_processing(app.processing)
         recording.start_monitor()
         logger.info("meeting-scribe serving %s on the D-Bus session bus.", BUS_NAME)
@@ -260,6 +275,7 @@ async def serve(
                 outcome = await recording.shutdown()
         finally:
             await _stop_processing(app.processing, processing_thread, shutdown_timeout)
+            app.events.unsubscribe(meetings)
         if disconnected:
             return EXIT_BUS_DISCONNECTED
         if isinstance(outcome, Failure):

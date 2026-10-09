@@ -14,8 +14,10 @@ from meeting_scribe.meetings.domain.errors import (
     MeetingAudioUnsupportedError,
     MeetingSchemaUnsupportedError,
     MeetingStorageError,
+    NotificationError,
 )
 from meeting_scribe.meetings.domain.meeting import Meeting
+from meeting_scribe.meetings.domain.notification import Notification
 from meeting_scribe.meetings.domain.timeline import Timeline
 from meeting_scribe.meetings.domain.worker import ProgressOrNotice, ResultEvent, WorkerJob
 
@@ -102,6 +104,14 @@ class ProcessingEvents(Protocol):
         """
         ...
 
+    def status_changed(self) -> None:
+        """The active job or the queue length changed; read the controller's ``status()``.
+
+        Carries no data on purpose: the observer reads the freshest status itself, so callbacks
+        that arrive out of order can never publish a stale one.
+        """
+        ...
+
 
 class NullProcessingEvents:
     def state_changed(self, meeting: Meeting) -> None:  # noqa: ARG002
@@ -111,6 +121,9 @@ class NullProcessingEvents:
         return None
 
     def storage_failed(self, meeting_id: str, error_code: str) -> None:  # noqa: ARG002
+        return None
+
+    def status_changed(self) -> None:
         return None
 
 
@@ -140,4 +153,10 @@ class AudioChannelReader(Protocol):
         self, meeting_dir: Path, timeline: Timeline, channel: Literal["mic", "system"]
     ) -> Result[Samples, MeetingStorageError]:
         """One channel as a mono float32 signal in [-1, 1) (``mic`` is 0, ``system`` is 1)."""
+        ...
+
+
+class Notifier(Protocol):
+    def notify(self, notification: Notification) -> Result[None, NotificationError]:
+        """Show a desktop notification. Blocks briefly; never raises."""
         ...
