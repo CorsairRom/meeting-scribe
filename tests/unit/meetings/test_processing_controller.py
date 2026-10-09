@@ -442,14 +442,16 @@ def test_enqueue_of_a_finished_meeting_reprocesses_it_and_ignores_the_recording(
 
 
 @pytest.mark.parametrize(
-    "overrides",
-    [{"worker_timeout_factor": 0}, {"worker_min_timeout_seconds": 0}, {"device": "tpu"}],
+    ("device", "factor", "floor"),
+    [("cpu", 0.0, 60.0), ("cpu", 1.0, 0.0), ("tpu", 1.0, 60.0)],
 )
-def test_processing_config_validates_its_values(overrides: dict[str, object]) -> None:
-    values = {"device": "cpu", "worker_timeout_factor": 1.0, "worker_min_timeout_seconds": 60.0}
-
+def test_processing_config_validates_its_values(device: str, factor: float, floor: float) -> None:
     with pytest.raises(ValidationError):
-        ProcessingConfig(**{**values, **overrides})
+        ProcessingConfig(
+            device=device,  # type: ignore[arg-type]
+            worker_timeout_factor=factor,
+            worker_min_timeout_seconds=floor,
+        )
 
 
 def test_processing_config_has_no_defaults_of_its_own() -> None:
