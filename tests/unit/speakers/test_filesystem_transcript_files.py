@@ -15,6 +15,7 @@ from meeting_scribe.speakers.application.assemble_transcript import (
 from meeting_scribe.speakers.domain.diarization import DiarizationResult
 from meeting_scribe.speakers.domain.samples import Clip
 from meeting_scribe.speakers.domain.turns import SpeakerLabel, TimedWord, Utterance
+from meeting_scribe.speakers.infrastructure import filesystem_transcript_files as module
 from meeting_scribe.speakers.infrastructure.filesystem_transcript_files import (
     FilesystemTranscriptFiles,
 )
@@ -199,3 +200,103 @@ def test_a_write_failure_is_a_diarization_error(tmp_path: Path) -> None:
     )
     assert files.begin(tmp_path / "missing").failure().error_code == "DIARIZATION_FAILED"
     assert files.commit(tmp_path / "missing").failure().error_code == "DIARIZATION_FAILED"
+
+
+# -- the published set is all-or-nothing (f34a: R1/R2/R3/R4 commit findings) --------------------
+
+_NAMES = ("samples/S1.wav", "utterances.json", "transcript.md")
+
+
+class _Crash(BaseException):
+    """A process kill: nothing in the commit may catch it, so no rollback code runs."""
+
+
+def _run(files: FilesystemTranscriptFiles, folder: Path, tag: str) -> None:
+    files.begin(folder).unwrap()
+    signal = _tone(1, 0.1 if tag == "old" else 0.05)
+    files.write_sample(folder, "S1", signal, [Clip(start=0, end=1)])
+    document = [{"speaker": "S1", "start": 0.0, "end": 1.0, "text": tag}]
+    (folder / ".assembling" / "utterances.json").write_text(json.dumps(document))
+    (folder / ".assembling" / "transcript.md").write_text(tag)
+
+
+def _published(folder: Path) -> dict[str, str | None]:
+    return {
+        name: (folder / name).read_bytes().hex()[:64] if (folder / name).exists() else None
+        for name in _NAMES
+    }
+
+
+def _fail_nth_move(monkeypatch: pytest.MonkeyPatch, nth: int, error: BaseException) -> None:
+    real, calls = module._move, {"count": 0}
+
+    def move(source: Path, target: Path) -> None:
+        calls["count"] += 1
+        if calls["count"] == nth:
+            raise error
+        real(source, target)
+
+    monkeypatch.setattr(module, "_move", move)
+
+
+_STEPS = [(True, n) for n in range(1, 8)] + [(False, n) for n in range(1, 5)]
+
+
+@pytest.mark.parametrize(("had_previous", "step"), _STEPS)
+def test_a_failure_at_any_step_keeps_the_previous_set_or_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, had_previous: bool, step: int
+) -> None:
+    files = FilesystemTranscriptFiles()
+    before: dict[str, str | None] = dict.fromkeys(_NAMES)
+    if had_previous:
+        _run(files, tmp_path, "old")
+        files.commit(tmp_path).unwrap()
+        before = _published(tmp_path)
+    _run(files, tmp_path, "new")
+    _fail_nth_move(monkeypatch, step, OSError("disk says no"))
+
+    result = files.commit(tmp_path)
+    files.discard(tmp_path)
+
+    assert isinstance(result, Failure)
+    assert _published(tmp_path) == before
+    assert not [p.name for p in tmp_path.iterdir() if p.name.startswith(".commit")]
+
+
+@pytest.mark.parametrize(("had_previous", "step"), _STEPS)
+def test_a_crash_at_any_step_is_repaired_by_the_next_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, had_previous: bool, step: int
+) -> None:
+    files = FilesystemTranscriptFiles()
+    before: dict[str, str | None] = dict.fromkeys(_NAMES)
+    if had_previous:
+        _run(files, tmp_path, "old")
+        files.commit(tmp_path).unwrap()
+        before = _published(tmp_path)
+    _run(files, tmp_path, "new")
+    real = module._move
+    _fail_nth_move(monkeypatch, step, _Crash())
+
+    with pytest.raises(_Crash):
+        files.commit(tmp_path)
+    monkeypatch.setattr(module, "_move", real)
+    files.begin(tmp_path).unwrap()  # the next run starts: it restores the previous set
+
+    assert _published(tmp_path) == before  # including samples (R4 crash window)
+    assert not [p.name for p in tmp_path.iterdir() if p.name.startswith(".commit")]
+
+
+def test_a_commit_that_finished_but_was_not_cleaned_up_keeps_the_new_set(tmp_path: Path) -> None:
+    files = FilesystemTranscriptFiles()
+    _run(files, tmp_path, "old")
+    files.commit(tmp_path).unwrap()
+    _run(files, tmp_path, "new")
+    files.commit(tmp_path).unwrap()
+    published = _published(tmp_path)
+    (tmp_path / ".commit.done").mkdir()  # a kill right after the commit point
+    (tmp_path / ".commit.done" / "utterances.json").write_text("stale")
+
+    files.begin(tmp_path).unwrap()
+
+    assert _published(tmp_path) == published
+    assert not (tmp_path / ".commit.done").exists()

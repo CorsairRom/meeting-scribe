@@ -256,12 +256,27 @@ class ProcessingController:
             outcome = self._run_job(meeting_id, cancel)
         except Exception:
             logger.exception("Processing of meeting '%s' crashed unexpectedly.", meeting_id)
+            self._fail_after_crash(meeting_id)
             self._clear_active()
+            self._notify_status()  # back to idle: clients refresh
             return True
         self._clear_active()
         self._settle(meeting_id, outcome)
         self._notify_status()
         return True
+
+    def _fail_after_crash(self, meeting_id: str) -> None:
+        """Record an unexpected crash as a FAILED job (fixed message), so it is visible and
+        can be reprocessed instead of staying "in progress" until the next service start."""
+        try:
+            loaded = self._repository.get(meeting_id)
+            if (
+                isinstance(loaded, Success)
+                and loaded.unwrap().processing.state in UNFINISHED_STATES
+            ):
+                self._fail(loaded.unwrap(), MeetingScribeError("Processing stopped unexpectedly."))
+        except Exception:
+            logger.exception("Could not record the crash of meeting '%s'.", meeting_id)
 
     def _clear_active(self) -> None:
         with self._condition:

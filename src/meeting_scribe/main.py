@@ -261,20 +261,24 @@ async def serve(
             logger.error("D-Bus name %s is already owned: another instance is running.", BUS_NAME)
             return EXIT_NAME_TAKEN
         app.events.subscribe(meetings)
-        processing_thread = _start_processing(app.processing)
-        recording.start_monitor()
-        logger.info("meeting-scribe serving %s on the D-Bus session bus.", BUS_NAME)
-        if ready is not None:
-            ready.set()
+        processing_thread: threading.Thread | None = None
         disconnected = False
         try:
+            processing_thread = _start_processing(app.processing)
+            recording.start_monitor()
+            logger.info("meeting-scribe serving %s on the D-Bus session bus.", BUS_NAME)
+            if ready is not None:
+                ready.set()
             try:
                 disconnected = await _wait_for_stop_or_disconnect(stop, bus)
             finally:
                 # first: stopping the recording queues its meeting for the next start
                 outcome = await recording.shutdown()
         finally:
-            await _stop_processing(app.processing, processing_thread, shutdown_timeout)
+            if processing_thread is not None:
+                await _stop_processing(app.processing, processing_thread, shutdown_timeout)
+            else:
+                app.processing.shutdown()
             app.events.unsubscribe(meetings)
         if disconnected:
             return EXIT_BUS_DISCONNECTED

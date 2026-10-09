@@ -10,7 +10,9 @@ from pathlib import Path
 import pytest
 from returns.result import Failure, Success
 
+from meeting_scribe.main import serve
 from meeting_scribe.meetings.domain.errors import WorkerCancelledError
+from meeting_scribe.recording.infrastructure.dbus.recording_interface import RecordingInterface
 from tests.e2e.rig import ServiceRig, connect, eventually, interface, running
 from tests.unit.meetings.fakes import ScriptedRunner, transcribe_ok
 
@@ -109,3 +111,24 @@ def test_a_recording_preempts_the_running_job_and_it_resumes_after_stop(
         "diarize",
     ]
     assert isinstance(rig.repository.get("m-old"), Success)
+
+
+def test_a_failure_while_starting_still_stops_the_processing_loop(
+    tmp_path: Path, bus_address: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = ServiceRig(tmp_path)
+
+    def boom(_: RecordingInterface) -> None:
+        raise RuntimeError("monitor failed")
+
+    monkeypatch.setattr(RecordingInterface, "start_monitor", boom)
+    stopped: list[bool] = []
+    real_shutdown = rig.app.processing.shutdown
+    monkeypatch.setattr(
+        rig.app.processing, "shutdown", lambda: (stopped.append(True), real_shutdown())[1]
+    )
+
+    with pytest.raises(RuntimeError, match="monitor failed"):
+        asyncio.run(serve(rig.app, bus_address=bus_address, poll_interval=0.05))
+
+    assert stopped == [True]

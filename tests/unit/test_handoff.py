@@ -79,3 +79,33 @@ def test_a_session_that_cannot_be_enqueued_still_releases_the_gpu_and_logs_the_c
     fx.repository.fail_saves = False
     fx.controller.enqueue("later", RECORDING).unwrap()
     assert fx.controller.run_next() is True  # not stuck in "recording" mode
+
+
+def test_the_gpu_is_released_even_when_queueing_raises() -> None:
+    fx = Fixture()
+    listener = ProcessingRecordingListener(fx.controller)
+    listener.on_started(_session("RECORDING"))
+
+    def explode(*_: object) -> None:
+        raise RuntimeError("repository exploded")
+
+    fx.controller.enqueue = explode  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError):
+        listener.on_finished(_session())
+
+    del fx.controller.enqueue  # the real method again
+    fx.controller.enqueue("later", RECORDING).unwrap()
+    assert fx.controller.run_next() is True  # not stuck in "recording" mode
+
+
+def test_the_gpu_is_released_even_when_the_session_is_malformed() -> None:
+    fx = Fixture()
+    listener = ProcessingRecordingListener(fx.controller)
+    listener.on_started(_session("RECORDING"))
+    broken = _session().model_copy(update={"started_at": "not a date"})
+
+    with pytest.raises(Exception):  # noqa: B017
+        listener.on_finished(broken)
+
+    fx.controller.enqueue("later", RECORDING).unwrap()
+    assert fx.controller.run_next() is True
