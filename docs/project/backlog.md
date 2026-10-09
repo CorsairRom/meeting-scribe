@@ -37,7 +37,7 @@ Fine-grained task tracking lives in [`odd/tasks/meeting-scribe.md`](../../odd/ta
 - [ ] GJS panel indicator: start/stop, timer, status
 - [ ] Talk to the service through `Gio.DBusProxy` (call `Recording1`, subscribe to `StateChanged`)
 - [ ] Menu item "Review last meeting" launching the review app
-- [ ] Runbook: install and enable the extension
+- [x] Runbook: try and install the extension (F2.4, 2026-10-09)
 
 ### [EPIC] F3 Processing — ADR-002, ADR-003, ADR-004
 
