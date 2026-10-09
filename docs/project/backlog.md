@@ -39,14 +39,14 @@ Fine-grained task tracking lives in [`odd/tasks/meeting-scribe.md`](../../odd/ta
 - [ ] Menu item "Review last meeting" launching the review app
 - [x] Runbook: try and install the extension (F2.4, 2026-10-09)
 
-### [EPIC] F3 Processing — ADR-002, ADR-003, ADR-004
+### [EPIC] F3 Processing — ADR-002, ADR-003, ADR-004, ADR-007 (proposed); spec [`processing.md`](../specs/processing.md)
 
-- [ ] `transcription` domain + faster-whisper adapter (lazy load, release after use, CUDA preload with logging)
-- [ ] `speakers` domain + pyannote adapter, voice samples, "Me" labelling by per-turn energy dominance
-- [ ] `meetings` domain: catalog, `MeetingRepository` (folder + versioned `meeting.json`), processing queue, single GPU worker
-- [ ] Resume pending jobs at service start
-- [ ] Desktop notification on completion
-- [ ] Cache keyed on processing params (prototype bug)
+- [ ] F3.0 Design: processing spec + ADR-007 (GPU work in short-lived worker processes); open product questions answered by the user
+- [ ] F3.1 `meetings` domain: `Meeting` entity and processing state machine, `MeetingRepository` (folder + versioned `meeting.json`), FIFO queue, worker protocol and subprocess runner (timeouts, termination), resume at service start
+- [ ] F3.2 `transcription` domain + faster-whisper worker stage (lazy import, CUDA preload with logging, no silent CPU fallback, params-keyed `words.json`), ML-isolation import contract
+- [ ] F3.3 `speakers` domain: word assignment, utterances, numbering, transcript rendering, "Me" by per-frame energy dominance with bleed compensation, voice samples; pyannote worker stage on the system channel
+- [ ] F3.4 Wiring: Stop enqueues processing; D-Bus `Meetings1` (`List`, `Get`, `Reprocess`, processing signals); desktop notification; extension shows processing state
+- [ ] F3.5 `make install` with the ML extra, runbook (Hugging Face login, first run), real-recording validation with consent
 
 ### [EPIC] F4 Review app — ADR-005
 
