@@ -582,7 +582,7 @@ as cleanly as a plain child process with pipes.
               "sample_max_clip_seconds": 6.0}}
 ```
 
-**Out**: JSON lines on stdout, one object per line, flushed per line:
+**Out**: JSON lines on stdout, one object per line, flushed per line; the event name is in the `event` key (for example `{"event": "progress", ...}`):
 
 | Event | Fields | Meaning |
 |---|---|---|
@@ -853,5 +853,10 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
 
 > If unresolved forks appear, record them here AND open an ADR if the decision is structural.
 
+- 2026-10-09 (F3.1b): the worker runner is a blocking port driven from the processing loop's own thread
+  (`subprocess.Popen` with a reader thread, a per-job cancel signal) instead of `asyncio.create_subprocess_exec`;
+  same protocol and process-group termination, but testable with plain threads and no event loop (GO-033, GO-034).
+  The protocol's event name key is `event`. A resumed job moves back to `TRANSCRIBING` through `Meeting.resume`
+  (GO-035); the state diagram's "resume" is an in-progress state returning to its first worker.
 - 2026-10-09: one worker process per GPU stage instead of one per job — guarantees Whisper and pyannote are never
   resident together without relying on CTranslate2 freeing memory on `del` (ADR-007).
