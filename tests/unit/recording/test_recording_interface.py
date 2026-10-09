@@ -322,3 +322,20 @@ def test_controller_calls_run_off_the_event_loop_thread() -> None:
 
     assert len(threads) == 1
     assert threads[0] != threading.get_ident()
+
+
+def test_stop_if_active_is_quiet_when_idle_and_status_raises(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = Rig()
+
+    def unreadable_status() -> None:
+        raise OSError("ffmpeg.log unreadable")
+
+    monkeypatch.setattr(rig.controller, "status", unreadable_status)
+    with caplog.at_level(logging.ERROR):
+        outcome = asyncio.run(rig.interface.stop_if_active())
+
+    assert outcome is None  # nothing was recording: shutdown stays a clean exit 0
+    assert rig.capture.stop_calls == 0
+    assert not any("could not stop" in r.getMessage() for r in caplog.records)

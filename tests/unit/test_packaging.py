@@ -77,3 +77,9 @@ def test_activation_goes_through_the_systemd_unit(activation: configparser.Confi
     section = activation["D-BUS Service"]
     assert section["SystemdService"] == UNIT_NAME
     assert section["Exec"] == "/bin/false"
+
+
+def test_unit_lets_the_service_stop_ffmpeg_itself(unit: configparser.ConfigParser) -> None:
+    # Default control-group mode would SIGTERM ffmpeg alongside the service, racing the
+    # graceful `q` stop; `mixed` signals only the main process first.
+    assert unit["Service"]["KillMode"] == "mixed"

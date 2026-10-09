@@ -16,6 +16,9 @@ Restart=on-failure
 RestartSec=3
 # Exit 1 means another instance owns the bus name (GO-026); restarting cannot fix that.
 RestartPreventExitStatus=1
+# Signal only the main process on stop so it can end ffmpeg gracefully with `q`; the default
+# control-group mode would SIGTERM ffmpeg at the same time and truncate the last chunk.
+KillMode=mixed
 
 [Install]
 WantedBy=default.target
