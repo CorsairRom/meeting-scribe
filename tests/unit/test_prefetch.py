@@ -83,6 +83,35 @@ def test_a_network_failure_on_whisper_is_a_model_unavailable_failure() -> None:
     assert WHISPER in text
 
 
+def test_the_install_time_failure_text_is_not_the_workers_offline_text() -> None:
+    code, text = _run(Calls(whisper_error=_hub_error("LocalEntryNotFoundError")))
+
+    assert code == 1
+    assert "worker runs offline" not in text
+    assert "make install" not in text
+    assert "network" in text
+    assert "TRANSCRIPTION_MODEL" in text  # the name may be wrong
+    assert "meeting-scribe prefetch-models" in text  # how to retry
+    assert "LocalEntryNotFoundError" in text  # what failed
+
+
+def test_the_pipeline_failure_names_its_setting_and_the_worker_keeps_its_own_text() -> None:
+    from meeting_scribe.speakers.infrastructure.pyannote_diarizer import (  # noqa: PLC0415
+        map_pyannote_error,
+    )
+    from meeting_scribe.transcription.infrastructure.faster_whisper_transcriber import (  # noqa: PLC0415
+        map_whisper_error,
+    )
+
+    _, text = _run(Calls(pipeline_error=_hub_error("LocalEntryNotFoundError")))
+    assert "SPEAKERS_PIPELINE" in text
+    assert "worker runs offline" not in text
+
+    error = _hub_error("LocalEntryNotFoundError")
+    assert "worker runs offline" in str(map_whisper_error(error, WHISPER))  # worker path unchanged
+    assert "worker runs offline" in str(map_pyannote_error(error, PIPELINE))
+
+
 def test_an_unexpected_error_never_prints_a_token() -> None:
     code, text = _run(Calls(whisper_error=RuntimeError("bad header Bearer hf_abcDEF123456")))
 

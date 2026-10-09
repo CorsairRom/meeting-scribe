@@ -122,7 +122,12 @@ def test_a_session_that_cannot_be_enqueued_tells_the_user_without_meeting_conten
     assert len(notifier.sent) == 1
     note = notifier.sent[0]
     assert note.summary == "Meeting could not be queued for processing"
-    assert "restart" in note.body.lower()
+    body = note.body.lower()
+    assert "saved" in body
+    assert "could not be queued" in body
+    assert "log" in body  # where to look
+    assert "retry" not in body  # no automatic retry is promised
+    assert "restart" not in body  # a restart only resumes a meeting.json that exists
     assert ID not in note.summary + note.body  # an id embeds the recording time: keep it out
 
 

@@ -88,7 +88,7 @@ Unfinished meetings resume by themselves when the service starts.
 | `MEETING_AUDIO_MISSING` | The recording has no audio chunk with frames | Nothing to process; the recording itself failed. |
 | `MEETING_CORRUPT` / `MEETING_SCHEMA_UNSUPPORTED` | `meeting.json` is damaged or from a newer version | The meeting is never processed or rewritten; restore the file or upgrade the service. |
 | `MEETING_STORAGE_FAILED` | The meetings folder could not be read or written | Check disk space and permissions; the job is retried a few times and can be Reprocessed. |
-| Notification "Meeting could not be queued" | The recording is saved but its job could not be created | Fix the disk or permissions, then `systemctl --user restart meeting-scribe.service`; a `meeting.json` that exists is resumed at start. |
+| Notification "Meeting could not be queued" | The recording is saved but its processing could not be queued (the text points at the log, it promises no retry) | Read `journalctl --user -u meeting-scribe.service`, fix the cause (disk, permissions), then restart the service: a `meeting.json` that exists is resumed at start, a folder without one is not rediscovered. |
 | Service exits 4 | The processing loop did not stop at shutdown | See [`record-via-gdbus.md`](record-via-gdbus.md) troubleshooting and GO-026. |
 
 Every code is listed in [`../architecture/error-codes-catalog.md`](../architecture/error-codes-catalog.md).
