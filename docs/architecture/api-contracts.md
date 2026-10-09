@@ -46,7 +46,7 @@ Controls the single in-progress recording. Nothing records until a client calls 
 | Member | Kind | Signature | Description | Errors |
 |---|---|---|---|---|
 | `Start` | method | `() -> s` | Resolve the audio devices, create the session folder and start capture. Returns the new session id. Blocks up to about 0.5 s (capture startup check). | `RECORDING_ALREADY_ACTIVE` when a recording is in progress; `AUDIO_DEVICE_NOT_FOUND`; `RECORDING_STORAGE_FAILED`; `AUDIO_CAPTURE_FAILED` |
-| `Stop` | method | `() -> s` | Stop capture cleanly and return the session id. Blocks up to 14 s in the worst case. | `NO_ACTIVE_RECORDING` when nothing is recording; `AUDIO_CAPTURE_FAILED` when the capture had crashed or would not stop |
+| `Stop` | method | `() -> s` | Stop capture cleanly and return the session id. Blocks up to `RECORDING_STOP_TIMEOUT_SECONDS` + 4 s in the worst case. | `NO_ACTIVE_RECORDING` when nothing is recording; `AUDIO_CAPTURE_FAILED` when the capture had crashed or would not stop |
 | `State` | property | `s` (read) | `IDLE`, `RECORDING`, `STOPPED` or `FAILED` | — |
 | `SessionId` | property | `s` (read) | Current or last session id; empty when `IDLE` | — |
 | `ElapsedSeconds` | property | `d` (read) | Seconds since the recording started (frozen once stopped or failed); `0.0` when `IDLE`. Changes continuously and is not announced by `PropertiesChanged` | — |
@@ -58,7 +58,12 @@ Controls the single in-progress recording. Nothing records until a client calls 
 `FailureReason` on every change.
 
 A `Start` after `STOPPED` or `FAILED` begins a new session. If the service shuts down while a recording is active
-(SIGINT/SIGTERM), it stops the capture first.
+(SIGINT/SIGTERM) or the bus connection is lost, it stops the capture first. If that stop fails, the failure
+is logged at ERROR with its error code. The crash monitor logs a failing poll and keeps polling.
+
+Service exit codes: `0` clean shutdown; `1` bus name already owned; `2` stopping the active recording at
+shutdown failed (possible orphaned ffmpeg or truncated final chunk); `3` the D-Bus connection was lost (any
+active recording is stopped first).
 
 Example call (documentation only, run it yourself against your own session bus):
 

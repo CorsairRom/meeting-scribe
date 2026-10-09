@@ -257,12 +257,17 @@ ai_instructions:
 ### GO-024 — The controller is not thread-safe: serialize calls and never read it mid-call
 - **Date**: 2026-10-09
 - **Status**: active
-- **Detail**: `RecordingInterface` runs each controller call in `asyncio.to_thread` under one `asyncio.Lock`. While a call is in flight, property reads and the 2 s crash monitor use the last published snapshot instead of calling `status()` from the loop thread. Shutdown (`stop_if_active`) takes the same lock, then stops an active recording because ffmpeg runs in its own session and would otherwise be orphaned.
+- **Detail**: `RecordingInterface` runs each controller call in `asyncio.to_thread` under one `asyncio.Lock`. While a call is in flight, property reads and the 2 s crash monitor use the last published snapshot instead of calling `status()` from the loop thread. Shutdown (`RecordingInterface.shutdown`) asks the monitor to finish its current iteration (never cancel it mid-`to_thread`: the worker thread would keep running), then `stop_if_active` takes the same lock and stops an active recording because ffmpeg runs in its own session and would otherwise be orphaned. A failed stop is returned, logged at ERROR with its code, and makes `serve` exit 2. The monitor logs a failing poll and keeps polling.
 
 ### GO-025 — Private-bus tests: explicit address, own config, kill by PID
 - **Date**: 2026-10-09
 - **Status**: active
 - **Detail**: the `bus_address` fixture (`tests/e2e/conftest.py`) runs `dbus-daemon --config-file=<temp> --nofork --print-address=1` and clients pass that address to `MessageBus(bus_address=...)`; `DBUS_SESSION_BUS_ADDRESS` is never read, so the user's bus cannot be reached by accident. The temp config has no service directories, so nothing is activated. Every app is wired with the fakes: `Start` on real adapters records the microphone.
+
+### GO-026 — `serve` races the stop signal against bus disconnect and has defined exit codes
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `serve` waits for `stop` or `bus.wait_for_disconnect()` (dbus-fast 5.2.0 raises or resolves when the connection closes). A lost bus is logged at ERROR, the active recording is stopped, and the exit code is 3. Exit codes: 0 clean, 1 name taken, 2 shutdown stop failed, 3 bus disconnected (disconnect wins over a stop failure). `_publish` catches emit errors so a dead bus cannot abort shutdown.
 
 ---
 
@@ -296,11 +301,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 11 | 0 | 0 |
-| GO | 25 | 0 | 0 |
+| GO | 26 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-025 — 2026-10-09
-**Next available IDs**: BR-005, CR-012, GO-026, AP-005
+**Last rule added**: GO-026 — 2026-10-09
+**Next available IDs**: BR-005, CR-012, GO-027, AP-005
 
 ---
 

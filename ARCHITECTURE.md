@@ -203,7 +203,9 @@ so D-Bus stays responsive. The review app runs on system Python ([ADR-005](docs/
 Tooling: `gdbus call` or `busctl --user`. E2E tests (`@pytest.mark.dbus`) start a private `dbus-daemon`, connect to its
 address explicitly and wire the controller with fakes; they never touch the user's session bus or an audio device.
 The service itself runs in the foreground (`make run`, `meeting-scribe`), exits non-zero if the bus name is already
-owned, and stops an active recording on SIGINT/SIGTERM.
+owned (1), stops an active recording on SIGINT/SIGTERM, exits 2 if that stop fails and 3 if the bus connection is lost
+(the recording is stopped first, so ffmpeg is never left running unreachable). Shutdown lets the crash monitor finish
+its current poll before stopping, so controller calls never overlap.
 
 ---
 
