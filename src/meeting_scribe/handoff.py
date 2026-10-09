@@ -51,15 +51,15 @@ class ProcessingRecordingListener:
             self._processing.release()  # GO-045: the GPU is released however the session ends
 
     def _tell_user(self) -> None:
-        """Text only, no meeting id or content: the recording is safe but will not process alone."""
+        """Text only, no meeting id or content; the recording is safe but not queued."""
         if self._notifier is None:
             return
         sent = self._notifier.notify(
             Notification(
                 summary="Meeting could not be queued for processing",
                 body=(
-                    "The recording is saved. Check the disk space and permissions of the "
-                    "meetings folder, then restart the service to retry."
+                    "The recording is saved, but its processing could not be queued. "
+                    "See the service log: journalctl --user -u meeting-scribe.service"
                 ),
             )
         )

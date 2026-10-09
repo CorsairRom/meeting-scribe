@@ -43,6 +43,8 @@ COREUTILS = [
     "mv",
     "touch",
     "readlink",
+    "timeout",
+    "sleep",
 ]
 
 FAKES = {
@@ -59,7 +61,9 @@ case "$1 $2" in
 echo "meeting-scribe $* (from $0)" >> "$FAKE_LOG"
 if [ "$1" = prefetch-models ]; then
   echo "fake prefetch output"
+  [ -n "${FAKE_PREFETCH_SLEEP:-}" ] && exec sleep "$FAKE_PREFETCH_SLEEP"
   [ "${FAKE_PREFETCH_FAIL:-0}" = 1 ] && { echo "FAILED [ACCESS_DENIED]" >&2; exit 1; }
+  [ -n "${FAKE_PREFETCH_EXIT:-}" ] && exit "$FAKE_PREFETCH_EXIT"
 fi
 exit 0
 EOS
@@ -278,7 +282,67 @@ def test_a_failed_model_download_does_not_fail_the_service_install_but_is_loud(
     summary = result.stdout.split("meeting-scribe installed")[1]
     assert "models:    NOT downloaded" in summary
     assert "hf auth login" in summary
-    assert "make install" in summary  # run it again once fixed
+    assert "current/bin/meeting-scribe prefetch-models" in summary  # retry once fixed
+
+
+def test_no_model_download_after_a_rollback_and_the_summary_says_why(sandbox: Env) -> None:
+    sandbox.run(INSTALL, **IDLE)
+    result = sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_SYSTEMCTL_FAIL="restart", **IDLE)
+    assert len(_prefetches(sandbox)) == 1  # only the first install fetched
+    summary = result.stdout.split("meeting-scribe installed")[1]
+    assert "models:    NOT downloaded, the install rolled back" in summary
+    assert "start failure is the real problem" in summary
+    assert "==> Downloading the speech models" not in result.stdout
+    assert "NOT downloaded; recording works" not in summary
+
+
+def test_a_hung_model_download_times_out_and_the_install_still_finishes(sandbox: Env) -> None:
+    result = sandbox.run(
+        INSTALL,
+        FAKE_PREFETCH_SLEEP="30",
+        MEETING_SCRIBE_PREFETCH_TIMEOUT="1",
+        **IDLE,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "gnome-extensions pack" in " ".join(sandbox.calls())  # the extension step still ran
+    summary = result.stdout.split("meeting-scribe installed")[1]
+    assert "models:    NOT downloaded, the download timed out after 1 s" in summary
+    assert "current/bin/meeting-scribe prefetch-models" in summary
+    assert "MEETING_SCRIBE_PREFETCH_TIMEOUT" in summary
+
+
+def test_a_sigkilled_model_download_is_reported_as_timed_out(sandbox: Env) -> None:
+    # timeout --kill-after exits 137 when it had to SIGKILL a download that ignored SIGTERM
+    result = sandbox.run(INSTALL, FAKE_PREFETCH_EXIT="137", **IDLE)
+    assert result.returncode == 0, result.stderr
+    summary = result.stdout.split("meeting-scribe installed")[1]
+    assert "the download timed out after 3600 s" in summary
+    assert "NOT downloaded; recording works" not in summary
+
+
+@pytest.mark.parametrize("value", ["abc", "0", "-5", "1.5", ""])
+def test_an_invalid_prefetch_timeout_warns_once_and_falls_back_to_the_default(
+    sandbox: Env, value: str
+) -> None:
+    result = sandbox.run(
+        INSTALL, MEETING_SCRIBE_PREFETCH_TIMEOUT=value, FAKE_PREFETCH_EXIT="124", **IDLE
+    )
+    assert result.returncode == 0, result.stderr
+    if value == "":  # empty means unset: no warning, the default applies
+        assert "MEETING_SCRIBE_PREFETCH_TIMEOUT" not in result.stderr
+    else:
+        assert result.stderr.count("MEETING_SCRIBE_PREFETCH_TIMEOUT") == 1
+        assert "positive integer" in result.stderr
+    assert len(_prefetches(sandbox)) == 1  # the download still ran
+    assert "timed out after 3600 s" in result.stdout.split("meeting-scribe installed")[1]
+
+
+def test_the_summary_does_not_hardcode_a_pipeline_url(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, FAKE_PREFETCH_FAIL="1", **IDLE)
+    summary = result.stdout.split("meeting-scribe installed")[1]
+    assert "hf.co/pyannote" not in summary
+    assert "output above" in summary
+    assert "current/bin/meeting-scribe prefetch-models" in summary
 
 
 def test_no_model_download_when_the_install_is_refused_or_uv_fails(sandbox: Env) -> None:
