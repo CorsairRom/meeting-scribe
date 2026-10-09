@@ -374,6 +374,13 @@ own meeting, without reading its content into the repo or logs.
       never strands a job (record failure, else requeue; give up in memory after 3); `bac0e10` bounded
       wait after a worker result + spawn-failure cleanup; `f008a99`/`904dcf7` scoped ruff ignores,
       `JobOutcome` enum, settings as single source of processing defaults. GREEN 437 python.
+      Integrated #59; review `review-f9c413cad1c9ae97` approved. F3.1d (`fd6c6d5`, +379/-35): storage
+      retries back off (`PROCESSING_STORAGE_RETRY_DELAYS_SECONDS`, default 2/8/30 s, budget = delays+1
+      runs), `storage_failed` event after the budget, read failures `UNLOADED` (retried) vs
+      `UNREADABLE` (corrupt/newer schema, reported, not retried, new `MEETING_CORRUPT`), result kept
+      when the deadline passes during the post-result grace. GREEN 454 python. Pending for the user:
+      `.env.example` is blocked by the permission settings for agents → add
+      `PROCESSING_STORAGE_RETRY_DELAYS_SECONDS=[2,8,30]` by hand.
 - [ ] F3.2 `transcription` domain + faster-whisper adapter (CUDA lib preload with logging, WAV
       decode without PyAV, word timestamps, params-keyed cache).
 - [ ] F3.3 `speakers` domain + pyannote adapter (exclusive diarization), word→speaker assignment,
