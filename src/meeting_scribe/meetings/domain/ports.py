@@ -7,6 +7,7 @@ from typing import Protocol
 
 from returns.result import Result
 
+from meeting_scribe.base.domain.audio import Samples
 from meeting_scribe.base.domain.errors import MeetingScribeError
 from meeting_scribe.meetings.domain.errors import (
     MeetingAudioMissingError,
@@ -111,3 +112,11 @@ class NullProcessingEvents:
 
     def storage_failed(self, meeting_id: str, error_code: str) -> None:  # noqa: ARG002
         return None
+
+
+class AudioMixReader(Protocol):
+    def read_mix(
+        self, meeting_dir: Path, timeline: Timeline
+    ) -> Result[Samples, MeetingStorageError]:
+        """The session as one mono float32 signal, ``(ch0 + ch1) / 2`` per frame (spec 2.2)."""
+        ...

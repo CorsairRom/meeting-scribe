@@ -22,6 +22,12 @@ quality-assurance = [
     "pyrefly>=0.42.0",
     "import-linter>=2.0",
 ]
+ml = [
+    "faster-whisper>=1.2.1",
+    "numpy>=2.5.3",
+    "nvidia-cublas-cu12>=12.9.2.10",
+    "nvidia-cudnn-cu12==9.*",
+]
 
 [project.scripts]
 meeting-scribe = "meeting_scribe.main:run"
@@ -38,10 +44,11 @@ module-root = "src"
 pythonpath = ["src"]
 testpaths = ["tests"]
 python_files = ["*test*.py"]
-addopts = "-q"
+addopts = "-q -m 'not gpu'"
 markers = [
     "dbus: runs against a private dbus-daemon session bus (skipped when dbus-daemon is not on PATH)",
     "ffmpeg: runs real ffmpeg on synthetic lavfi sources only (skipped when ffmpeg is not on PATH)",
+    "gpu: loads a real model on the GPU with synthetic audio (excluded by default; run with -m gpu)",
 ]
 
 [tool.coverage.run]
@@ -128,3 +135,22 @@ source_modules = [
     "meeting_scribe.meetings",
 ]
 forbidden_modules = ["meeting_scribe.main", "meeting_scribe.settings"]
+
+[[tool.importlinter.contracts]]
+name = "The service never imports ML libraries (only the transcribe backend does, in the worker)"
+type = "forbidden"
+source_modules = ["meeting_scribe"]
+forbidden_modules = ["faster_whisper", "ctranslate2", "torch", "torchaudio", "pyannote"]
+ignore_imports = [
+    "meeting_scribe.transcription.infrastructure.faster_whisper_backend -> faster_whisper",
+    "meeting_scribe.transcription.infrastructure.faster_whisper_backend -> ctranslate2",
+]
+
+[[tool.importlinter.contracts]]
+name = "The service entry point never reaches the worker or its ML backends"
+type = "forbidden"
+source_modules = ["meeting_scribe.main"]
+forbidden_modules = [
+    "meeting_scribe.worker",
+    "meeting_scribe.transcription.infrastructure.faster_whisper_backend",
+]

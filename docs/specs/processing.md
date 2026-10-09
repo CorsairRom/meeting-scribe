@@ -802,15 +802,15 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
 
 | ID | Assumption | Confirm in |
 |---|---|---|
-| A-1 | A CUDA context costs hundreds of MB and is released only at process exit (not covered by the docs consulted) | F3.2 (measure with `nvidia-smi` before, during, after) |
-| A-2 | CTranslate2 memory is outside torch's allocator, so `empty_cache()` cannot free Whisper, and `del model` may leave cached blocks | F3.2 |
-| A-3 | Worker start plus CUDA init costs a few seconds per stage | F3.2 / F3.3 |
-| A-4 | Whisper `large-v3-turbo` float16 and community-1 each fit comfortably in 8 GB on their own | F3.2 / F3.3 (GPU test) |
+| A-1 | A CUDA context costs hundreds of MB and is released only at process exit (not covered by the docs consulted) | F3.2 (measure with `nvidia-smi` before, during, after). **Confirmed in part (2026-10-09)**: memory used 457 MiB before, 2516 MiB during, 457 MiB after the worker exit; the context's own share was not separated from the model's (GO-037) |
+| A-2 | CTranslate2 memory is outside torch's allocator, so `empty_cache()` cannot free Whisper, and `del model` may leave cached blocks | F3.2. **Not measured directly**: torch is not in this process; the design never depends on it because the process exit returns everything (GO-037) |
+| A-3 | Worker start plus CUDA init costs a few seconds per stage | F3.2 / F3.3. **Confirmed for transcribe (2026-10-09)**: 4.2 s wall for an 11 s synthetic session, of which the model load is 2.5 s (includes CUDA init) and decoding 0.1 s; a cache hit costs 0.2 s |
+| A-4 | Whisper `large-v3-turbo` float16 and community-1 each fit comfortably in 8 GB on their own | F3.2 / F3.3 (GPU test). **Whisper confirmed (2026-10-09)**: peak about 2.1 GB above the 457 MiB desktop baseline on an 8 GB card; community-1 is F3.3 |
 | A-5 | The ambient Hugging Face login works without passing `token` (prototype behaviour) or with `token=True` | F3.3 |
 | A-6 | Averaging the channels (-6 dB) does not hurt Whisper accuracy | F3.5 validation |
 | A-7 | "Me" defaults (6 dB dominance, 10 dB noise margin, 0.5 s) work on headset and loudspeaker setups | F3.5 validation with consent |
 | A-8 | pyannote telemetry is off by default; the opt-out variable name | F3.3 (read pyannote source) |
-| A-9 | Where torch `+cu130` comes from in the prototype lock | F3.3 |
+| A-9 | Where torch `+cu130` comes from in the prototype lock | F3.3. **Answered in F3.2 (2026-10-09)**: the prototype lock takes torch 2.14.1 from the default PyPI index (`registry = pypi.org`, no custom index); that Linux wheel depends on the cu13 NVIDIA packages (`nvidia-cudnn-cu13`, `cuda-toolkit`, ...). faster-whisper does not pull torch, so the `ml` extra has none until pyannote lands |
 | A-10 | Install size (several GB) and model size (about 1.6 GB for turbo) | F3.5 |
 | A-11 | The exact pyannote exception for a gated or unauthenticated model, for mapping to `DIARIZATION_MODEL_ACCESS_DENIED` | F3.3 |
 | A-12 | A pyannote progress hook can report progress without `ProgressHook`'s terminal output | F3.3 (otherwise stage-level progress only) |
@@ -876,3 +876,25 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
   if the deadline passes during the post-result grace (GO-034). `ProcessingConfig.params` has no default either.
 - 2026-10-09: one worker process per GPU stage instead of one per job — guarantees Whisper and pyannote are never
   resident together without relying on CTranslate2 freeing memory on `del` (ADR-007).
+- 2026-10-09 (F3.2): the transcribe stage is split along the layering. `transcription.application.TranscribeAudio`
+  decides cache hit or miss (key = params with the effective compute type and device, `faster-whisper` and
+  `ctranslate2` versions read from package metadata so a hit loads nothing, and the audio fingerprint), throttles
+  progress to one event per second and writes `words.json` (`{"cache_version", "key", "data": {"detected_language",
+  "words": [{start, end, text, probability}]}}`). `meetings.application.run_transcribe_stage` is the use case the
+  worker calls (`meetings` may depend on `transcription` only through its application layer, so the job spec is
+  parsed by `TranscriptionRequest.from_spec`); the audio comes from the meetings ports (`AudioInspector`,
+  `AudioMixReader`). The model sits behind a `WhisperBackend` port: `faster_whisper_transcriber.py` holds the device
+  policy, option mapping and error mapping and is tested with a fake backend; `faster_whisper_backend.py` is the one
+  module that imports `faster_whisper`/`ctranslate2` (inside methods) and is the only entry in the contract's
+  `ignore_imports` (GO-038).
+- 2026-10-09 (F3.2): a cache hit emits `cache_hit` and no `started` event (the spec's `started` means "model about to
+  load"), so `processing.device` keeps what the run that produced `words.json` recorded. Word text is stripped and
+  blank words are dropped. `condition_on_previous_text`, `vad_filter` and `beam_size` are part of the key; the compute
+  type of the other device is not (`int8` vs `float16` only matters on its own device).
+- 2026-10-09 (F3.2): the worker takes test seams (`main(stdin=, events=, stages=)`, `build_transcribe_stage(backend)`)
+  so the full stage runs in-process with a fake model; a refused job (bad JSON, wrong protocol or stage) and an
+  unexpected exception both end the stream with one `error` event (`WORKER_PROTOCOL_ERROR`, `INTERNAL_ERROR`).
+  `numpy` joined the `ml` extra explicitly (it was only transitive); `base.domain.audio.Samples` is a type-only alias,
+  so no domain needs numpy at import time and the tests that decode audio skip without it.
+- 2026-10-09 (F3.2): `make setup` now runs `uv sync --extra ml --extra quality-assurance` (pyrefly must see the
+  adapters' imports); `pytest` excludes `-m gpu` by default, run it with `uv run pytest -m gpu -s`.

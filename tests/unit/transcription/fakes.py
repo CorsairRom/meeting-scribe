@@ -39,7 +39,7 @@ class FakeTranscriber:
 
     def transcribe(
         self,
-        audio: Samples,  # noqa: ARG002
+        audio: Samples,
         params: TranscriptionParams,
         device: Device,
         on_progress: Callable[[float], None],
@@ -55,12 +55,12 @@ class InMemoryWordsCache:
         self.document: dict[str, object] = {}
         self.fail_store = False
 
-    def load(self, meeting_dir: Path) -> dict[str, object]:  # noqa: ARG002
+    def load(self, meeting_dir: Path) -> dict[str, object]:
         return json.loads(json.dumps(self.document))  # what a file round trip would give
 
     def store(
         self,
-        meeting_dir: Path,  # noqa: ARG002
+        meeting_dir: Path,
         document: dict[str, object],
     ) -> Result[None, TranscriptionError]:
         if self.fail_store:
