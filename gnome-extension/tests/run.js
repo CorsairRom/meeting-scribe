@@ -5,4 +5,4 @@ import System from 'system';
 import {runAll} from './harness.js';
 import './indicatorModel.test.js';
 
-System.exit(runAll() === 0 ? 0 : 1);
+System.exit(await runAll() === 0 ? 0 : 1);
