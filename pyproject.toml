@@ -1,0 +1,127 @@
+[project]
+name = "meeting-scribe"
+version = "0.1.0"
+description = "Local GPU-accelerated meeting assistant: record, transcribe, diarize and summarize"
+readme = "README.md"
+authors = [
+    { name = "Richard", email = "rromero@heligrafics.net" },
+]
+requires-python = "~=3.12.0"
+dependencies = [
+    "pydantic>=2.11.0",
+    "pydantic-settings>=2.9.0",
+    "returns>=0.25.0",
+]
+
+[project.optional-dependencies]
+quality-assurance = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.12.0",
+    "pyrefly>=0.42.0",
+    "import-linter>=2.0",
+]
+
+[project.scripts]
+meeting-scribe = "meeting_scribe.main:run"
+
+[build-system]
+requires = ["uv_build>=0.10.9,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "meeting_scribe"
+module-root = "src"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+python_files = ["*test*.py"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["meeting_scribe"]
+branch = true
+
+[tool.importlinter]
+root_package = "meeting_scribe"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Domains recording, transcription, speakers and summaries are independent"
+type = "independence"
+modules = [
+    "meeting_scribe.recording",
+    "meeting_scribe.transcription",
+    "meeting_scribe.speakers",
+    "meeting_scribe.summaries",
+]
+
+[[tool.importlinter.contracts]]
+name = "Layers per package: infrastructure > application > domain"
+type = "layers"
+layers = ["infrastructure", "application", "domain"]
+containers = [
+    "meeting_scribe.base",
+    "meeting_scribe.recording",
+    "meeting_scribe.transcription",
+    "meeting_scribe.speakers",
+    "meeting_scribe.summaries",
+    "meeting_scribe.meetings",
+]
+
+[[tool.importlinter.contracts]]
+name = "meetings only depends on other domains through their application layer"
+type = "forbidden"
+source_modules = ["meeting_scribe.meetings"]
+forbidden_modules = [
+    "meeting_scribe.recording.domain",
+    "meeting_scribe.recording.infrastructure",
+    "meeting_scribe.transcription.domain",
+    "meeting_scribe.transcription.infrastructure",
+    "meeting_scribe.speakers.domain",
+    "meeting_scribe.speakers.infrastructure",
+    "meeting_scribe.summaries.domain",
+    "meeting_scribe.summaries.infrastructure",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Shared kernel does not depend on domains or the composition root"
+type = "forbidden"
+source_modules = ["meeting_scribe.base"]
+forbidden_modules = [
+    "meeting_scribe.recording",
+    "meeting_scribe.transcription",
+    "meeting_scribe.speakers",
+    "meeting_scribe.summaries",
+    "meeting_scribe.meetings",
+    "meeting_scribe.settings",
+    "meeting_scribe.main",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain layers do not import frameworks"
+type = "forbidden"
+source_modules = [
+    "meeting_scribe.base.domain",
+    "meeting_scribe.recording.domain",
+    "meeting_scribe.transcription.domain",
+    "meeting_scribe.speakers.domain",
+    "meeting_scribe.summaries.domain",
+    "meeting_scribe.meetings.domain",
+]
+forbidden_modules = ["pydantic_settings", "dbus_fast", "gi"]
+
+[[tool.importlinter.contracts]]
+name = "Domain packages do not import settings or the composition root"
+type = "forbidden"
+source_modules = [
+    "meeting_scribe.base",
+    "meeting_scribe.recording",
+    "meeting_scribe.transcription",
+    "meeting_scribe.speakers",
+    "meeting_scribe.summaries",
+    "meeting_scribe.meetings",
+]
+forbidden_modules = ["meeting_scribe.main", "meeting_scribe.settings"]
