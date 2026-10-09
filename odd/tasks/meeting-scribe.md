@@ -282,6 +282,19 @@ extension in the user's session, or running the nested shell, only with the user
       `uv tool dir --bin`; `enable --now` first time, `restart` on re-install only when not
       RECORDING; extension pack+install+enable with a log-out-once hint on Wayland. TDD RED (no
       scripts) → GREEN 193 python / 74 extension. Nothing run against the real system by the writer.
+      RDD (509 lines, high, standing consent): lineage `review-d68c3b4ec4043d18` approved + acked.
+      F2.5b (`9b31798`, +179/-42): recording state checked BEFORE reinstalling; state read fails
+      closed (UNKNOWN refuses install/uninstall without FORCE; gdbus `--timeout 5`); a failed
+      service start no longer aborts (extension still installed, cause printed, exit 1); honest
+      PATH-isolation tests with decoy tools. RED 14 → GREEN 228 python / 75 extension.
+      RDD on F2.5b (226 lines, high, standing consent): lineage `review-132aff3a2e6ad58c` approved +
+      acked. F2.5c (`ac96995`, +97/-13): state re-checked right before restart (a recording started
+      during the reinstall is never killed; restart skipped with a warning), `FORCE=1` overrides only
+      `unknown` for install, explicit IDLE/STOPPED/FAILED matching (anything else → unknown), real
+      PATH assertion, separate daemon-reload cause. RED 6 → GREEN 237 python / 75 extension.
+      RDD on F2.5c (115 lines, standing consent): lineage `review-65c7e305b205e63c` approved + acked.
+      Fixed inline: `FORCE=1` now also restarts an active service whose state stays unknown (the
+      documented wedged-service remedy), never a recording (RED 2 → GREEN 240 python).
 - [x] F2.6 Menu-only click (user feedback 2026-10-09 after a stray click recorded 4 s): every
       state opens the drop-down; Start/Stop are explicit menu actions. Inline TDD in a worktree:
       RED 5 failing → GREEN 75; guard test "no state starts a recording on a plain click".

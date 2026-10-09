@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # Reverses install.sh. Idempotent. Never touches recorded meetings or the user's .env.
-# Refuses to stop the service while a recording is running unless FORCE=1.
+# Refuses while a recording is running or its state cannot be read, unless FORCE=1.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/_common.sh
 source "$REPO_ROOT/scripts/_common.sh"
 
-if is_recording && [[ "${FORCE:-0}" != 1 ]]; then
-  echo "error: a recording is in progress. Stop the recording first, or run 'make uninstall FORCE=1'." >&2
-  exit 1
+if [[ "${FORCE:-0}" != 1 ]]; then
+  refuse_unless_safe "'make uninstall'" "Or run 'make uninstall FORCE=1' to stop it anyway." || exit 1
 fi
 
 echo "==> Stopping the service and removing the unit and activation file"

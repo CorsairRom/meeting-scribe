@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # One-command install: service (uv tool), systemd --user unit, D-Bus activation, GNOME extension.
-# Idempotent; safe to re-run to upgrade. Never restarts the service while a recording is running.
+# Idempotent; safe to re-run to upgrade. Refuses to run while a recording is in progress, or its state is unknown unless FORCE=1.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/_common.sh
 source "$REPO_ROOT/scripts/_common.sh"
+
+# Decide before touching anything: reinstalling replaces the environment a live service runs from.
+refuse_unless_safe "'make install'" || exit 1
 
 echo "==> Installing the service with uv (Python 3.12)"
 uv tool install --force --reinstall --python 3.12 "$REPO_ROOT"
@@ -23,18 +26,29 @@ cp "$REPO_ROOT/packaging/dbus/$BUS_NAME.service" "$ACTIVATION_PATH"
 echo "==> Enabling and starting the service"
 was_active=0
 unit_active && was_active=1
-systemctl --user daemon-reload
-service_note=""
+start_failed=0
+reload_failed=0
+restart_skipped=0
+systemctl --user daemon-reload || reload_failed=1
 if ((was_active)); then
-  systemctl --user enable "$UNIT_NAME"
-  if is_recording; then
-    service_note="NOT restarted: a recording is in progress. Stop the recording first, then run 'make install' again (or 'systemctl --user restart $UNIT_NAME')."
-    echo "warning: $service_note" >&2
+  if systemctl --user enable "$UNIT_NAME"; then
+    # Re-check: a recording may have started while uv was reinstalling. Never kill it.
+    # FORCE=1 also replaces a wedged service whose state stays unreadable, never a recording.
+    restart_state="$(service_state)"
+    if [[ "$restart_state" == unknown && "${FORCE:-0}" == 1 ]]; then
+      restart_state=idle
+    fi
+    case "$restart_state" in
+      none | idle) systemctl --user restart "$UNIT_NAME" || start_failed=1 ;;
+      *)
+        restart_skipped=1
+        echo "warning: not restarting $UNIT_NAME because a recording is running or its state is unknown; the new version takes effect on the next restart or login." >&2 ;;
+    esac
   else
-    systemctl --user restart "$UNIT_NAME"
+    start_failed=1
   fi
 else
-  systemctl --user enable --now "$UNIT_NAME"
+  systemctl --user enable --now "$UNIT_NAME" || start_failed=1
 fi
 
 echo "==> Installing the GNOME extension"
@@ -56,7 +70,20 @@ if unit_active; then
   echo "  service:   active ($UNIT_NAME)"
 else
   echo "  service:   NOT active (check: systemctl --user status $UNIT_NAME)"
+  if ((start_failed)); then
+    echo "  cause:     starting the service failed. Another instance (for example 'make run')"
+    echo "             may already own the bus name: stop it with Ctrl+C and run"
+    echo "             'systemctl --user restart $UNIT_NAME'."
+  fi
 fi
-[[ -z "$service_note" ]] || echo "  note:      $service_note"
+if ((restart_skipped)); then
+  echo "  restart:   skipped (recording or unknown state); the new version takes effect on the next restart or login"
+fi
+if ((reload_failed)); then
+  echo "  cause:     daemon-reload failed (systemctl --user daemon-reload); the unit file may not be loaded."
+fi
 echo "  extension: $extension_state ($EXTENSION_UUID)"
 echo "  config:    $CONFIG_HOME/meeting-scribe/.env (optional, see .env.example)"
+if ((start_failed || reload_failed)); then
+  exit 1
+fi
