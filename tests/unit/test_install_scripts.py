@@ -295,6 +295,25 @@ def test_install_proceeds_with_force_when_the_state_is_unknown(sandbox: Env, mod
     assert any(line.startswith("uv tool install") for line in sandbox.calls())
 
 
+@pytest.mark.parametrize("mode", ["get-fail", "weird"])
+def test_forced_install_restarts_an_active_service_whose_state_stays_unknown(
+    sandbox: Env, mode: str
+) -> None:
+    # FORCE=1 is the documented remedy for a wedged service: it must actually replace it.
+    result = sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_GDBUS_MODE=mode, FORCE="1")
+    assert result.returncode == 0, result.stderr
+    assert f"systemctl --user restart {UNIT}" in sandbox.calls()
+
+
+def test_forced_install_still_never_restarts_a_recording(sandbox: Env) -> None:
+    result = sandbox.run(
+        INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_GDBUS_MODE="idle-then-recording", FORCE="1"
+    )
+    assert result.returncode == 0, result.stderr
+    assert not any("restart" in line for line in sandbox.calls())
+    assert "restart:   skipped" in result.stdout
+
+
 def test_install_unknown_message_names_the_remedies(sandbox: Env) -> None:
     result = sandbox.run(INSTALL, FAKE_GDBUS_MODE="weird")
     message = result.stdout + result.stderr

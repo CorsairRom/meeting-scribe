@@ -33,7 +33,12 @@ systemctl --user daemon-reload || reload_failed=1
 if ((was_active)); then
   if systemctl --user enable "$UNIT_NAME"; then
     # Re-check: a recording may have started while uv was reinstalling. Never kill it.
-    case "$(service_state)" in
+    # FORCE=1 also replaces a wedged service whose state stays unreadable, never a recording.
+    restart_state="$(service_state)"
+    if [[ "$restart_state" == unknown && "${FORCE:-0}" == 1 ]]; then
+      restart_state=idle
+    fi
+    case "$restart_state" in
       none | idle) systemctl --user restart "$UNIT_NAME" || start_failed=1 ;;
       *)
         restart_skipped=1
