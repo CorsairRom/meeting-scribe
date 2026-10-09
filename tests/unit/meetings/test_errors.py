@@ -4,6 +4,7 @@ from meeting_scribe.base.domain.errors import InvalidStateTransitionError, Meeti
 from meeting_scribe.meetings.domain.errors import (
     MeetingAudioMissingError,
     MeetingAudioUnsupportedError,
+    MeetingCorruptError,
     MeetingProcessingActiveError,
     MeetingSchemaUnsupportedError,
     MeetingStorageError,
@@ -17,6 +18,7 @@ from meeting_scribe.meetings.domain.errors import (
     ("error", "code"),
     [
         (MeetingStorageError, "MEETING_STORAGE_FAILED"),
+        (MeetingCorruptError, "MEETING_CORRUPT"),
         (MeetingSchemaUnsupportedError, "MEETING_SCHEMA_UNSUPPORTED"),
         (MeetingProcessingActiveError, "MEETING_PROCESSING_ACTIVE"),
         (MeetingAudioMissingError, "MEETING_AUDIO_MISSING"),

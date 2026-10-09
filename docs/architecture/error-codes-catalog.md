@@ -57,7 +57,8 @@ All classes derive from `MeetingScribeError` in `src/meeting_scribe/base/domain/
 | `AudioDeviceNotFoundError` | `AUDIO_DEVICE_NOT_FOUND` | `recording`: default sink monitor or microphone source could not be resolved | `dev.meetingscribe.Error.AUDIO_DEVICE_NOT_FOUND` |
 | `AudioCaptureError` | `AUDIO_CAPTURE_FAILED` | `recording`: the capture process failed to start or stop cleanly | `dev.meetingscribe.Error.AUDIO_CAPTURE_FAILED` |
 | `RecordingStorageError` | `RECORDING_STORAGE_FAILED` | `recording`: the session folder could not be created (or already exists) | `dev.meetingscribe.Error.RECORDING_STORAGE_FAILED` |
-| `MeetingStorageError` | `MEETING_STORAGE_FAILED` | `meetings`: `meeting.json` could not be read, written or listed (I/O error or corrupt file) | `dev.meetingscribe.Error.MEETING_STORAGE_FAILED` |
+| `MeetingStorageError` | `MEETING_STORAGE_FAILED` | `meetings`: `meeting.json` could not be read, written or listed (I/O error) | `dev.meetingscribe.Error.MEETING_STORAGE_FAILED` |
+| `MeetingCorruptError` | `MEETING_CORRUPT` | `meetings`: `meeting.json` exists but is damaged or invalid (permanent; the processing loop never retries it) | `dev.meetingscribe.Error.MEETING_CORRUPT` |
 | `MeetingSchemaUnsupportedError` | `MEETING_SCHEMA_UNSUPPORTED` | `meetings`: `meeting.json` has a `schema_version` newer than the service supports; the meeting is never processed or rewritten | `dev.meetingscribe.Error.MEETING_SCHEMA_UNSUPPORTED` |
 | `MeetingProcessingActiveError` | `MEETING_PROCESSING_ACTIVE` | `meetings`: reprocess requested while the job is queued or running (subclass of `InvalidStateTransitionError`) | `dev.meetingscribe.Error.MEETING_PROCESSING_ACTIVE` |
 | `MeetingAudioMissingError` | `MEETING_AUDIO_MISSING` | `meetings`: the recording has no chunk with audio frames | `dev.meetingscribe.Error.MEETING_AUDIO_MISSING` |

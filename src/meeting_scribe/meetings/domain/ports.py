@@ -90,10 +90,21 @@ class ProcessingEvents(Protocol):
         """Called after a job ends ``DONE`` or ``FAILED`` was persisted."""
         ...
 
+    def storage_failed(self, meeting_id: str, reason: str) -> None:
+        """Called when a job cannot go on because ``meeting.json`` cannot be read or saved.
+
+        The meeting is left as it is on disk (resumable at the next ``resume()``); nothing in
+        its persisted state says so, so this is how a UI learns that the job is stuck.
+        """
+        ...
+
 
 class NullProcessingEvents:
     def state_changed(self, meeting: Meeting) -> None:  # noqa: ARG002
         return None
 
     def finished(self, meeting: Meeting) -> None:  # noqa: ARG002
+        return None
+
+    def storage_failed(self, meeting_id: str, reason: str) -> None:  # noqa: ARG002
         return None

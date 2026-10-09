@@ -9,6 +9,7 @@ import pytest
 from returns.result import Failure
 
 from meeting_scribe.meetings.domain.errors import (
+    MeetingCorruptError,
     MeetingSchemaUnsupportedError,
     MeetingStorageError,
 )
@@ -135,8 +136,20 @@ def test_corrupt_file_is_a_storage_failure_and_is_not_rewritten(
 
     result = FilesystemMeetingRepository(tmp_path).get("bad")
 
-    assert isinstance(result.failure(), MeetingStorageError)
+    assert isinstance(result.failure(), MeetingCorruptError)  # permanent: retrying cannot help
     assert (tmp_path / "bad" / "meeting.json").read_text(encoding="utf-8") == content
+
+
+def test_an_unreadable_file_is_a_transient_storage_failure_not_a_corrupt_one(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path, "locked", "{}")
+    (tmp_path / "locked" / "meeting.json").chmod(0)
+
+    failure = FilesystemMeetingRepository(tmp_path).get("locked").failure()
+
+    assert isinstance(failure, MeetingStorageError)
+    assert not isinstance(failure, MeetingCorruptError)
 
 
 def test_newer_schema_is_unsupported_on_get(tmp_path: Path) -> None:

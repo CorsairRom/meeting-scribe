@@ -7,6 +7,12 @@ class MeetingStorageError(MeetingScribeError):
     error_code = "MEETING_STORAGE_FAILED"
 
 
+class MeetingCorruptError(MeetingStorageError):
+    """``meeting.json`` exists but is not valid; permanent, so retrying the read cannot help."""
+
+    error_code = "MEETING_CORRUPT"
+
+
 class MeetingSchemaUnsupportedError(MeetingScribeError):
     error_code = "MEETING_SCHEMA_UNSUPPORTED"
 

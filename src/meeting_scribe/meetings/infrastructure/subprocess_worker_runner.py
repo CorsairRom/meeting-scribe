@@ -138,6 +138,10 @@ class SubprocessWorkerRunner:
         run = _Run()
         while True:
             interruption = _interruption(job, deadline, cancel)
+            if isinstance(interruption, WorkerTimeoutError) and run.final_at is not None:
+                # The final event arrived in time; the deadline passed while the worker lingered.
+                self._terminate(process)
+                return self._conclude(run)
             if interruption is not None:
                 return self._stopped(process, interruption)
             if run.lingering(self._result_exit_grace):
