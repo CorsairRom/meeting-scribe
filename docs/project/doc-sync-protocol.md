@@ -51,6 +51,24 @@ Each action on the left **requires** updating the docs on the right. No exceptio
 
 ---
 
+## Integration PR docs gate
+
+An integration (tracker) PR collects the work-unit PRs of a phase. Before it is reported to the owner as ready
+to merge:
+
+1. `make check` is green on the integration branch. It includes the drift tests in
+   `tests/unit/test_docs_sync.py` (error codes, ADR table, import contracts, settings, links, phase status).
+2. A read-only documentation audit runs against the integration branch. Scope: everything in `docs/`,
+   `README.md`, `AGENTS.md`, `PRD.md`, `ARCHITECTURE.md` and `.env.example`. The report is evidence-based
+   (file, line, what the code does instead) and graded P1 (wrong or misleading), P2 (stale or incomplete) or
+   P3 (cosmetic).
+3. Every P1 and P2 finding is fixed in a docs PR into the integration branch. P3 findings are optional.
+4. Only then is the tracker PR marked ready.
+
+The drift tests catch mechanical drift only; the audit catches prose that no test can check.
+
+---
+
 ## Triggers specific to AI sessions
 
 Before ending a session, ask yourself:
