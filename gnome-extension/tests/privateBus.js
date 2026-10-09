@@ -5,6 +5,7 @@ import GLib from 'gi://GLib';
 
 import {registerCleanup} from './harness.js';
 import {INTERFACE_XML} from '../meeting-scribe@meetingscribe.dev/lib/recordingClient.js';
+import {INTERFACE_XML as MEETINGS_XML} from '../meeting-scribe@meetingscribe.dev/lib/meetingsClient.js';
 
 Gio._promisify(Gio.DataInputStream.prototype, 'read_line_async', 'read_line_finish_utf8');
 Gio._promisify(Gio.DBusConnection, 'new_for_address', 'new_for_address_finish');
@@ -207,5 +208,75 @@ export class FakeRecordingService {
         this._impl.emit_property_changed('State', new GLib.Variant('s', state));
         this._impl.emit_property_changed('SessionId', new GLib.Variant('s', sessionId));
         this._impl.emit_property_changed('FailureReason', new GLib.Variant('s', failureReason));
+    }
+}
+
+/** In-process stand-in for dev.meetingscribe.Meetings1 (ids and counts only, no content). */
+export class FakeMeetingsService {
+    constructor(connection, busName, objectPath) {
+        this._connection = connection;
+        this._busName = busName;
+        this._objectPath = objectPath;
+        this._ownerId = 0;
+        this._impl = null;
+        this.ActiveMeetingId = '';
+        this.ActiveState = 'IDLE';
+        this.QueuedCount = 0;
+        this.reprocessed = [];
+        this.unknown = new Set(['gone']);
+    }
+
+    /** Export the object and own the name; rejects when the name is taken or never acquired. */
+    async appear() {
+        this._impl = Gio.DBusExportedObject.wrapJSObject(MEETINGS_XML, this);
+        this._impl.export(this._connection, this._objectPath);
+        const acquired = new Promise((resolve, reject) => {
+            this._ownerId = Gio.bus_own_name_on_connection(
+                this._connection, this._busName, Gio.BusNameOwnerFlags.DO_NOT_QUEUE,
+                () => resolve(),
+                () => reject(new Error(`could not own ${this._busName}`)));
+        });
+        try {
+            await withTimeout(acquired, `own ${this._busName}`);
+        } catch (e) {
+            this.vanish();
+            throw e;
+        }
+    }
+
+    vanish() {
+        if (this._ownerId)
+            Gio.bus_unown_name(this._ownerId);
+        this._ownerId = 0;
+        this._impl?.unexport();
+        this._impl = null;
+    }
+
+    ReprocessAsync([meetingId], invocation) {
+        if (this.unknown.has(meetingId)) {
+            invocation.return_dbus_error(`${ERROR_PREFIX}ENTITY_NOT_FOUND_MEETING`, 'unknown');
+            return;
+        }
+        if (this.ActiveMeetingId === meetingId) {
+            invocation.return_dbus_error(`${ERROR_PREFIX}MEETING_PROCESSING_ACTIVE`, 'active');
+            return;
+        }
+        this.reprocessed.push(meetingId);
+        invocation.return_value(new GLib.Variant('(s)', ['QUEUED']));
+    }
+
+    /** Publish a pipeline status, like the service's PropertiesChanged. */
+    setStatus(activeMeetingId, activeState, queuedCount) {
+        this.ActiveMeetingId = activeMeetingId;
+        this.ActiveState = activeState;
+        this.QueuedCount = queuedCount;
+        this._impl.emit_property_changed('ActiveMeetingId', new GLib.Variant('s', activeMeetingId));
+        this._impl.emit_property_changed('ActiveState', new GLib.Variant('s', activeState));
+        this._impl.emit_property_changed('QueuedCount', new GLib.Variant('u', queuedCount));
+    }
+
+    finish(meetingId, state, speakerCount) {
+        this._impl.emit_signal('ProcessingFinished',
+            new GLib.Variant('(ssi)', [meetingId, state, speakerCount]));
     }
 }

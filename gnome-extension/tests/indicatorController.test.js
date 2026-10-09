@@ -217,3 +217,104 @@ test('an error that arrives after destroy is not notified', async () => {
     await flush();
     assertDeepEqual(f.notes, []);
 });
+
+// -- meeting processing (Meetings1) -----------------------------------------------------------
+
+const idleProcessing = {
+    available: true, activeMeetingId: '', activeState: 'IDLE', queuedCount: 0, last: null,
+};
+
+function withMeetings(processing = idleProcessing, {reprocessResult = 'QUEUED'} = {}) {
+    const f = fixture();
+    f.meetings = {
+        snapshot: processing,
+        calls: [],
+        reprocess(id) {
+            this.calls.push(id);
+            return typeof reprocessResult === 'function'
+                ? reprocessResult() : Promise.resolve(reprocessResult);
+        },
+    };
+    f.controller = new IndicatorController({
+        client: f.client, meetings: f.meetings, view: f.view, scheduler: f.scheduler,
+        notify: (title, body) => f.notes.push([title, body]), _: s => s,
+    });
+    f.emit = snapshot => {
+        f.client.snapshot = snapshot;
+        f.controller.handleChange(snapshot);
+    };
+    f.setProcessing = processing => {
+        f.meetings.snapshot = processing;
+        f.controller.handleProcessingChange();
+    };
+    return f;
+}
+
+const lastTexts = f => f.rendered.at(-1).menuItems.filter(i => i.kind !== 'separator')
+    .map(i => i.text);
+
+test('controller renders the processing line when the pipeline changes', () => {
+    const f = withMeetings();
+    f.controller.refresh();
+    assertEqual(f.rendered.at(-1).label, '');
+    f.setProcessing({...idleProcessing, activeMeetingId: 'm1', activeState: 'DIARIZING'});
+    assertEqual(f.rendered.length, 2);
+    assertEqual(lastTexts(f).at(-1), 'Processing meeting… (diarizing)');
+    assertEqual(f.rendered.at(-1).label, '…');
+});
+
+test('a recording change keeps showing the processing state', () => {
+    const f = withMeetings({...idleProcessing, queuedCount: 2});
+    f.emit(snap({state: 'RECORDING'}));
+    assertEqual(lastTexts(f).at(-1), '2 meetings queued');
+});
+
+test('processing never starts a recording or a tick', () => {
+    const f = withMeetings({...idleProcessing, activeMeetingId: 'm1', activeState: 'DIARIZING'});
+    f.controller.refresh();
+    assertEqual(f.controller.onPrimaryClick(), 'open-menu');
+    f.setProcessing({...idleProcessing, last: {meetingId: 'm1', state: 'FAILED', speakerCount: 0}});
+    assertEqual(f.controller.onPrimaryClick(), 'open-menu');
+    assertDeepEqual(f.client.calls, []);
+    assertEqual(f.scheduler.next, 1);
+});
+
+test('the Reprocess action calls Meetings1 with the failed meeting id', async () => {
+    const f = withMeetings({...idleProcessing,
+        last: {meetingId: 'm7', state: 'FAILED', speakerCount: 0}});
+    f.controller.refresh();
+    await f.controller.onMenuAction('reprocess');
+    assertDeepEqual(f.meetings.calls, ['m7']);
+    assertDeepEqual(f.client.calls, [], 'never touches the recording: ');
+});
+
+test('Reprocess does nothing when there is no failed meeting', async () => {
+    for (const processing of [idleProcessing,
+        {...idleProcessing, last: {meetingId: 'm1', state: 'DONE', speakerCount: 2}}]) {
+        const f = withMeetings(processing);
+        await f.controller.onMenuAction('reprocess');
+        assertDeepEqual(f.meetings.calls, []);
+    }
+    const f = fixture(); // no meetings client wired at all
+    await f.controller.onMenuAction('reprocess');
+    assertDeepEqual(f.notes, []);
+});
+
+test('a refused Reprocess is shown to the user once', async () => {
+    const f = withMeetings({...idleProcessing,
+        last: {meetingId: 'm7', state: 'FAILED', speakerCount: 0}}, {
+        reprocessResult: () => Promise.reject({
+            name: 'dev.meetingscribe.Error.MEETING_PROCESSING_ACTIVE', message: 'active',
+        }),
+    });
+    await f.controller.onMenuAction('reprocess');
+    assertDeepEqual(f.notes, [['Meeting Scribe', 'That meeting is already queued or being processed.']]);
+});
+
+test('processing changes after destroy are ignored', () => {
+    const f = withMeetings();
+    f.controller.refresh();
+    f.controller.destroy();
+    f.setProcessing({...idleProcessing, queuedCount: 1});
+    assertEqual(f.rendered.length, 1);
+});
