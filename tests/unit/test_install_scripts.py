@@ -63,6 +63,7 @@ if [ "$1" = prefetch-models ]; then
   echo "fake prefetch output"
   [ -n "${FAKE_PREFETCH_SLEEP:-}" ] && exec sleep "$FAKE_PREFETCH_SLEEP"
   [ "${FAKE_PREFETCH_FAIL:-0}" = 1 ] && { echo "FAILED [ACCESS_DENIED]" >&2; exit 1; }
+  [ -n "${FAKE_PREFETCH_EXIT:-}" ] && exit "$FAKE_PREFETCH_EXIT"
 fi
 exit 0
 EOS
@@ -308,6 +309,32 @@ def test_a_hung_model_download_times_out_and_the_install_still_finishes(sandbox:
     assert "models:    NOT downloaded, the download timed out after 1 s" in summary
     assert "current/bin/meeting-scribe prefetch-models" in summary
     assert "MEETING_SCRIBE_PREFETCH_TIMEOUT" in summary
+
+
+def test_a_sigkilled_model_download_is_reported_as_timed_out(sandbox: Env) -> None:
+    # timeout --kill-after exits 137 when it had to SIGKILL a download that ignored SIGTERM
+    result = sandbox.run(INSTALL, FAKE_PREFETCH_EXIT="137", **IDLE)
+    assert result.returncode == 0, result.stderr
+    summary = result.stdout.split("meeting-scribe installed")[1]
+    assert "the download timed out after 3600 s" in summary
+    assert "NOT downloaded; recording works" not in summary
+
+
+@pytest.mark.parametrize("value", ["abc", "0", "-5", "1.5", ""])
+def test_an_invalid_prefetch_timeout_warns_once_and_falls_back_to_the_default(
+    sandbox: Env, value: str
+) -> None:
+    result = sandbox.run(
+        INSTALL, MEETING_SCRIBE_PREFETCH_TIMEOUT=value, FAKE_PREFETCH_EXIT="124", **IDLE
+    )
+    assert result.returncode == 0, result.stderr
+    if value == "":  # empty means unset: no warning, the default applies
+        assert "MEETING_SCRIBE_PREFETCH_TIMEOUT" not in result.stderr
+    else:
+        assert result.stderr.count("MEETING_SCRIBE_PREFETCH_TIMEOUT") == 1
+        assert "positive integer" in result.stderr
+    assert len(_prefetches(sandbox)) == 1  # the download still ran
+    assert "timed out after 3600 s" in result.stdout.split("meeting-scribe installed")[1]
 
 
 def test_the_summary_does_not_hardcode_a_pipeline_url(sandbox: Env) -> None:

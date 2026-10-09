@@ -155,23 +155,29 @@ fi
 
 # Bounded (MEETING_SCRIBE_PREFETCH_TIMEOUT seconds, default 3600) so a stalled download cannot hang
 # the install. Skipped after a rollback: the new version failed to start, which is the real problem.
-prefetch_timeout="${MEETING_SCRIBE_PREFETCH_TIMEOUT:-3600}"
+readonly PREFETCH_TIMEOUT_DEFAULT=3600
+readonly EXIT_TIMED_OUT=124 # timeout(1): the command ran past the limit (SIGTERM)
+readonly EXIT_KILLED=137    # timeout --kill-after: SIGTERM was ignored, so it was SIGKILLed (128+9)
+prefetch_timeout="${MEETING_SCRIBE_PREFETCH_TIMEOUT:-$PREFETCH_TIMEOUT_DEFAULT}"
+if ! [[ "$prefetch_timeout" =~ ^[1-9][0-9]*$ ]]; then
+  echo "warning: MEETING_SCRIBE_PREFETCH_TIMEOUT='$prefetch_timeout' is not a positive integer of seconds; using $PREFETCH_TIMEOUT_DEFAULT." >&2
+  prefetch_timeout="$PREFETCH_TIMEOUT_DEFAULT"
+fi
 prefetch_cmd="$CURRENT_LINK/bin/meeting-scribe prefetch-models"
 models_state="downloaded (Hugging Face cache; processing runs offline)"
-models_failed=0
-models_timed_out=0
+models_status=ok # ok | failed | timed_out | skipped_rollback
 if [[ -n "$rolled_back" ]]; then
-  models_failed=2
+  models_status=skipped_rollback
 else
   echo "==> Downloading the speech models (Hugging Face cache; needs the network and 'hf auth login')"
   prefetch_status=0
   timeout --kill-after=10 "$prefetch_timeout" "$version_dir/bin/meeting-scribe" prefetch-models \
     || prefetch_status=$?
-  if ((prefetch_status == 124)); then
-    models_timed_out=1
-  elif ((prefetch_status != 0)); then
-    models_failed=1
-  fi
+  case "$prefetch_status" in
+    0) ;;
+    "$EXIT_TIMED_OUT" | "$EXIT_KILLED") models_status=timed_out ;;
+    *) models_status=failed ;;
+  esac
 fi
 
 echo "==> Installing the GNOME extension"
@@ -228,20 +234,25 @@ if [[ -n "$extension_failed" ]]; then
 else
   echo "  extension: $extension_state ($EXTENSION_UUID)"
 fi
-if ((models_failed == 2)); then
-  echo "  models:    NOT downloaded, the install rolled back (the start failure is the real problem)."
-  echo "             Fix it, run 'make install' again, or fetch them later with: $prefetch_cmd"
-elif ((models_timed_out)); then
-  echo "  models:    NOT downloaded, the download timed out after $prefetch_timeout s; recording works,"
-  echo "             processing will fail with MODEL_UNAVAILABLE. Retry with: $prefetch_cmd"
-  echo "             (MEETING_SCRIBE_PREFETCH_TIMEOUT sets the limit in seconds)."
-elif ((models_failed)); then
-  echo "  models:    NOT downloaded; recording works, processing will fail with MODEL_UNAVAILABLE."
-  echo "             See the download output above for the cause (for a gated model: accept its terms"
-  echo "             and run 'hf auth login' once). Then retry with: $prefetch_cmd"
-else
-  echo "  models:    $models_state"
-fi
+case "$models_status" in
+  skipped_rollback)
+    echo "  models:    NOT downloaded, the install rolled back (the start failure is the real problem)."
+    echo "             Fix it, run 'make install' again, or fetch them later with: $prefetch_cmd"
+    ;;
+  timed_out)
+    echo "  models:    NOT downloaded, the download timed out after $prefetch_timeout s; recording works,"
+    echo "             processing will fail with MODEL_UNAVAILABLE. Retry with: $prefetch_cmd"
+    echo "             (MEETING_SCRIBE_PREFETCH_TIMEOUT sets the limit in seconds)."
+    ;;
+  failed)
+    echo "  models:    NOT downloaded; recording works, processing will fail with MODEL_UNAVAILABLE."
+    echo "             See the download output above for the cause (for a gated model: accept its terms"
+    echo "             and run 'hf auth login' once). Then retry with: $prefetch_cmd"
+    ;;
+  *)
+    echo "  models:    $models_state"
+    ;;
+esac
 echo "  config:    $CONFIG_HOME/meeting-scribe/.env (optional, see .env.example)"
 if ((start_failed || reload_failed)) || [[ -n "$extension_failed" ]]; then
   exit 1

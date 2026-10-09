@@ -125,7 +125,8 @@ def test_a_session_that_cannot_be_enqueued_tells_the_user_without_meeting_conten
     body = note.body.lower()
     assert "saved" in body
     assert "could not be queued" in body
-    assert "log" in body  # where to look
+    assert "journalctl --user -u meeting-scribe" in body  # where to look on an installed system
+    assert "docs/" not in body  # the repo is not on the installed system
     assert "retry" not in body  # no automatic retry is promised
     assert "restart" not in body  # a restart only resumes a meeting.json that exists
     assert ID not in note.summary + note.body  # an id embeds the recording time: keep it out

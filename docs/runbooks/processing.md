@@ -46,7 +46,7 @@ the first run, and what each failure code means. Design: [`../specs/processing.m
    cache and the Hugging Face cache.
 2. Read the summary. The `models:` line says `downloaded`, or `NOT downloaded` with the fix. A failed download never
    fails the service install: recording works, processing does not until the models are cached. The download is
-   bounded by `MEETING_SCRIBE_PREFETCH_TIMEOUT` (seconds, default 3600; the summary says when it timed out), and it is
+   bounded by `MEETING_SCRIBE_PREFETCH_TIMEOUT` (a positive integer of seconds, default 3600; an invalid value warns and uses the default; the summary says when it timed out), and it is
    skipped when the install rolled back because the new version failed to start (fix that first).
 3. If the models were not downloaded: fix the cause (login, terms, network; the download output above names it),
    then run `make install` again. To download only the models: `meeting-scribe prefetch-models` (installed path:

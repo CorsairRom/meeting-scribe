@@ -59,8 +59,7 @@ class ProcessingRecordingListener:
                 summary="Meeting could not be queued for processing",
                 body=(
                     "The recording is saved, but its processing could not be queued. "
-                    "Check the service log (journalctl --user -u meeting-scribe.service) "
-                    "and docs/runbooks/processing.md."
+                    "See the service log: journalctl --user -u meeting-scribe.service"
                 ),
             )
         )
