@@ -38,6 +38,13 @@ class FilesystemMeetingRepository:
             return Failure(
                 MeetingSchemaUnsupportedError(f"Meeting '{meeting.id}' is never rewritten.")
             )
+        if meeting.directory != self._root / meeting.id:
+            return Failure(
+                MeetingStorageError(
+                    f"Meeting '{meeting.id}' must live in '{self._root / meeting.id}', "
+                    f"not '{meeting.directory}'."
+                )
+            )
         text = json.dumps(meeting.model_dump(mode="json"), indent=2, ensure_ascii=False)
         try:
             self._write_atomically(meeting.directory / _FILE_NAME, text)
@@ -112,6 +119,16 @@ class FilesystemMeetingRepository:
                 handle.flush()
                 os.fsync(handle.fileno())
             Path(temp_name).replace(target)  # os.replace: atomic on POSIX
+            self._fsync_directory(target.parent)
         except BaseException:
             Path(temp_name).unlink(missing_ok=True)
             raise
+
+    @staticmethod
+    def _fsync_directory(directory: Path) -> None:
+        """Make the rename itself durable: without it a power loss can undo the new state."""
+        fd = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
