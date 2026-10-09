@@ -51,6 +51,7 @@ import-linter, errors as `returns.Result`.
 | Add a setting                        | `src/meeting_scribe/settings.py` + `.env.example` + `ARCHITECTURE.md` section 7 |
 | Wire a new D-Bus interface or adapter | `src/meeting_scribe/main.py` (composition root)               |
 | Change an import contract            | `pyproject.toml` `[tool.importlinter]`                         |
+| Package or activate the service      | `packaging/` + `docs/runbooks/record-via-gdbus.md`             |
 | Write a doc                          | `docs/README.md` (taxonomy) and `docs/_templates/`             |
 | Know when to update docs             | `docs/project/doc-sync-protocol.md`                            |
 | See the canonical shared-kernel code | `src/meeting_scribe/base/`                                     |

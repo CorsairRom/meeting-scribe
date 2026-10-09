@@ -176,6 +176,11 @@ repo from F1).
 - [ ] F1.5 Packaging + runbook: systemd `--user` unit and D-Bus activation file under
       `packaging/` (not installed), runbook "record via gdbus"; real-device smoke test only with
       user consent.
+      Route: delegated writer. Commits `df15ae3` (unit template `Type=dbus`, `RestartPreventExitStatus=1`,
+      activation file → `SystemdService=`, 8 contract tests tied to `BUS_NAME`/exit codes; +106) and
+      `6518856` (runbook `docs/runbooks/record-via-gdbus.md`; +115/-3). TDD RED (files missing) →
+      GREEN 168 passed; `systemd-analyze --user verify` on a `/bin/true` copy: clean. Nothing
+      installed, nothing run. Real-device smoke test: pending the user's consent.
 ### F2 GNOME extension — pending
 ### F3 Processing — pending
 ### F4 Review UI — pending
@@ -272,5 +277,5 @@ it (F1.4). Items below kept for traceability.
 
 Owner merges tracker #2 (`feat/foundations` → `main`). Meanwhile F1 runs on integration branch
 `feat/recording` (based on `feat/foundations` until #2 lands, then retargeted to `main`).
-Current: F1.1–F1.3 integrated (#14, #16–#20); F1.4 integrated (#23–#25); F1.4b done; next F1.5. RDD boundary for F1 = tip of `feat/foundations`
+Current: F1.1–F1.3 integrated (#14, #16–#20); F1.4 integrated (#23–#25); F1.5 files done; pending: real-device smoke test (needs consent) and final F1 review. RDD boundary for F1 = tip of `feat/foundations`
 (its tree equals the reviewed F0 tree).

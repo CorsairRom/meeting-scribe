@@ -105,7 +105,7 @@ on its own, `AudioCapture.exit_detail()` gives the exit code plus the `ffmpeg.lo
 as the session `failure_reason` (generic text only when empty). Opening `ffmpeg.log` and spawning ffmpeg fail with
 distinct messages. Not yet wired into `main.py` (F1.4).
 
-The GNOME extension lives in `gnome-extension/` (planned, F2) and the GTK review app in a separate top-level directory (planned, F4), both outside the Python package.
+The GNOME extension lives in `gnome-extension/` (planned, F2) and the GTK review app in a separate top-level directory (planned, F4), both outside the Python package. Packaging files (systemd `--user` unit template and D-Bus activation file, installed in F6) live in `packaging/`.
 
 ---
 
