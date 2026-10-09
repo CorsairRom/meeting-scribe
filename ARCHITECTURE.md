@@ -195,7 +195,8 @@ Tooling: `gdbus call` or `busctl --user`; e2e tests under `dbus-run-session`.
 
 `Settings` (root) composes per-domain classes via `Field(default_factory=...)`. All inherit the shared
 `MeetingScribeSettings` base (`extra="ignore"`, `case_sensitive=False`, utf-8) and only set their own
-`env_prefix`. `get_settings()` is `lru_cache`d. Template: [`.env.example`](.env.example).
+`env_prefix`. The base class lives in `base/infrastructure/settings.py` (re-exported by `meeting_scribe.settings`) so
+domain infrastructure can inherit it without importing the root settings module (import contract 6). `get_settings()` is `lru_cache`d. Template: [`.env.example`](.env.example).
 
 Env file resolution (once, in the base class): `$XDG_CONFIG_HOME/meeting-scribe/.env` (default
 `~/.config/meeting-scribe/.env`) if it exists, otherwise `./.env` in the CWD (development). Process environment
@@ -206,8 +207,12 @@ never values). Under `systemd --user` the CWD is not the project, so use the XDG
 |---|---|---|---|
 | `LOG_LEVEL` | `Settings.log_level` | `INFO` | One of DEBUG, INFO, WARNING, ERROR, CRITICAL (case-insensitive); invalid fails at load |
 | `STORAGE_MEETINGS_DIR` | `StorageSettings.meetings_dir` | `~/Documents/meetings` | Where meetings are stored (`~` is expanded) |
+| `RECORDING_CHUNK_SECONDS` | `RecordingSettings.chunk_seconds` | `30` | Length of each audio chunk (>= 1) |
+| `RECORDING_STOP_TIMEOUT_SECONDS` | `RecordingSettings.stop_timeout_seconds` | `10` | Wait for ffmpeg to exit after `q` before terminating (> 0) |
+| `RECORDING_FFMPEG_BINARY` | `RecordingSettings.ffmpeg_binary` | `ffmpeg` | ffmpeg executable name or path |
+| `RECORDING_SAMPLE_RATE` | `RecordingSettings.sample_rate` | `16000` | Sample rate of the recorded chunks (Hz) |
 
-Future per-domain settings (for example `TRANSCRIPTION_`,
+`RecordingSettings` lives in `recording/infrastructure/recording_settings.py`. Future per-domain settings (for example `TRANSCRIPTION_`,
 `SUMMARIES_`) live in each domain's `infrastructure/` and are composed into `Settings` by the root.
 
 ---
