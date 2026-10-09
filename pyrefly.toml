@@ -1,0 +1,20 @@
+project-includes = ["src/**/*.py", "tests/**/*.py"]
+project-excludes = [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/*venv/**",
+    "**/.[!/.]*/**",
+]
+use-ignore-files = true
+search-path = ["src"]
+disable-search-path-heuristics = false
+site-package-path = []
+
+python-platform = "linux"
+python-version = "3.12"
+skip-interpreter-query = false
+
+untyped-def-behavior = "check-and-infer-return-type"
+permissive-ignores = false
+
+[errors]

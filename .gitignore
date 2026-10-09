@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.venv/
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyrefly_cache/
+.import_linter_cache/
+
+# Env / secrets
+.env
+!.env.example
+
+# Private audio and transcripts must never be committed
+*.wav
+*.flac
+*.ogg
+*.opus
+*.mp3
+*.m4a
+*.webm
+# Root-anchored: an unanchored `meetings/` would also ignore src/meeting_scribe/meetings/
+/meetings/
+words.json
+diarization.json
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Agent tooling local cache
+.atl/.skill-registry.cache.json
+.atl/skill-registry.md
