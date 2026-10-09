@@ -48,3 +48,33 @@ class DiarizationParams(BaseModel):
     max_speakers: int | None = Field(default=None, ge=1)
     me_noise_margin_db: float = Field(ge=0)
     """Not a pipeline knob: the margin that decides the in-person (mic) channel choice."""
+
+
+class AssemblyParams(BaseModel):
+    """Everything the post-diarization step needs; none of it is part of a cache key (spec 4)."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    utterance_gap_seconds: float = Field(ge=0)
+    me_dominance_db: float = Field(ge=0)
+    me_noise_margin_db: float = Field(ge=0)
+    me_min_turn_seconds: float = Field(gt=0)
+    sample_max_clips: int = Field(ge=1)
+    sample_target_seconds: float = Field(gt=0)
+    sample_min_clip_seconds: float = Field(gt=0)
+    sample_max_clip_seconds: float = Field(gt=0)
+
+    def me_params(self) -> MeParams:
+        return MeParams(
+            dominance_db=self.me_dominance_db,
+            noise_margin_db=self.me_noise_margin_db,
+            min_turn_seconds=self.me_min_turn_seconds,
+        )
+
+    def sample_params(self) -> SampleParams:
+        return SampleParams(
+            max_clips=self.sample_max_clips,
+            target_seconds=self.sample_target_seconds,
+            min_clip_seconds=self.sample_min_clip_seconds,
+            max_clip_seconds=self.sample_max_clip_seconds,
+        )

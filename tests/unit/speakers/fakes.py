@@ -1,7 +1,7 @@
 """Fakes for the speakers ports: no pyannote, no torch, no model, no files outside tmp_path."""
 
 import json
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -13,7 +13,8 @@ from meeting_scribe.base.domain.errors import MeetingScribeError
 from meeting_scribe.speakers.domain.diarization import Device, DiarizationResult
 from meeting_scribe.speakers.domain.errors import DiarizationError
 from meeting_scribe.speakers.domain.params import DiarizationParams
-from meeting_scribe.speakers.domain.turns import Turn
+from meeting_scribe.speakers.domain.samples import Clip
+from meeting_scribe.speakers.domain.turns import SpeakerLabel, Turn, Utterance
 from meeting_scribe.speakers.infrastructure.pyannote_diarizer import (
     Hook,
     OutputLike,
@@ -172,3 +173,42 @@ class RecordingReporter:
 
     def progress(self, processed_seconds: float, total_seconds: float) -> None:
         self.events.append(("progress", (processed_seconds, total_seconds)))
+
+
+class FakeTranscriptFiles:
+    """Records what the extraction step writes, in order, without touching the disk."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.samples: dict[str, tuple[Clip, ...]] = {}
+        self.utterances: list[dict[str, object]] = []
+        self.transcript = ""
+        self.fail_on: str | None = None
+
+    def _fails(self, name: str) -> Failure[DiarizationError] | None:
+        self.calls.append(name)
+        return Failure(DiarizationError(f"cannot write {name}")) if self.fail_on == name else None
+
+    def reset_samples(self, meeting_dir: Path) -> Result[None, DiarizationError]:
+        return self._fails("reset") or Success(None)
+
+    def write_sample(
+        self, meeting_dir: Path, speaker_id: str, signal: Samples, clips: Sequence[Clip]
+    ) -> Result[str, DiarizationError]:
+        self.samples[speaker_id] = tuple(clips)
+        return self._fails("sample") or Success(f"samples/{speaker_id}.wav")
+
+    def write_utterances(
+        self,
+        meeting_dir: Path,
+        utterances: Sequence[Utterance],
+        labels: Mapping[str, SpeakerLabel],
+    ) -> Result[str, DiarizationError]:
+        self.utterances = [
+            {"speaker": labels[u.speaker].id, "start": u.start, "text": u.text} for u in utterances
+        ]
+        return self._fails("utterances") or Success("utterances.json")
+
+    def write_transcript(self, meeting_dir: Path, text: str) -> Result[str, DiarizationError]:
+        self.transcript = text
+        return self._fails("transcript") or Success("transcript.md")

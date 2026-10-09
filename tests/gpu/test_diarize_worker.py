@@ -74,11 +74,23 @@ def _synthetic_meeting(root: Path) -> Path:
     _write_chunk(
         meeting / "audio" / "chunk_00000.wav", np.zeros_like(seconds), 0.3 * (first + second)
     )
+    words = [{"start": 1.0, "end": 1.4, "text": "uno", "probability": 1.0}]
+    document = {"cache_version": 1, "key": {}, "data": {"detected_language": "es", "words": words}}
+    (meeting / "words.json").write_text(json.dumps(document), encoding="utf-8")  # as transcribed
     return meeting
 
 
 def _job(meeting: Path, device: str = "cuda") -> WorkerJob:
-    speakers = DiarizationParams(pipeline=PIPELINE, me_noise_margin_db=10.0).model_dump()
+    speakers = {
+        **DiarizationParams(pipeline=PIPELINE, me_noise_margin_db=10.0).model_dump(),
+        "utterance_gap_seconds": 5.0,
+        "me_dominance_db": 6.0,
+        "me_min_turn_seconds": 0.5,
+        "sample_max_clips": 3,
+        "sample_target_seconds": 15.0,
+        "sample_min_clip_seconds": 1.5,
+        "sample_max_clip_seconds": 6.0,
+    }
     return WorkerJob.build("diarize", str(meeting), device, ProcessingParams(speakers=speakers))
 
 
@@ -139,7 +151,12 @@ def test_the_worker_diarizes_on_the_gpu_caches_and_frees_all_vram(
             if "loaded" in line or "Diarized" in line:
                 print(f"log: {line}")
 
-    assert first.unwrap().artifacts == {"turns": "turns.json"}
+    assert first.unwrap().artifacts == {
+        "turns": "turns.json",
+        "utterances": "utterances.json",
+        "transcript": "transcript.md",
+    }
+    assert (meeting / "transcript.md").is_file()
     cache = json.loads((meeting / "turns.json").read_text(encoding="utf-8"))
     assert cache["key"]["params"]["device"] == "cuda"
     assert cache["key"]["params"]["channel"] == "system"

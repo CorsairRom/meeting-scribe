@@ -927,3 +927,10 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
   `AudioChannelReader` port (`WavChannelReader`, one channel at a time) and passes the system envelope and a lazy
   `load_channel` to the service. The `speakers` domain has its own `check_device_available` (the domains may not
   import each other). The stage `started` event carries the device (`cuda`/`cpu`).
+- 2026-10-09 (F3.3b, extraction step): `speakers.application.AssembleTranscript` runs in the diarize worker right after
+  `DiarizeAudio` (GO-044). The stage reads `words.json` first (`transcription.application.LoadWords`), then the
+  `result` event carries `artifacts` (`turns`, `utterances`, `transcript`), `speakers` (id, label, `is_me`,
+  `talk_seconds`, `utterance_count`, `sample`) and the `detected_language` of the transcription. "Unknown" speakers
+  also get a voice sample from the microphone (quiet system channel only), which the spec did not state; a speaker
+  with no eligible turn gets an empty `sample`. In an in-person meeting (mic diarized) "Me" and "Unknown" do not
+  exist and every speaker is sampled from the microphone.
