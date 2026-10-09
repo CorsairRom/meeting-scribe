@@ -97,8 +97,13 @@ chunks already on disk are kept.
 `build_ffmpeg_command`: each input is converted to mono at `RECORDING_SAMPLE_RATE`, then `amerge` makes a 2-channel
 stream, so **channel 0 = microphone, channel 1 = system** (ADR-002), `pcm_s16le`, cut by the segment muxer. Files in
 the session folder: `audio/chunk_%05d.wav` (`chunk_00000.wav`, ...) and `ffmpeg.log` (ffmpeg stderr, appended). Stop
-sends `q` on stdin and waits `RECORDING_STOP_TIMEOUT_SECONDS`; if ffmpeg does not exit it is terminated, then killed
-after 2 s, and `stop` returns a failure. Exit code 0 is a clean stop. Not yet wired into `main.py` (F1.4).
+sends `q` on stdin and waits `RECORDING_STOP_TIMEOUT_SECONDS`; if ffmpeg does not exit it is terminated (SIGTERM), then
+killed (SIGKILL) after 2 s, and `stop` returns a failure that says which one happened. Every wait is bounded: the
+worst case is stop timeout + 2 s + 2 s (14 s with the defaults). A process that survives SIGKILL is reported as "could
+not be reaped" and its handle is kept so a later call can retry. Exit code 0 is a clean stop. When the process dies
+on its own, `AudioCapture.exit_detail()` gives the exit code plus the `ffmpeg.log` tail, and the controller stores it
+as the session `failure_reason` (generic text only when empty). Opening `ffmpeg.log` and spawning ffmpeg fail with
+distinct messages. Not yet wired into `main.py` (F1.4).
 
 The GNOME extension lives in `gnome-extension/` (planned, F2) and the GTK review app in a separate top-level directory (planned, F4), both outside the Python package.
 

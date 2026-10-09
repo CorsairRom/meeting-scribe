@@ -50,6 +50,7 @@ class FakeAudioCapture:
         self.running = False
         self.started_with: tuple[AudioDevices, Path] | None = None
         self.stop_calls = 0
+        self.exit_detail_text = ""
 
     def start(self, devices: AudioDevices, audio_dir: Path) -> Result[None, AudioCaptureError]:
         if self.start_error is not None:
@@ -68,8 +69,12 @@ class FakeAudioCapture:
     def is_running(self) -> bool:
         return self.running
 
-    def crash(self) -> None:
+    def exit_detail(self) -> str:
+        return "" if self.running else self.exit_detail_text
+
+    def crash(self, detail: str = "") -> None:
         self.running = False
+        self.exit_detail_text = detail
 
 
 class FakeRecordingStorage:

@@ -234,6 +234,16 @@ ai_instructions:
 - **Status**: active
 - **Detail**: channel 0 = first `-i` (microphone), channel 1 = second (system monitor), per ADR-002. Verified with synthetic sines and silence, swapping the inputs. Each input is forced to mono first (`aformat=channel_layouts=mono`), otherwise a stereo monitor would add channels and shift the mapping.
 
+### GO-020 — Capture stop must stay bounded and say what it did
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: the service runs on one D-Bus event loop (F1.4), so an unbounded wait wedges everything. `FfmpegAudioCapture.stop` bounds every wait (`q` timeout, SIGTERM grace, SIGKILL grace; worst case 14 s with defaults), reports "terminated" vs "killed" truthfully, and returns "could not be reaped" (keeping the handle for a retry) if the process survives SIGKILL, for example in uninterruptible I/O on a hung mount.
+
+### GO-021 — Surface the ffmpeg exit cause, not a generic crash message
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `AudioCapture.exit_detail()` returns the exit code and `ffmpeg.log` tail of a dead process. `RecordingController` uses it for `failure_reason` and the returned error (status/start/stop crash paths), falling back to `CAPTURE_CRASHED_REASON`. ffmpeg can also die after the startup grace; that shows up as `FAILED` on the next call. Opening `ffmpeg.log` and spawning ffmpeg have separate error handling, so a missing session folder is not reported as "ffmpeg not found".
+
 ---
 
 ## Anti-Patterns (AP)
@@ -266,11 +276,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 11 | 0 | 0 |
-| GO | 19 | 0 | 0 |
+| GO | 21 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-019 — 2026-10-09
-**Next available IDs**: BR-005, CR-012, GO-020, AP-005
+**Last rule added**: GO-021 — 2026-10-09
+**Next available IDs**: BR-005, CR-012, GO-022, AP-005
 
 ---
 
