@@ -146,7 +146,7 @@ class DiarizeAudio:
         def report(fraction: float) -> None:
             nonlocal last
             now = self._monotonic()
-            if now - last >= PROGRESS_INTERVAL_SECONDS:
+            if fraction >= 1.0 or now - last >= PROGRESS_INTERVAL_SECONDS:  # never drop the end
                 last = now
                 reporter.progress(min(max(fraction, 0.0), 1.0) * total_seconds, total_seconds)
 

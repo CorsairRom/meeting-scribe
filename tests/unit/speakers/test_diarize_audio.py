@@ -161,6 +161,20 @@ def test_progress_is_throttled_to_one_event_per_second_and_scaled_to_the_audio()
     ]
 
 
+def test_the_final_update_is_never_dropped_by_the_throttle() -> None:
+    stage = Stage()
+    ticks = iter([0.0, 0.1])  # the terminal update arrives inside the throttle window
+    stage.diarizer.progress_at = (0.9, 1.0)
+    service = DiarizeAudio(stage.diarizer, stage.cache, monotonic=lambda: next(ticks))
+
+    service.run(MEETING, stage.request(), stage.reporter)
+
+    assert [e for e in stage.reporter.events if e[0] == "progress"] == [
+        ("progress", (54.0, 60.0)),
+        ("progress", (60.0, 60.0)),
+    ]
+
+
 def test_an_invalid_speakers_spec_is_an_invalid_value_error() -> None:
     result = DiarizationRequest.from_spec(
         {"pipeline": ""}, "cuda", FINGERPRINT, 1.0, [], lambda c: Success(cast("Samples", c))

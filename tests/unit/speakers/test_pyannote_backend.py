@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -8,6 +9,8 @@ from meeting_scribe.speakers.infrastructure.pyannote_backend import (
     TELEMETRY_VARIABLE,
     RealPyannoteBackend,
 )
+
+SRC = Path(__file__).resolve().parents[3] / "src"
 
 
 def test_prepare_forces_telemetry_off_whatever_the_environment_says(
@@ -31,11 +34,11 @@ def test_versions_come_from_metadata_and_importing_the_backend_loads_no_ml_libra
         "print([m for m in ('torch', 'pyannote', 'pyannote.audio') if m in sys.modules])\n"
     )
     out = subprocess.run(  # noqa: S603 - fixed argv, no input
-        [sys.executable, "-I", "-c", code],
+        [sys.executable, "-c", code],  # no -I: it ignores PYTHONPATH, so only an install would work
         capture_output=True,
         text=True,
         check=True,
-        env={"PYTHONPATH": "src"},
+        env={"PYTHONPATH": str(SRC)},
     ).stdout
 
     assert out.strip() == "[]"

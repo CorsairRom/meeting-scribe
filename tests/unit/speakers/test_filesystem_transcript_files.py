@@ -3,14 +3,23 @@ import wave
 from pathlib import Path
 
 import pytest
+from returns.result import Failure
 
 np = pytest.importorskip("numpy")
 
+from meeting_scribe.meetings.domain.errors import MeetingStorageError
+from meeting_scribe.speakers.application.assemble_transcript import (
+    AssembleTranscript,
+    AssemblyRequest,
+)
+from meeting_scribe.speakers.domain.diarization import DiarizationResult
 from meeting_scribe.speakers.domain.samples import Clip
-from meeting_scribe.speakers.domain.turns import SpeakerLabel, Utterance
+from meeting_scribe.speakers.domain.turns import SpeakerLabel, TimedWord, Utterance
 from meeting_scribe.speakers.infrastructure.filesystem_transcript_files import (
     FilesystemTranscriptFiles,
 )
+from tests.unit.speakers.envelopes import SPEECH, envelope
+from tests.unit.speakers.fakes import SPEAKERS_SPEC, InMemoryTurnsCache
 
 RATE = 16_000
 
@@ -22,11 +31,12 @@ def _tone(seconds: float, amplitude: float) -> "np.ndarray":
 
 def test_a_voice_sample_is_mono_16_bit_with_gaps_and_a_minus_3_dbfs_peak(tmp_path: Path) -> None:
     files = FilesystemTranscriptFiles()
-    files.reset_samples(tmp_path).unwrap()
+    files.begin(tmp_path).unwrap()
     signal = np.concatenate([_tone(6, 0.1), _tone(4, 0.1), _tone(2, 0.1)])
     clips = [Clip(start=0, end=6), Clip(start=6, end=10), Clip(start=10, end=12)]
 
     path = files.write_sample(tmp_path, "S1", signal, clips).unwrap()
+    files.commit(tmp_path).unwrap()
 
     assert path == "samples/S1.wav"
     with wave.open(str(tmp_path / path)) as reader:
@@ -40,44 +50,152 @@ def test_a_voice_sample_is_mono_16_bit_with_gaps_and_a_minus_3_dbfs_peak(tmp_pat
 
 def test_a_silent_signal_is_written_without_dividing_by_zero(tmp_path: Path) -> None:
     files = FilesystemTranscriptFiles()
-    files.reset_samples(tmp_path).unwrap()
+    files.begin(tmp_path).unwrap()
 
     files.write_sample(tmp_path, "ME", np.zeros(RATE * 3, dtype=np.float32), [Clip(start=0, end=2)])
+    files.commit(tmp_path).unwrap()
 
     with wave.open(str(tmp_path / "samples" / "ME.wav")) as reader:
         assert not any(reader.readframes(reader.getnframes()))
 
 
-def test_reset_removes_samples_of_a_previous_run(tmp_path: Path) -> None:
+def _previous_run(meeting: Path) -> None:
+    (meeting / "samples").mkdir()
+    (meeting / "samples" / "S9.wav").write_bytes(b"old sample")
+    (meeting / "utterances.json").write_text("old utterances", encoding="utf-8")
+    (meeting / "transcript.md").write_text("old transcript", encoding="utf-8")
+
+
+def _snapshot(meeting: Path) -> dict[str, bytes]:
+    return {
+        str(path.relative_to(meeting)): path.read_bytes()
+        for path in sorted(meeting.rglob("*"))
+        if path.is_file()
+    }
+
+
+def test_nothing_of_the_previous_run_changes_until_commit(tmp_path: Path) -> None:
     files = FilesystemTranscriptFiles()
-    files.reset_samples(tmp_path).unwrap()
-    (tmp_path / "samples" / "S9.wav").write_bytes(b"old")
+    _previous_run(tmp_path)
+    before = _snapshot(tmp_path)
 
-    files.reset_samples(tmp_path).unwrap()
+    files.begin(tmp_path).unwrap()
+    files.write_sample(tmp_path, "S1", _tone(3, 0.1), [Clip(start=0, end=2)]).unwrap()
+    labels = {"SPEAKER_07": SpeakerLabel(id="S1", label="Speaker 1")}
+    files.write_utterances(
+        tmp_path, [Utterance(speaker="SPEAKER_07", start=0, end=1, text="nuevo")], labels
+    ).unwrap()
+    files.write_transcript(tmp_path, "new transcript").unwrap()
 
-    assert list((tmp_path / "samples").iterdir()) == []
+    visible = {
+        name: data for name, data in _snapshot(tmp_path).items() if ".assembling" not in name
+    }
+    assert visible == before
+
+
+def test_commit_replaces_samples_utterances_and_transcript_together(tmp_path: Path) -> None:
+    files = FilesystemTranscriptFiles()
+    _previous_run(tmp_path)
+    labels = {"SPEAKER_07": SpeakerLabel(id="S1", label="Speaker 1")}
+
+    files.begin(tmp_path).unwrap()
+    files.write_sample(tmp_path, "S1", _tone(3, 0.1), [Clip(start=0, end=2)]).unwrap()
+    files.write_utterances(
+        tmp_path, [Utterance(speaker="SPEAKER_07", start=0, end=1, text="nuevo")], labels
+    ).unwrap()
+    files.write_transcript(tmp_path, "new transcript").unwrap()
+    files.commit(tmp_path).unwrap()
+
+    assert sorted(path.name for path in (tmp_path / "samples").iterdir()) == ["S1.wav"]  # S9 gone
+    assert (tmp_path / "transcript.md").read_text(encoding="utf-8") == "new transcript"
+    assert "nuevo" in (tmp_path / "utterances.json").read_text(encoding="utf-8")
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "samples",
+        "transcript.md",
+        "utterances.json",
+    ]  # no staging or backup left behind
+
+
+def test_discard_drops_the_staged_files_and_keeps_the_previous_run(tmp_path: Path) -> None:
+    files = FilesystemTranscriptFiles()
+    _previous_run(tmp_path)
+    before = _snapshot(tmp_path)
+
+    files.begin(tmp_path).unwrap()
+    files.write_transcript(tmp_path, "half").unwrap()
+    files.discard(tmp_path)
+
+    assert _snapshot(tmp_path) == before
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "samples",
+        "transcript.md",
+        "utterances.json",
+    ]
+
+
+def test_begin_clears_staging_left_by_a_crashed_run(tmp_path: Path) -> None:
+    files = FilesystemTranscriptFiles()
+    files.begin(tmp_path).unwrap()
+    files.write_transcript(tmp_path, "from the crashed run").unwrap()
+
+    files.begin(tmp_path).unwrap()
+    files.commit(tmp_path).unwrap()
+
+    assert not (tmp_path / "transcript.md").exists()  # the crashed run's file was not adopted
+
+
+def test_a_failed_job_keeps_the_last_good_outputs(tmp_path: Path) -> None:
+    """The whole use case, real files: a late failure must not cost the previous samples."""
+    _previous_run(tmp_path)
+    before = _snapshot(tmp_path)
+    cache = InMemoryTurnsCache()
+    envelope_ = envelope(60, [(10, 20, SPEECH)])
+    request = AssemblyRequest.from_spec(
+        SPEAKERS_SPEC,
+        [TimedWord(start=12, end=12.5, text="hola")],
+        DiarizationResult(turns=(), exclusive=()),
+        "system",
+        envelope_,
+        envelope(60),
+        lambda _: Failure(MeetingStorageError("unreadable chunk")),
+    ).unwrap()
+
+    result = AssembleTranscript(cache, FilesystemTranscriptFiles()).run(
+        tmp_path, request, _NoReporter()
+    )
+
+    assert isinstance(result, Failure)
+    assert _snapshot(tmp_path) == before
+
+
+class _NoReporter:
+    def extracting_samples(self) -> None:
+        return None
 
 
 def test_utterances_and_transcript_are_written_utf_8_atomically(tmp_path: Path) -> None:
     files = FilesystemTranscriptFiles()
     labels = {"SPEAKER_07": SpeakerLabel(id="S1", label="Speaker 1")}
     utterances = [Utterance(speaker="SPEAKER_07", start=1.0, end=2.0, text="año nuevo")]
+    files.begin(tmp_path).unwrap()
 
     assert files.write_utterances(tmp_path, utterances, labels).unwrap() == "utterances.json"
     assert files.write_transcript(tmp_path, "[00:00:01] **Speaker 1:** año nuevo\n").unwrap() == (
         "transcript.md"
     )
+    files.commit(tmp_path).unwrap()
 
     document = json.loads((tmp_path / "utterances.json").read_text(encoding="utf-8"))
     assert document == [{"speaker": "S1", "start": 1.0, "end": 2.0, "text": "año nuevo"}]
     assert "año" in (tmp_path / "transcript.md").read_text(encoding="utf-8")
-    assert not list(tmp_path.glob(".*.tmp"))
+    assert not list(tmp_path.rglob(".*.tmp"))
 
 
 def test_a_write_failure_is_a_diarization_error(tmp_path: Path) -> None:
-    result = FilesystemTranscriptFiles().write_transcript(tmp_path / "missing", "x")
+    files = FilesystemTranscriptFiles()
 
-    assert result.failure().error_code == "DIARIZATION_FAILED"
-    assert FilesystemTranscriptFiles().reset_samples(tmp_path / "missing").failure().error_code == (
+    assert files.write_transcript(tmp_path / "missing", "x").failure().error_code == (
         "DIARIZATION_FAILED"
     )
+    assert files.begin(tmp_path / "missing").failure().error_code == "DIARIZATION_FAILED"
+    assert files.commit(tmp_path / "missing").failure().error_code == "DIARIZATION_FAILED"

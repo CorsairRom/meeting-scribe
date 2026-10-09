@@ -31,6 +31,7 @@ from meeting_scribe.meetings.infrastructure.subprocess_worker_runner import (
     SubprocessWorkerRunner,
 )
 from meeting_scribe.speakers.domain.params import DiarizationParams
+from tests.unit.speakers.fakes import SPEAKERS_SPEC
 
 pytestmark = pytest.mark.gpu
 
@@ -83,13 +84,7 @@ def _synthetic_meeting(root: Path) -> Path:
 def _job(meeting: Path, device: str = "cuda") -> WorkerJob:
     speakers = {
         **DiarizationParams(pipeline=PIPELINE, me_noise_margin_db=10.0).model_dump(),
-        "utterance_gap_seconds": 5.0,
-        "me_dominance_db": 6.0,
-        "me_min_turn_seconds": 0.5,
-        "sample_max_clips": 3,
-        "sample_target_seconds": 15.0,
-        "sample_min_clip_seconds": 1.5,
-        "sample_max_clip_seconds": 6.0,
+        **SPEAKERS_SPEC,
     }
     return WorkerJob.build("diarize", str(meeting), device, ProcessingParams(speakers=speakers))
 

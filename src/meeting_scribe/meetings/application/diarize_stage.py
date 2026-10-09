@@ -26,6 +26,7 @@ from meeting_scribe.meetings.domain.worker import (
 from meeting_scribe.speakers.application.assemble_transcript import (
     AssembleTranscript,
     AssemblyRequest,
+    SpeakerSummary,
 )
 from meeting_scribe.speakers.application.diarize_audio import DiarizationRequest, DiarizeAudio
 from meeting_scribe.transcription.application.load_words import LoadWords
@@ -112,10 +113,22 @@ def run_diarize_stage(  # noqa: PLR0911 - one early return per failing step
     return Success(
         ResultEvent(
             artifacts={"turns": done.artifact, **result.artifacts},
-            speakers=tuple(SpeakerEntry(**speaker.model_dump()) for speaker in result.speakers),
+            speakers=tuple(_entry(speaker) for speaker in result.speakers),
             detected_language=transcription.unwrap().detected_language,
             audio=_audio_info(timeline),
         )
+    )
+
+
+def _entry(speaker: SpeakerSummary) -> SpeakerEntry:
+    """The speakers domain's summary as the ``meeting.json`` entry; ``name`` stays empty (F4)."""
+    return SpeakerEntry(
+        id=speaker.id,
+        label=speaker.label,
+        is_me=speaker.is_me,
+        talk_seconds=speaker.talk_seconds,
+        utterance_count=speaker.utterance_count,
+        sample=speaker.sample,
     )
 
 

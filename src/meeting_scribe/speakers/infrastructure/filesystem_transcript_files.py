@@ -1,7 +1,9 @@
 """Writes samples, ``utterances.json`` and ``transcript.md`` into the meeting folder (spec 5).
 
-Every file is written to a temporary name and renamed, so a crash never leaves a half file that
-the service would list as a result. Runs in the worker only (numpy).
+A run is staged under ``.assembling/`` and ``commit`` swaps it in, so a failure (or a crash) before
+the commit leaves the previous run's samples, utterances and transcript untouched. Every staged file
+is also written to a temporary name and renamed, so a half file is never listed. Runs in the worker
+only (numpy).
 """
 
 import io
@@ -23,25 +25,29 @@ from meeting_scribe.speakers.domain.turns import SpeakerLabel, Utterance
 SAMPLES_DIR = "samples"
 UTTERANCES_FILE = "utterances.json"
 TRANSCRIPT_FILE = "transcript.md"
+STAGING_DIR = ".assembling"
+OLD_SAMPLES_DIR = ".samples.old"
 CLIP_GAP_SECONDS = 0.4
 PEAK_DBFS = -3.0
 _PEAK = 10 ** (PEAK_DBFS / 20)
 
 
 class FilesystemTranscriptFiles:
-    def reset_samples(self, meeting_dir: Path) -> Result[None, DiarizationError]:
+    def begin(self, meeting_dir: Path) -> Result[None, DiarizationError]:
         try:
-            shutil.rmtree(meeting_dir / SAMPLES_DIR, ignore_errors=True)
-            (meeting_dir / SAMPLES_DIR).mkdir()
+            shutil.rmtree(meeting_dir / STAGING_DIR, ignore_errors=True)
+            (meeting_dir / STAGING_DIR).mkdir()  # the meeting folder must exist
+            (meeting_dir / STAGING_DIR / SAMPLES_DIR).mkdir()
         except OSError as error:
-            return Failure(DiarizationError(f"Cannot prepare {SAMPLES_DIR}/: {error}"))
+            return Failure(DiarizationError(f"Cannot prepare {STAGING_DIR}/: {error}"))
         return Success(None)
 
     def write_sample(
         self, meeting_dir: Path, speaker_id: str, signal: Samples, clips: Sequence[Clip]
     ) -> Result[str, DiarizationError]:
         relative = f"{SAMPLES_DIR}/{speaker_id}.wav"
-        return _atomic(meeting_dir / relative, _wav_bytes(_joined_pcm(signal, clips)), relative)
+        content = _wav_bytes(_joined_pcm(signal, clips))
+        return _atomic(meeting_dir / STAGING_DIR / relative, content, relative, relative)
 
     def write_utterances(
         self,
@@ -59,10 +65,38 @@ class FilesystemTranscriptFiles:
             for u in utterances
         ]
         content = json.dumps(document, ensure_ascii=False).encode("utf-8")
-        return _atomic(meeting_dir / UTTERANCES_FILE, content, UTTERANCES_FILE)
+        return _atomic(meeting_dir / STAGING_DIR / UTTERANCES_FILE, content, UTTERANCES_FILE)
 
     def write_transcript(self, meeting_dir: Path, text: str) -> Result[str, DiarizationError]:
-        return _atomic(meeting_dir / TRANSCRIPT_FILE, text.encode("utf-8"), TRANSCRIPT_FILE)
+        return _atomic(
+            meeting_dir / STAGING_DIR / TRANSCRIPT_FILE, text.encode("utf-8"), TRANSCRIPT_FILE
+        )
+
+    def commit(self, meeting_dir: Path) -> Result[None, DiarizationError]:
+        staging, samples = meeting_dir / STAGING_DIR, meeting_dir / SAMPLES_DIR
+        old = meeting_dir / OLD_SAMPLES_DIR
+        try:
+            shutil.rmtree(old, ignore_errors=True)
+            had_samples = samples.exists()
+            if had_samples:
+                samples.rename(old)
+            try:
+                (staging / SAMPLES_DIR).rename(samples)
+            except OSError:
+                if had_samples:
+                    old.rename(samples)  # put the previous samples back
+                raise
+            for name in (UTTERANCES_FILE, TRANSCRIPT_FILE):
+                if (staging / name).exists():
+                    (staging / name).replace(meeting_dir / name)
+        except OSError as error:
+            return Failure(DiarizationError(f"Cannot publish the processing results: {error}"))
+        shutil.rmtree(old, ignore_errors=True)
+        shutil.rmtree(staging, ignore_errors=True)
+        return Success(None)
+
+    def discard(self, meeting_dir: Path) -> None:
+        shutil.rmtree(meeting_dir / STAGING_DIR, ignore_errors=True)
 
 
 def _joined_pcm(signal: Samples, clips: Sequence[Clip]) -> bytes:
@@ -90,7 +124,9 @@ def _wav_bytes(pcm: bytes) -> bytes:
     return buffer.getvalue()
 
 
-def _atomic(path: Path, content: bytes, name: str) -> Result[str, DiarizationError]:
+def _atomic(
+    path: Path, content: bytes, name: str, result: str | None = None
+) -> Result[str, DiarizationError]:
     temporary = path.with_name(f".{path.name}.tmp")
     try:
         with temporary.open("wb") as handle:
@@ -101,4 +137,4 @@ def _atomic(path: Path, content: bytes, name: str) -> Result[str, DiarizationErr
     except OSError as error:
         temporary.unlink(missing_ok=True)
         return Failure(DiarizationError(f"Cannot write {name}: {error}"))
-    return Success(name)
+    return Success(result or name)

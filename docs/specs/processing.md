@@ -464,8 +464,8 @@ A float32 mono signal costs 16 000 x 4 B = 64 KB per second, about **230 MB per 
 signal its stage needs, decoding chunk by chunk into one **preallocated** array sized from the timeline (no
 `np.concatenate`, which would double the peak). The transcribe worker holds the mix; the diarize worker holds the
 system channel (shared with torch through `torch.from_numpy`, no copy) plus per-frame energies (100 ms frames, two
-float64 values per frame, under 1 MB per hour). Peak audio memory is therefore about 230 MB per recorded hour per
-worker, about 1 GB for a 4-hour meeting.
+float64 values per frame, under 1 MB per hour; computed in 1.6 MB blocks, never from a whole-signal float64 copy).
+Peak audio memory is therefore about 230 MB per recorded hour per worker, about 1 GB for a 4-hour meeting.
 
 Streaming (windowed Whisper, chunked diarization) is rejected: Whisper and pyannote both work best on the whole
 session (ADR-003 Option C: "whole-session processing gives the best quality"), pyannote clusters speakers globally,
@@ -934,3 +934,7 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
   also get a voice sample from the microphone (quiet system channel only), which the spec did not state; a speaker
   with no eligible turn gets an empty `sample`. In an in-person meeting (mic diarized) "Me" and "Unknown" do not
   exist and every speaker is sampled from the microphone.
+- 2026-10-09 (F3.3 review follow-up): the extraction step is staged. `TranscriptFiles` has `begin`, `write_*`,
+  `commit` and `discard`: every output goes to `.assembling/` and `commit` swaps `samples/` in whole and replaces
+  `utterances.json` and `transcript.md`, so a failure keeps the previous run's outputs (GO-044). The progress
+  throttle never drops the terminal 1.0 update.
