@@ -26,10 +26,13 @@ fails to start (for example a `make run` instance owns the bus name), it still i
 as NOT active and exits non-zero. A failing extension step is reported in the summary the same way (exit non-zero).
 
 1. Installs the service as a `uv` tool (Python 3.12) from this checkout into its own directory,
-   `${XDG_DATA_HOME:-~/.local/share}/meeting-scribe/versions/<timestamp>/` (`tools/` and `bin/`), then repoints the
+   `${XDG_DATA_HOME:-~/.local/share}/meeting-scribe/versions/<timestamp>-<pid>/` (`tools/` and `bin/`), then repoints the
    `current` symlink next to `versions/` atomically. The unit always runs `.../meeting-scribe/current/bin/meeting-scribe`,
    so a running service never has its environment replaced underneath it. Older versions are pruned once the service runs
-   the new one (kept while the restart was skipped or failed).
+   the new one (kept while the restart was skipped or failed). The new version is verified (executable present, unit
+   rendered) before `current` moves; if it then fails to start, `current` is restored to the previous version (or, on a
+   migration, the unit to the old tool), the previous service is restarted, the new directory is kept for inspection and
+   the installer exits non-zero.
 2. Installs and enables the `systemd --user` unit and the D-Bus activation file, then starts the service
    (on upgrade it restarts it).
 3. Packs, installs and enables the GNOME extension. On Wayland a brand-new extension is discovered only after you
@@ -37,7 +40,8 @@ as NOT active and exits non-zero. A failing extension step is reported in the su
 
 Upgrading from an install made before versioned installs (the service ran from `~/.local/bin/meeting-scribe`): the first
 `make install` rewrites the unit to the `current/` path and, only after the service is active on it, runs
-`uv tool uninstall meeting-scribe` to drop the old tool. If the restart was skipped (recording), the old tool stays and the
+`uv tool uninstall meeting-scribe` to drop the old tool (only when the old unit ran from the default uv tool bin
+directory; a hand-edited unit is left alone). If the restart was skipped (recording), the old tool stays and the
 summary says how to remove it later. `make uninstall` removes the whole `meeting-scribe/` versions tree.
 
 Configure by creating `~/.config/meeting-scribe/.env` (or `$XDG_CONFIG_HOME/meeting-scribe/.env`; template:

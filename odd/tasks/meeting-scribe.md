@@ -318,6 +318,14 @@ extension in the user's session, or running the nested shell, only with the user
       Orchestrator fix: uninstall removed the whole `~/.local/share/meeting-scribe` (future caches)
       → now only `versions/` + `current` (RED test → GREEN; `rmdir` added to the sandbox whitelist).
       `make check` → 262 python / 75 extension.
+      RDD (442 lines, standing consent): `review-3c906d6d33a4ced9` approved + acked. F2.7b
+      (`e71917e`, +206/-37): rollback to the previous version (or the legacy unit on migration)
+      when the new one fails to start; switch only after the unit render and executable are
+      verified; explicit legacy-tool detection; behavioural FORCE tests. RED per item → GREEN
+      269 python / 75 extension. RDD `review-b082c4e0acfdc610` approved + acked. Accepted as-is
+      (single-user edge cases, noted for F6): restoring a hand-edited custom unit on a failed
+      first upgrade, rollback summary wording/README precision, a test for rollback with an
+      inactive service.
 ### F3 Processing — pending
 ### F4 Review UI — pending
 ### F5 Summaries — pending
