@@ -8,6 +8,12 @@ CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 UNIT_PATH="$CONFIG_HOME/systemd/user/$UNIT_NAME"
 ACTIVATION_PATH="$DATA_HOME/dbus-1/services/$BUS_NAME.service"
+# Every install lives in its own versions/<id>/ directory (uv tool dir and bin dir); `current`
+# is a symlink to the active one and the unit's ExecStart always uses the stable current/ path.
+INSTALL_ROOT="$DATA_HOME/meeting-scribe"
+VERSIONS_DIR="$INSTALL_ROOT/versions"
+CURRENT_LINK="$INSTALL_ROOT/current"
+EXEC_START="$CURRENT_LINK/bin/meeting-scribe"
 
 # Seconds before a bus call is abandoned (a hung service must not hang the installer).
 GDBUS_TIMEOUT=5
@@ -36,19 +42,27 @@ service_state() {
 }
 
 # Refuses (returns 1 with a message) while a recording runs or its state is unknown.
-# FORCE=1 overrides only the unknown state, never a positively detected recording.
-# $1 is the follow-up the user should run, $2 an optional override hint.
+# $1 is the follow-up the user should run.
+# $2 is what FORCE=1 may override: "unknown" (the state could not be read; a positively detected
+#    recording is never overridden) or "recording" (the caller is destructive by intent, such as
+#    uninstall, and accepts stopping a recording).
+# $3 is an optional hint appended to the refusal messages.
 refuse_unless_safe() {
+  local force_scope="$2" hint="${3:-}"
   case "$(service_state)" in
     recording)
-      echo "error: a recording is in progress; stop it from the top-bar menu, then run $1 again.${2:+ $2}" >&2
+      if [[ "${FORCE:-0}" == 1 && "$force_scope" == recording ]]; then
+        echo "warning: a recording is in progress; continuing because FORCE=1." >&2
+        return 0
+      fi
+      echo "error: a recording is in progress; stop it from the top-bar menu, then run $1 again.${hint:+ $hint}" >&2
       return 1 ;;
     unknown)
       if [[ "${FORCE:-0}" == 1 ]]; then
         echo "warning: the recording state could not be read; continuing because FORCE=1." >&2
         return 0
       fi
-      echo "error: the recording state could not be read (or is not recognised), so a recording might be running. Stop any recording from the top-bar menu, then run 'systemctl --user stop $UNIT_NAME' or run $1 again with FORCE=1.${2:+ $2}" >&2
+      echo "error: the recording state could not be read (or is not recognised), so a recording might be running. Stop any recording from the top-bar menu, then run 'systemctl --user stop $UNIT_NAME' or run $1 again with FORCE=1.${hint:+ $hint}" >&2
       return 1 ;;
   esac
 }
