@@ -237,9 +237,14 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | `RECORDING_STOP_TIMEOUT_SECONDS` | `RecordingSettings.stop_timeout_seconds` | `10` | Wait for ffmpeg to exit after `q` before terminating (> 0) |
 | `RECORDING_FFMPEG_BINARY` | `RecordingSettings.ffmpeg_binary` | `ffmpeg` | ffmpeg executable name or path |
 | `RECORDING_SAMPLE_RATE` | `RecordingSettings.sample_rate` | `16000` | Sample rate of the recorded chunks (Hz) |
+| `PROCESSING_DEVICE` | `ProcessingSettings.device` | `cuda` | `cuda` or `cpu`; no automatic fallback |
+| `PROCESSING_WORKER_TIMEOUT_FACTOR` | `ProcessingSettings.worker_timeout_factor` | `1.0` | Stage timeout as a multiple of the audio length (> 0) |
+| `PROCESSING_WORKER_MIN_TIMEOUT_SECONDS` | `ProcessingSettings.worker_min_timeout_seconds` | `900` | Lower bound of the stage timeout (> 0) |
+| `PROCESSING_WORKER_KILL_GRACE_SECONDS` | `ProcessingSettings.worker_kill_grace_seconds` | `5` | SIGTERM to SIGKILL grace (> 0) |
+| `PROCESSING_NOTIFY` | `ProcessingSettings.notify` | `true` | Desktop notification when a job ends (wired in F3.4) |
 
-`RecordingSettings` lives in `recording/infrastructure/recording_settings.py`. Future per-domain settings (for example `TRANSCRIPTION_`,
-`SUMMARIES_`) live in each domain's `infrastructure/` and are composed into `Settings` by the root. The planned F3 variables (`TRANSCRIPTION_*`, `SPEAKERS_*`, `PROCESSING_*`) are listed in the [processing spec](docs/specs/processing.md) section 7 and move into this table when built.
+`RecordingSettings` lives in `recording/infrastructure/recording_settings.py`, `ProcessingSettings` in `meetings/infrastructure/processing_settings.py`. Future per-domain settings (for example `TRANSCRIPTION_`,
+`SUMMARIES_`) live in each domain's `infrastructure/` and are composed into `Settings` by the root. The planned F3 variables not built yet (`TRANSCRIPTION_*`, `SPEAKERS_*`) are listed in the [processing spec](docs/specs/processing.md) section 7 and move into this table when built.
 
 ---
 

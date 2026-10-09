@@ -354,11 +354,19 @@ own meeting, without reading its content into the repo or logs.
       resume after; in-person meetings diarize the mic without "Me"; CUDA required unless CPU set
       explicitly; `Meetings1.Reprocess` in F3; models downloaded during `make install`, worker
       offline afterwards; keep "Unknown".
-- [ ] F3.1 `meetings` domain (F3.1a done: `665c812` entity + state machine + timeline/fingerprint,
+- [x] F3.1 `meetings` domain (F3.1a done: `665c812` entity + state machine + timeline/fingerprint,
       +657 incl. ~350 tests; `8f7b926` filesystem repository meeting.json v1, atomic `Path.replace`,
       unknown keys preserved, UNSUPPORTED for newer schemas, null object for missing, path-traversal
       ids → null; RED `ModuleNotFoundError` per module → GREEN 332 python. Open for F3.1b: resume of a
-      job stored in DIARIZING restarts at transcribe → controller needs a resume transition): Meeting entity + processing state machine, versioned `meeting.json`
+      job stored in DIARIZING restarts at transcribe → controller needs a resume transition).
+      F3.1a integrated (#53, #54; review `review-3204a2c798a1571a` approved). F3.1b (delegated):
+      `d6297d0` save identity check + directory fsync; `9e81ef3` ProcessingController (enqueue with
+      RecordingInfo, resume, reprocess, preempt/release, shutdown) + FIFO single-worker loop +
+      `Meeting.resume`; `1e94014` subprocess WorkerRunner, JSON-lines protocol v1 (`event` key; job
+      spec on stdin; started/cache_hit/progress/stage/result/error), timeout/crash/protocol errors,
+      SIGTERM→SIGKILL on the process group, worker entry-point skeleton without ML imports;
+      `be6105f` ProcessingSettings + WavChunkInspector. RED per new module → GREEN 414 python / 75
+      extension; queue/preempt tests mutation-checked; no stray workers: Meeting entity + processing state machine, versioned `meeting.json`
       repository (folder per meeting), job queue + single worker orchestration, resume at start.
 - [ ] F3.2 `transcription` domain + faster-whisper adapter (CUDA lib preload with logging, WAV
       decode without PyAV, word timestamps, params-keyed cache).
