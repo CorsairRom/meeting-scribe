@@ -3,11 +3,12 @@ from pathlib import Path
 import pytest
 from returns.result import Failure, Success
 
-from meeting_scribe.base.domain.errors import GpuOutOfMemoryError
+from meeting_scribe.base.domain.errors import GpuOutOfMemoryError, InvalidValueError
 from meeting_scribe.transcription.application.transcribe_audio import (
     TranscribeAudio,
     TranscriptionRequest,
 )
+from meeting_scribe.transcription.domain.errors import TranscriptionError
 from meeting_scribe.transcription.domain.params import Device
 from tests.unit.transcription.fakes import (
     FINGERPRINT,
@@ -121,7 +122,24 @@ def test_errors_from_the_model_and_the_cache_are_returned_not_raised() -> None:
 
     healthy, _, broken = _service()
     broken.fail_store = True
-    assert isinstance(healthy.run(MEETING, _request(), RecordingReporter()), Failure)
+    stored = healthy.run(MEETING, _request(), RecordingReporter())
+    assert isinstance(stored.failure(), TranscriptionError)
+    assert str(stored.failure()) == "disk full"  # the cache's own error, unchanged
+
+
+def test_an_undecodable_recording_fails_before_the_model_and_writes_no_cache() -> None:
+    service, transcriber, cache = _service()
+    cache.document = {"stale": True}
+    decode_error = InvalidValueError("unreadable chunk")
+    request = _request().model_copy(update={"load_audio": lambda: Failure(decode_error)})
+    reporter = RecordingReporter()
+
+    failed = service.run(MEETING, request, reporter)
+
+    assert failed.failure() is decode_error
+    assert transcriber.calls == []
+    assert cache.document == {"stale": True}  # untouched, not replaced
+    assert [name for name, _ in reporter.events] == ["started"]
 
 
 def test_the_cpu_run_is_labelled_and_logged_as_a_warning(caplog: pytest.LogCaptureFixture) -> None:

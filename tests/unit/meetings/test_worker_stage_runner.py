@@ -48,7 +48,7 @@ def _drive(meeting: Path, backend: FakeBackend, device: str = "cuda"):
         ["transcribe"],
         stdin=io.StringIO(_spec(meeting, device)),
         events=events,
-        stages={"transcribe": build_transcribe_stage(backend)},
+        stages={"transcribe": lambda: build_transcribe_stage(backend)},
     )
     return code, [json.loads(line) for line in events.getvalue().splitlines()]
 
@@ -99,7 +99,7 @@ def test_an_unexpected_exception_is_an_error_event_never_a_traceback_on_the_stre
         ["transcribe"],
         stdin=io.StringIO(_spec(_meeting(tmp_path))),
         events=events,
-        stages={"transcribe": explode},
+        stages={"transcribe": lambda: explode},
     )
 
     assert code == 1
