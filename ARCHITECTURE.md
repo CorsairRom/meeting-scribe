@@ -144,7 +144,7 @@ Defined in `pyproject.toml` under `[tool.importlinter]` (`root_package = "meetin
 | 4 | Shared kernel does not depend on the domains | forbidden | `base` may not import any domain or `meetings` (`settings`/`main` are covered by contract 6) |
 | 5 | Domain layers do not import frameworks | forbidden | every `<package>.domain` (including `base` and `meetings`) may not import `pydantic_settings`, `dbus_fast`, `gi` |
 | 6 | Domain packages do not import settings or the composition root | forbidden | `base` and all domain packages may not import `meeting_scribe.main` or `meeting_scribe.settings` |
-| 7 | The service never imports ML libraries (only the transcribe backend does, in the worker) | forbidden | no module of `meeting_scribe` may import `faster_whisper`, `ctranslate2`, `torch`, `torchaudio` or `pyannote`, except the faster-whisper backend in the worker |
+| 7 | The service never imports ML libraries (only the two backends do, in the worker) | forbidden | no module of `meeting_scribe` may import `faster_whisper`, `ctranslate2`, `torch`, `torchaudio` or `pyannote`, except the faster-whisper backend (`faster_whisper`, `ctranslate2`) and the pyannote backend (`torch`, `pyannote`), both loaded only in the worker |
 | 8 | The service entry point never reaches the worker or its ML backends | forbidden | `meeting_scribe.main` may not import `meeting_scribe.worker` or the faster-whisper backend, directly or indirectly |
 
 ---
