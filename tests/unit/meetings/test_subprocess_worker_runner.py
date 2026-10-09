@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -42,7 +43,9 @@ class Harness:
         self.events: list[ProgressOrNotice] = []
         self.cancel = threading.Event()
         self.runner = SubprocessWorkerRunner(
-            command=(sys.executable, str(FAKE)), kill_grace_seconds=0.5
+            command=(sys.executable, str(FAKE)),
+            kill_grace_seconds=0.5,
+            result_exit_grace_seconds=0.5,
         )
 
     def run(
@@ -142,20 +145,19 @@ def test_a_worker_ignoring_sigterm_is_killed_after_the_grace_period(harness: Har
     assert not _alive(harness.pid())
 
 
+ERROR_EVENT = {"event": "error", "error_code": "X", "message": "m"}
+
+
 @pytest.mark.parametrize(
-    "scenario",
+    ("scenario", "expected"),
     [
-        [{"raw": "this is not json"}, {"emit": RESULT}],
-        [{"emit": {"event": "mystery"}}, {"emit": RESULT}],
-        [{"emit": RESULT}, {"emit": PROGRESS}, {"exit": 0}],
-        [{"emit": PROGRESS}, {"exit": 0}],
-        [{"emit": RESULT}, {"exit": 3}],
-        [{"emit": {"event": "error", "error_code": "X", "message": "m"}}, {"exit": 0}],
-        [
-            {"emit": RESULT},
-            {"emit": {"event": "error", "error_code": "X", "message": "m"}},
-            {"exit": 1},
-        ],
+        ([{"raw": "this is not json"}, {"emit": RESULT}], WorkerProtocolError),
+        ([{"emit": {"event": "mystery"}}, {"emit": RESULT}], WorkerProtocolError),
+        ([{"emit": RESULT}, {"emit": PROGRESS}, {"exit": 0}], WorkerProtocolError),
+        ([{"emit": PROGRESS}, {"exit": 0}], WorkerProtocolError),
+        ([{"emit": RESULT}, {"exit": 3}], WorkerCrashedError),
+        ([{"emit": ERROR_EVENT}, {"exit": 0}], WorkerProtocolError),
+        ([{"emit": RESULT}, {"emit": ERROR_EVENT}, {"exit": 1}], WorkerProtocolError),
     ],
     ids=[
         "non-json",
@@ -167,12 +169,12 @@ def test_a_worker_ignoring_sigterm_is_killed_after_the_grace_period(harness: Har
         "result-and-error",
     ],
 )
-def test_protocol_violations_fail_the_job(
-    harness: Harness, scenario: list[dict[str, object]]
+def test_protocol_violations_fail_the_job_with_their_exact_error(
+    harness: Harness, scenario: list[dict[str, object]], expected: type[MeetingScribeError]
 ) -> None:
     failure = harness.run([{"pidfile": "pid"}, *scenario, {"hang": True}], timeout=5).failure()
 
-    assert isinstance(failure, WorkerProtocolError | WorkerCrashedError)
+    assert type(failure) is expected
     assert not _alive(harness.pid())
 
 
@@ -238,3 +240,54 @@ def test_a_command_that_cannot_start_is_a_crash(tmp_path: Path) -> None:
     failure = runner.run(job, 5, lambda e: Success(None), threading.Event()).failure()
 
     assert isinstance(failure, WorkerCrashedError)
+
+
+def test_a_worker_that_hangs_after_its_result_is_stopped_and_the_result_kept(
+    harness: Harness,
+) -> None:
+    started = time.monotonic()
+
+    result = harness.run([{"pidfile": "pid"}, {"emit": RESULT}, {"hang": True}], timeout=30)
+
+    assert result.unwrap().detected_language == "es"
+    assert time.monotonic() - started < 10
+    assert not _alive(harness.pid())
+
+
+def test_a_worker_that_hangs_after_its_error_event_reports_that_error(harness: Harness) -> None:
+    failure = harness.run(
+        [{"pidfile": "pid"}, {"emit": ERROR_EVENT}, {"hang": True}], timeout=30
+    ).failure()
+
+    assert isinstance(failure, WorkerReportedError)
+    assert not _alive(harness.pid())
+
+
+def test_a_stdin_write_failure_after_the_spawn_stops_the_worker(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_popen = subprocess.Popen
+    spawned: list[subprocess.Popen[bytes]] = []
+
+    class BrokenStdin:
+        def __init__(self, real: object) -> None:
+            self._real = real
+
+        def write(self, data: bytes) -> int:
+            raise OSError(5, "Input/output error")
+
+        def close(self) -> None:
+            self._real.close()  # type: ignore[attr-defined]
+
+    def popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+        process = real_popen(*args, **kwargs)  # type: ignore[call-overload]
+        process.stdin = BrokenStdin(process.stdin)  # type: ignore[assignment]
+        spawned.append(process)
+        return process
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+
+    failure = harness.run([{"hang": True}], timeout=5).failure()
+
+    assert isinstance(failure, WorkerCrashedError)
+    assert spawned[0].poll() is not None
