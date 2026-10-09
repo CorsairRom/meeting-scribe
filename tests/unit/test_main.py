@@ -4,8 +4,16 @@ from pathlib import Path
 
 import pytest
 
-from meeting_scribe.main import Application, create_app, run
-from meeting_scribe.settings import Settings, get_settings
+from meeting_scribe import main as main_module
+from meeting_scribe.main import Application, RecordingAdapters, create_app, run
+from meeting_scribe.recording.application.recording_controller import RecordingController
+from meeting_scribe.settings import Settings, StorageSettings, get_settings
+from tests.unit.recording.fakes import (
+    FakeAudioCapture,
+    FakeClock,
+    FakeDeviceResolver,
+    FakeRecordingStorage,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -41,20 +49,42 @@ def test_create_app_defaults_to_cached_settings() -> None:
     assert create_app().settings is get_settings()
 
 
-def test_run_logs_startup_and_returns(caplog: pytest.LogCaptureFixture) -> None:
-    # configure_logging(force=True) strips root handlers (incl. caplog's), so capture
-    # on the module logger, which it leaves alone.
-    main_logger = logging.getLogger("meeting_scribe.main")
-    main_logger.addHandler(caplog.handler)
-    try:
-        run()
-    finally:
-        main_logger.removeHandler(caplog.handler)
+def test_run_serves_the_app_and_returns_its_exit_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    served: list[Application] = []
 
-    assert any(
-        "no transport" in record.getMessage() and record.levelno == logging.INFO
-        for record in caplog.records
+    async def fake_serve(app: Application) -> int:
+        served.append(app)
+        return 3
+
+    monkeypatch.setattr(main_module, "serve", fake_serve)
+
+    assert run() == 3
+    assert isinstance(served[0], Application)
+
+
+def test_create_app_wires_the_recording_controller_with_the_injected_adapters(
+    tmp_path: Path,
+) -> None:
+    capture = FakeAudioCapture()
+    app = create_app(
+        Settings(storage=StorageSettings(meetings_dir=tmp_path)),
+        recording_adapters=RecordingAdapters(
+            clock=FakeClock(),
+            device_resolver=FakeDeviceResolver(),
+            capture=capture,
+            storage=FakeRecordingStorage(),
+        ),
     )
+
+    assert isinstance(app.recording, RecordingController)
+    assert app.recording.start().unwrap().directory.parent == tmp_path
+    assert capture.started_with is not None
+
+
+def test_create_app_builds_real_adapters_by_default_without_starting_anything() -> None:
+    app = create_app(Settings())
+
+    assert app.recording.status().state == "IDLE"  # constructed, not started or resolved
 
 
 @pytest.fixture
