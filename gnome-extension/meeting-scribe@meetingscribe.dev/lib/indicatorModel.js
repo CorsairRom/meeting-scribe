@@ -55,8 +55,9 @@ const status = text => ({kind: 'status', text});
 const action = (text, id) => ({kind: 'action', text, action: id});
 const SEPARATOR = {kind: 'separator'};
 
-// Replace the first %s; keeps whole sentences translatable.
-const fill = (template, value) => template.replace('%s', value);
+// Replace the first %s; keeps whole sentences translatable. A replacer function keeps
+// service text literal (a string replacement would expand $&, $$, $` and $').
+const fill = (template, value) => template.replace('%s', () => String(value));
 
 function unavailableModel(_) {
     return {

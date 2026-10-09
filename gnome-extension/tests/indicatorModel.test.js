@@ -145,6 +145,12 @@ test('FAILED shows a warning, click opens a menu with reason and Start', () => {
     assertEqual(m.tooltip, 'Recording failed');
 });
 
+test('FAILED inserts service text literally, even with $ replacement patterns', () => {
+    const reason = "ffmpeg: cost $& and $$ in '$`' / \"$'\"";
+    assertEqual(vm({state: 'FAILED', failureReason: reason}).menuItems[0].text,
+        `Recording failed: ${reason}`);
+});
+
 test('FAILED without a reason still reads well', () => {
     assertEqual(vm({state: 'FAILED'}).menuItems[0].text, 'Recording failed.');
 });

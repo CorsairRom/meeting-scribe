@@ -46,6 +46,11 @@ export function runAll() {
             print(`FAIL ${name}\n     ${e.message}`);
         }
     }
+    if (tests.length === 0) {
+        // A dropped import in run.js must not turn the suite silently green.
+        print('0 passed, 0 failed: no tests registered');
+        return 1;
+    }
     print(`${passed} passed, ${failed} failed`);
     return failed;
 }
