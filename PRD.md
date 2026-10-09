@@ -37,7 +37,7 @@ split into speakers in about 3 minutes on the local GPU. It has no service, UI, 
 
 ## 2. Goal
 
-Turn the prototype into a daily-use tool: one click in the GNOME panel to start and stop a recording,
+Turn the prototype into a daily-use tool: a GNOME panel menu to start and stop a recording,
 automatic transcription and diarization afterwards, a native GTK4 review app, opened from the GNOME extension menu, to name and merge speakers, and an
 optional LLM summary with a fixed reference structure. Everything runs locally; the only thing that may
 leave the machine is the transcript sent to an explicitly configured LLM provider.
@@ -53,7 +53,7 @@ GPU (8 GB). No accounts, no multi-user, no remote access.
 |---|---|
 | F1 Recording | As the user, I want to start and stop a recording through a local D-Bus API, so that the capture logic is proven before any UI exists. |
 | F1 Recording | As the user, I want audio saved in chunks while recording, so that a crash never loses the meeting. |
-| F2 GNOME extension | As the user, I want a panel button with a timer and status, so that I can start and stop with one click. |
+| F2 GNOME extension | As the user, I want a panel button with a timer and status, so that I can start and stop from its drop-down menu without accidental recordings. |
 | F3 Processing | As the user, I want the meeting transcribed and diarized automatically after I stop, so that I do no manual steps. |
 | F3 Processing | As the user, I want a desktop notification like "Done: N speakers", so that I know when to review. |
 | F3 Processing | As the user, I want my own voice labelled "Me" automatically, so that I do not have to name myself every time. |

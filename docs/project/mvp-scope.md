@@ -31,7 +31,7 @@ and generate a summary — all running locally on the developer's machine.
 |---|---|---|---|
 | F0 Foundations | Repo scaffold, tooling, import-linter contracts, shared kernel, AGENTS.md, PRD, scope, ADRs 001-006, ARCHITECTURE.md | review decisions before any feature code | in progress |
 | F1 Recording | `recording` domain, D-Bus `Recording1` interface (`Start`/`Stop`, `State`), systemd user service (ADR-001) | record via `gdbus call` | pending |
-| F2 GNOME extension | Panel button start/stop, timer, status | start/stop with one click | pending |
+| F2 GNOME extension | Panel button with a drop-down menu to start/stop, timer, status | start/stop from the top-bar menu | pending |
 | F3 Processing | Queued transcription + diarization on stop, per-speaker voice samples, "Me" auto-label, desktop notification | get "Done: N speakers" | pending |
 | F4 Review app | Native GTK4 + libadwaita app opened from the extension menu: listen per speaker, rename, merge, view transcript (ADR-005) | do speaker review in a native window | pending |
 | F5 Summaries | "Generate summary" button, Ollama/DeepSeek choice, export `.md` | complete the end-to-end flow | pending |
