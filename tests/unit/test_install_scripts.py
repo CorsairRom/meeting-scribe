@@ -55,7 +55,7 @@ esac
 case "$*" in
   *is-active*) [ ! -e "$FAKE_LOG.failed" ] && [ "${FAKE_UNIT_ACTIVE:-0}" = 1 ] \\
                && exit 0 || exit 3 ;;
-  *enable*|*restart*)
+  *enable*|*restart*|*daemon-reload*)
     case "$*" in
       *"${FAKE_SYSTEMCTL_FAIL:-@none@}"*) touch "$FAKE_LOG.failed"; echo "Job failed" >&2; exit 1 ;;
     esac ;;
@@ -80,6 +80,11 @@ case "$*" in
   *Properties.Get*)
     case "$mode" in
       recording) echo "(<'RECORDING'>,)" ;;
+      weird) echo "(<'WEIRD'>,)" ;;
+      stopped) echo "(<'STOPPED'>,)" ;;
+      idle-then-recording)
+        n="$(cat "$FAKE_LOG.gets" 2>/dev/null || echo 0)"; echo $((n + 1)) > "$FAKE_LOG.gets"
+        [ "$n" = 0 ] && echo "(<'IDLE'>,)" || echo "(<'RECORDING'>,)" ;;
       get-fail) echo "Error: timeout" >&2; exit 1 ;;
       get-garbage) echo "what" ;;
       get-empty) ;;
@@ -178,7 +183,9 @@ def test_sandbox_path_holds_real_files_for_tools_and_only_whitelisted_links(
     sandbox: Env,
 ) -> None:
     fakes = Path(sandbox.env["PATH"])
-    assert sandbox.env["PATH"] == str(fakes)  # a single directory, nothing inherited
+    assert fakes.is_dir()
+    assert ":" not in sandbox.env["PATH"]  # a single entry, nothing inherited
+    assert fakes == sandbox.home.parent / "fakes"  # exactly the fakes directory
     for tool in TOOLS:
         assert not (fakes / tool).is_symlink()
     links = {p.name for p in fakes.iterdir() if p.is_symlink()}
@@ -244,7 +251,14 @@ def test_install_refuses_while_recording_before_touching_anything(sandbox: Env) 
     assert not sandbox.activation_path.exists()
 
 
-GDBUS_FAILURES = ["owner-fail", "owner-garbage", "get-fail", "get-garbage", "get-empty"]
+GDBUS_FAILURES = [
+    "owner-fail",
+    "owner-garbage",
+    "get-fail",
+    "get-garbage",
+    "get-empty",
+    "weird",
+]
 
 
 @pytest.mark.parametrize("mode", GDBUS_FAILURES)
@@ -272,6 +286,50 @@ def test_uninstall_proceeds_with_force_when_the_state_cannot_be_read(sandbox: En
     result = sandbox.run(UNINSTALL, FAKE_UNIT_ACTIVE="1", FAKE_GDBUS_MODE="get-fail", FORCE="1")
     assert result.returncode == 0, result.stderr
     assert not sandbox.unit_path.exists()
+
+
+@pytest.mark.parametrize("mode", ["get-fail", "weird"])
+def test_install_proceeds_with_force_when_the_state_is_unknown(sandbox: Env, mode: str) -> None:
+    result = sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="0", FAKE_GDBUS_MODE=mode, FORCE="1")
+    assert result.returncode == 0, result.stderr
+    assert any(line.startswith("uv tool install") for line in sandbox.calls())
+
+
+def test_install_unknown_message_names_the_remedies(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, FAKE_GDBUS_MODE="weird")
+    message = result.stdout + result.stderr
+    assert f"systemctl --user stop {UNIT}" in message
+    assert "FORCE=1" in message
+
+
+def test_install_never_proceeds_while_recording_even_with_force(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_GDBUS_MODE="recording", FORCE="1")
+    assert result.returncode != 0
+    assert not any(line.startswith("uv tool install") for line in sandbox.calls())
+
+
+def test_install_treats_a_stopped_service_as_safe(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, FAKE_GDBUS_MODE="stopped")
+    assert result.returncode == 0, result.stderr
+
+
+def test_install_skips_the_restart_when_a_recording_starts_during_the_install(
+    sandbox: Env,
+) -> None:
+    result = sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_GDBUS_MODE="idle-then-recording")
+    assert result.returncode == 0, result.stderr
+    assert not any("restart" in line for line in sandbox.calls())
+    assert "warning" in result.stderr.lower()
+    assert "recording" in result.stderr.lower()
+    assert "restart:   skipped" in result.stdout
+    assert any(line.startswith("gnome-extensions install") for line in sandbox.calls())
+
+
+def test_daemon_reload_failure_has_its_own_cause(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, FAKE_GDBUS_MODE="idle", FAKE_SYSTEMCTL_FAIL="daemon-reload")
+    assert result.returncode != 0
+    assert "daemon-reload failed" in result.stdout
+    assert "make run" not in result.stdout
 
 
 def test_gdbus_calls_are_bounded_by_a_timeout(sandbox: Env) -> None:

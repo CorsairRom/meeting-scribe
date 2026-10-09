@@ -19,7 +19,9 @@ make uninstall   # reverse it (keeps your meetings and your .env)
 
 You never start the service by hand. `make install` does the following, and is safe to re-run to upgrade. It checks
 the recording first: while a recording is in progress, or its state cannot be read, it changes nothing and exits with an
-error (stop the recording from the top-bar menu, then run it again). If the service fails to start (for example a
+error (stop the recording from the top-bar menu, then run it again). If only the state is unreadable, `FORCE=1 make install`
+overrides that (never a positive recording). The state is re-checked right before the service restarts; if a recording started
+meanwhile the restart is skipped with a warning and the new version applies on the next restart or login. If the service fails to start (for example a
 `make run` instance owns the bus name), it still installs the extension, reports the service as NOT active and exits non-zero.
 
 1. Installs the service as a `uv` tool (Python 3.12) from this checkout.

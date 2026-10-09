@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-command install: service (uv tool), systemd --user unit, D-Bus activation, GNOME extension.
-# Idempotent; safe to re-run to upgrade. Refuses to run while a recording is in progress or its state is unknown.
+# Idempotent; safe to re-run to upgrade. Refuses to run while a recording is in progress, or its state is unknown unless FORCE=1.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -27,9 +27,21 @@ echo "==> Enabling and starting the service"
 was_active=0
 unit_active && was_active=1
 start_failed=0
-systemctl --user daemon-reload || start_failed=1
+reload_failed=0
+restart_skipped=0
+systemctl --user daemon-reload || reload_failed=1
 if ((was_active)); then
-  { systemctl --user enable "$UNIT_NAME" && systemctl --user restart "$UNIT_NAME"; } || start_failed=1
+  if systemctl --user enable "$UNIT_NAME"; then
+    # Re-check: a recording may have started while uv was reinstalling. Never kill it.
+    case "$(service_state)" in
+      none | idle) systemctl --user restart "$UNIT_NAME" || start_failed=1 ;;
+      *)
+        restart_skipped=1
+        echo "warning: not restarting $UNIT_NAME because a recording is running or its state is unknown; the new version takes effect on the next restart or login." >&2 ;;
+    esac
+  else
+    start_failed=1
+  fi
 else
   systemctl --user enable --now "$UNIT_NAME" || start_failed=1
 fi
@@ -59,8 +71,14 @@ else
     echo "             'systemctl --user restart $UNIT_NAME'."
   fi
 fi
+if ((restart_skipped)); then
+  echo "  restart:   skipped (recording or unknown state); the new version takes effect on the next restart or login"
+fi
+if ((reload_failed)); then
+  echo "  cause:     daemon-reload failed (systemctl --user daemon-reload); the unit file may not be loaded."
+fi
 echo "  extension: $extension_state ($EXTENSION_UUID)"
 echo "  config:    $CONFIG_HOME/meeting-scribe/.env (optional, see .env.example)"
-if ((start_failed)); then
+if ((start_failed || reload_failed)); then
   exit 1
 fi

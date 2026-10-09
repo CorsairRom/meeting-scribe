@@ -34,7 +34,7 @@ run: ## Start the service in the foreground (development)
 install: ## Install everything: service, systemd unit, D-Bus activation, GNOME extension
 	scripts/install.sh
 
-uninstall: ## Remove what install added (keeps meetings and .env); FORCE=1 to stop while recording
+uninstall: ## Remove what install added (keeps meetings and .env); FORCE=1 to stop while recording or when its state is unreadable
 	scripts/uninstall.sh
 
 extension-pack: ## Build the GNOME extension zip into dist/ (development)
