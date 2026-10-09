@@ -48,7 +48,7 @@ flowchart LR
 |---|---|---|
 | Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root exists (`create_app`, `run`); D-Bus interfaces in F1, unit file and activation in F6 |
 | GNOME extension | GJS, thin client, no ML | planned (F2), [ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md) |
-| Capture | ffmpeg on PipeWire, 2-channel 30 s chunks | planned (F1), [ADR-002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) |
+| Capture | ffmpeg on PipeWire, 2-channel 30 s chunks | adapter built (F1.3), wiring planned (F1.4), [ADR-002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) |
 | Transcription | faster-whisper `large-v3-turbo`, float16, CUDA | planned (F3) |
 | Diarization | pyannote `speaker-diarization-community-1` | planned (F3) |
 | Review UI | Native GTK4 + libadwaita app on system python, thin D-Bus client | planned (F4), [ADR-005](docs/decisions/005-review-ui-native-gtk-app.md) |
@@ -91,6 +91,14 @@ stateDiagram-v2
 `IDLE` is the absence of a session (null object); the entity itself only has `RECORDING`, `STOPPED` and `FAILED`.
 `status()` detects a crashed capture (`is_running()` false while `RECORDING`) and moves the session to `FAILED`;
 chunks already on disk are kept.
+
+**Capture adapter** (`recording/infrastructure/`): `PactlDeviceResolver` asks `pactl` for the default sink (monitor =
+`<sink>.monitor`) and default source (microphone). `FfmpegAudioCapture` runs one ffmpeg process built by the pure
+`build_ffmpeg_command`: each input is converted to mono at `RECORDING_SAMPLE_RATE`, then `amerge` makes a 2-channel
+stream, so **channel 0 = microphone, channel 1 = system** (ADR-002), `pcm_s16le`, cut by the segment muxer. Files in
+the session folder: `audio/chunk_%05d.wav` (`chunk_00000.wav`, ...) and `ffmpeg.log` (ffmpeg stderr, appended). Stop
+sends `q` on stdin and waits `RECORDING_STOP_TIMEOUT_SECONDS`; if ffmpeg does not exit it is terminated, then killed
+after 2 s, and `stop` returns a failure. Exit code 0 is a clean stop. Not yet wired into `main.py` (F1.4).
 
 The GNOME extension lives in `gnome-extension/` (planned, F2) and the GTK review app in a separate top-level directory (planned, F4), both outside the Python package.
 

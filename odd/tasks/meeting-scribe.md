@@ -116,9 +116,19 @@ repo from F1).
       and return `RECORDING_STORAGE_FAILED` (acceptable: a restart within 1 s is not a real use case).
       Follow-up: `create_app` logs the env source via a second `effective_env_files()` call, which can
       disagree with injected settings — revisit when wiring D-Bus in F1.4.
-- [ ] F1.3 ffmpeg/PipeWire adapter (TDD): `pactl` device resolver; 2-channel 30 s WAV segments
+- [x] F1.3 ffmpeg/PipeWire adapter (TDD): `pactl` device resolver; 2-channel 30 s WAV segments
       (ch0 mic, ch1 system monitor, ADR-002); `start_new_session=True`; stop with `q` + timeout +
       kill fallback; integration test with lavfi sources only.
+      Route: delegated writer. Commits `94c4df0` (RecordingSettings + PactlDeviceResolver, +363/-48)
+      and `8c91c07` (ffmpeg command builder + FfmpegAudioCapture, +571/-4; ~60% tests/docs).
+      TDD: each module RED at collection → GREEN; `make check` → 112 passed (5.3 s), no stray
+      ffmpeg (`pgrep -a ffmpeg` empty). Safety verified by the orchestrator: no test executes
+      pulse/pactl (resolver uses a fake runner; the subprocess runner test monkeypatches
+      `subprocess.run`); real ffmpeg only with lavfi + `-re` + `-t` under tmp_path.
+      Empirical (lavfi): clean `q` → exit 0 in ~0.1 s; chunks 2ch/16 kHz/s16; ch0 = mic, ch1 =
+      system verified by per-channel RMS; lavfi without `-re` writes 60 s in 0.08 s (GO-016..019).
+      `MeetingScribeSettings` moved to `base/infrastructure/settings.py` so per-domain settings can
+      live in their domain without importing `meeting_scribe.settings` (import contract 6).
 - [ ] F1.4 D-Bus adapter (TDD): dbus-fast `dev.meetingscribe.Recording1` (`Start`, `Stop`,
       `State`, `ElapsedSeconds`, `StateChanged`), error mapping `dev.meetingscribe.Error.<CODE>`;
       `main.run()` becomes the asyncio service loop with SIGINT/SIGTERM handling; e2e under
@@ -222,5 +232,5 @@ it (F1.4). Items below kept for traceability.
 
 Owner merges tracker #2 (`feat/foundations` → `main`). Meanwhile F1 runs on integration branch
 `feat/recording` (based on `feat/foundations` until #2 lands, then retargeted to `main`).
-Current: F1.1 (#14) and F1.2 done; next F1.3 ffmpeg/PipeWire adapter. RDD boundary for F1 = tip of `feat/foundations`
+Current: F1.1–F1.3 done; next F1.4 D-Bus `Recording1` service. RDD boundary for F1 = tip of `feat/foundations`
 (its tree equals the reviewed F0 tree).

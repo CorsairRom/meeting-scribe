@@ -214,6 +214,26 @@ ai_instructions:
 - **Status**: active
 - **Detail**: `audio_dir.mkdir(parents=True, exist_ok=False)` alone succeeds when the session folder already exists without `audio/`, so a second recording started in the same second could reuse a folder. `FilesystemRecordingStorage.prepare` creates the session directory with `exist_ok=False` first, then `audio/`. Session ids have one-second resolution (`YYYY-MM-DD_HHMMSS`).
 
+### GO-016 — lavfi test sources need `-re` and a hard `-t` cap
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: ffmpeg `-f lavfi` sources ignore the wall clock: without `-re`, 60 s of audio was written in 0.08 s (measured), and an uncapped source would fill the disk. Integration tests pass `-re` (real-time pacing) and `-t 15` as a safety net, write only under `tmp_path`, and reap every process by PID. Never use `-f pulse`/`alsa` in tests (BR-001, AP-003).
+
+### GO-017 — A clean `q` stop exits with code 0 and finalizes the last chunk
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: measured with ffmpeg 8.1.2: `q` on stdin makes ffmpeg exit with code 0 in about 0.1 s, and the in-progress WAV is closed with a valid header (the last chunk is just shorter, a few frames if stop lands right after a boundary). `FfmpegAudioCapture.stop` therefore treats any non-zero code as failure. stdin must stay open, so `-nostdin` must never be added to the command.
+
+### GO-018 — Segment chunks are slightly longer than `chunk_seconds` and are final only once the next starts
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: the segment muxer cuts on packet boundaries (1 s chunks measured at 16026-16043 frames at 16 kHz, not exactly 16000), so never compute timing as `index * chunk_seconds` (see GO-013); read real durations. The muxer finalizes a chunk when it starts the next one or when ffmpeg stops (not verified mid-recording), so while recording treat only chunks below the highest index as complete; tests read chunks after `stop`.
+
+### GO-019 — `amerge` keeps input order: the microphone must be input 0
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: channel 0 = first `-i` (microphone), channel 1 = second (system monitor), per ADR-002. Verified with synthetic sines and silence, swapping the inputs. Each input is forced to mono first (`aformat=channel_layouts=mono`), otherwise a stereo monitor would add channels and shift the mapping.
+
 ---
 
 ## Anti-Patterns (AP)
@@ -246,11 +266,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 11 | 0 | 0 |
-| GO | 15 | 0 | 0 |
+| GO | 19 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-015 — 2026-10-09
-**Next available IDs**: BR-005, CR-012, GO-016, AP-005
+**Last rule added**: GO-019 — 2026-10-09
+**Next available IDs**: BR-005, CR-012, GO-020, AP-005
 
 ---
 

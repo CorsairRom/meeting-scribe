@@ -38,6 +38,9 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 python_files = ["*test*.py"]
 addopts = "-q"
+markers = [
+    "ffmpeg: runs real ffmpeg on synthetic lavfi sources only (skipped when ffmpeg is not on PATH)",
+]
 
 [tool.coverage.run]
 source = ["meeting_scribe"]
