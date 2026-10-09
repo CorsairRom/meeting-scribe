@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from meeting_scribe.speakers.domain.params import SampleParams
 from meeting_scribe.speakers.domain.samples import (
     Clip,
@@ -24,7 +27,7 @@ def _lengths(clips: tuple[Clip, ...]) -> list[float]:
 
 
 def test_longest_clean_turns_are_selected() -> None:
-    turns = _turns(2, 9, 4, 1)  # the 6 s turn that overlaps S2 is never passed in: not clean
+    turns = _turns(2, 9, 4, 1)  # only clean turns are passed in (see the clean-turn test)
 
     clips = select_sample_clips(turns, PARAMS)
 
@@ -87,6 +90,33 @@ def test_me_turns_count_only_while_the_system_channel_is_quiet() -> None:
         Turn(start=40, end=45, speaker=ME),
     ]
 
-    quiet = me_turns_with_quiet_system(me, system)
+    quiet = me_turns_with_quiet_system(me, system, 10.0)
 
     assert [(t.start, t.end) for t in quiet] == [(5, 10), (40, 45)]
+
+
+def test_frames_the_system_envelope_does_not_have_are_not_evidence_of_quiet() -> None:
+    system = envelope(10)  # 10 s long, silent
+    me = [
+        Turn(start=2, end=5, speaker=ME),  # fully covered
+        Turn(start=8, end=12, speaker=ME),  # runs past the end of the envelope
+        Turn(start=20, end=25, speaker=ME),  # entirely past it
+    ]
+
+    assert [(t.start, t.end) for t in me_turns_with_quiet_system(me, system, 10.0)] == [(2, 5)]
+    assert me_turns_with_quiet_system(me, [], 10.0) == ()
+
+
+def test_the_quiet_check_follows_the_noise_margin() -> None:
+    system = envelope(60, [(20, 30, SPEECH / 100)])  # 20 dB over the floor
+    me = [Turn(start=18, end=22, speaker=ME)]
+
+    assert me_turns_with_quiet_system(me, system, 10.0) == ()
+    assert len(me_turns_with_quiet_system(me, system, 30.0)) == 1
+
+
+def test_sample_params_reject_contradictory_bounds() -> None:
+    with pytest.raises(ValidationError):
+        SampleParams(max_clips=3, target_seconds=15.0, min_clip_seconds=7.0, max_clip_seconds=6.0)
+    with pytest.raises(ValidationError):
+        SampleParams(max_clips=3, target_seconds=1.0, min_clip_seconds=1.5, max_clip_seconds=6.0)

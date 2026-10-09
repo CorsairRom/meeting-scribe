@@ -11,7 +11,8 @@ from meeting_scribe.speakers.domain.params import MeParams
 from meeting_scribe.speakers.domain.turns import ME, UNKNOWN, Turn
 from tests.unit.speakers.envelopes import FLOOR, SPEECH, attenuated, envelope
 
-PARAMS = MeParams(dominance_db=6.0, noise_margin_db=10.0, min_turn_seconds=0.5)
+MARGIN = 10.0
+PARAMS = MeParams(dominance_db=6.0, noise_margin_db=MARGIN, min_turn_seconds=0.5)
 
 
 def _spans(turns) -> list[tuple[float, float]]:
@@ -121,12 +122,12 @@ def test_bleed_needs_enough_active_system_audio_and_is_clamped() -> None:
     quiet = envelope(60, [(10, 20, SPEECH)])  # 10 s of system audio: not enough to estimate
     leaky_mic = envelope(60, [(10, 20, SPEECH * 0.5)])
     assert BLEED_MIN_ACTIVE_SECONDS == 30.0
-    assert estimate_bleed(leaky_mic, quiet) == 0.0
+    assert estimate_bleed(leaky_mic, quiet, MARGIN) == 0.0
 
     system = envelope(100, [(10, 60, SPEECH)])
-    assert estimate_bleed(envelope(100, [(10, 60, SPEECH * 4)]), system) == 1.0
+    assert estimate_bleed(envelope(100, [(10, 60, SPEECH * 4)]), system, MARGIN) == 1.0
     mic = envelope(100, [(10, 60, SPEECH * 0.1)])
-    assert estimate_bleed(mic, system) == pytest.approx(0.1, rel=0.01)
+    assert estimate_bleed(mic, system, MARGIN) == pytest.approx(0.1, rel=0.01)
 
 
 def test_me_wins_over_a_system_turn_and_the_merged_turns_are_exclusive() -> None:
@@ -155,20 +156,44 @@ def test_a_system_turn_covered_by_me_disappears_and_unknown_is_cut_too() -> None
 
 
 def test_a_silent_system_channel_means_an_in_person_meeting_and_the_mic_is_diarized() -> None:
-    assert choose_diarization_channel(envelope(600)) == "mic"
-    assert choose_diarization_channel([0.0] * 600) == "mic"
+    assert choose_diarization_channel(envelope(600), MARGIN) == "mic"
+    assert choose_diarization_channel([0.0] * 600, MARGIN) == "mic"
 
 
 def test_the_one_percent_threshold_of_system_speech() -> None:
-    assert choose_diarization_channel(envelope(600, [(10, 15.9, SPEECH)])) == "mic"  # 0.98 %
-    assert choose_diarization_channel(envelope(600, [(10, 16.1, SPEECH)])) == "system"  # 1.02 %
-    assert choose_diarization_channel(envelope(600, [(10, 300, SPEECH)])) == "system"
+    assert (
+        choose_diarization_channel(envelope(600, [(10, 15.9, SPEECH)]), MARGIN) == "mic"
+    )  # 0.98 %
+    assert (
+        choose_diarization_channel(envelope(600, [(10, 16.1, SPEECH)]), MARGIN) == "system"
+    )  # 1.02 %
+    assert choose_diarization_channel(envelope(600, [(10, 300, SPEECH)]), MARGIN) == "system"
 
 
 def test_there_is_nothing_to_decide_without_system_audio_frames() -> None:
-    assert choose_diarization_channel([]) == "system"
+    assert choose_diarization_channel([], MARGIN) == "system"
 
 
 def test_a_noise_floor_alone_never_counts_as_system_speech() -> None:
-    assert choose_diarization_channel(envelope(600, floor=1e-5)) == "mic"
+    assert choose_diarization_channel(envelope(600, floor=1e-5), MARGIN) == "mic"
     assert FLOOR < 1e-5
+
+
+def test_the_noise_margin_is_the_single_threshold_for_system_activity() -> None:
+    system = envelope(600, [(10, 40, SPEECH / 100)])  # 20 dB over the floor of 1e-6
+
+    assert choose_diarization_channel(system, 10.0) == "system"
+    assert choose_diarization_channel(system, 30.0) == "mic"  # not "active" at a 30 dB margin
+    mic = envelope(600, [(10, 40, SPEECH / 100 * 0.1)])
+    assert estimate_bleed(mic, system, 10.0) == pytest.approx(0.1, rel=0.15)
+    assert estimate_bleed(mic, system, 30.0) == 0.0
+
+
+def test_detect_me_applies_its_noise_margin_to_the_bleed_estimate() -> None:
+    system = envelope(100, [(10, 60, SPEECH)])
+    mic = envelope(100, [(10, 60, SPEECH * 0.5)])
+    loose = PARAMS.model_copy(update={"noise_margin_db": 10.0})
+    strict = PARAMS.model_copy(update={"noise_margin_db": 60.0})
+
+    assert detect_me(mic, system, [], loose).bleed == pytest.approx(0.5, rel=0.01)
+    assert detect_me(mic, system, [], strict).bleed == 0.0

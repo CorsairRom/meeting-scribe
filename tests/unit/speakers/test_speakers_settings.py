@@ -69,6 +69,9 @@ def test_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
         ("SPEAKERS_SAMPLE_MAX_CLIPS", "0"),
         ("SPEAKERS_SAMPLE_TARGET_SECONDS", "0"),
         ("SPEAKERS_SAMPLE_MIN_CLIP_SECONDS", "0"),
+        ("SPEAKERS_SAMPLE_MAX_CLIP_SECONDS", "0"),
+        ("SPEAKERS_MAX_SPEAKERS", "0"),
+        ("SPEAKERS_ME_DOMINANCE_DB", "-1"),
     ],
 )
 def test_invalid_values_fail_at_load(
@@ -90,6 +93,32 @@ def test_min_may_not_exceed_max_for_speakers_or_clips(monkeypatch: pytest.Monkey
     monkeypatch.setenv("SPEAKERS_SAMPLE_MIN_CLIP_SECONDS", "7")
     with pytest.raises(ValidationError):
         SpeakersSettings()
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {"SPEAKERS_SAMPLE_TARGET_SECONDS": "1.0"},  # below the 1.5 s minimum clip
+        {"SPEAKERS_NUM_SPEAKERS": "5", "SPEAKERS_MAX_SPEAKERS": "3"},
+        {"SPEAKERS_NUM_SPEAKERS": "2", "SPEAKERS_MIN_SPEAKERS": "3"},
+    ],
+)
+def test_contradictory_combinations_fail_at_load(
+    monkeypatch: pytest.MonkeyPatch, env: dict[str, str]
+) -> None:
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+
+    with pytest.raises(ValidationError):
+        SpeakersSettings()
+
+
+def test_an_exact_count_inside_the_bounds_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SPEAKERS_NUM_SPEAKERS", "3")
+    monkeypatch.setenv("SPEAKERS_MIN_SPEAKERS", "2")
+    monkeypatch.setenv("SPEAKERS_MAX_SPEAKERS", "3")
+
+    assert SpeakersSettings().num_speakers == 3
 
 
 def test_root_settings_composes_speakers(monkeypatch: pytest.MonkeyPatch) -> None:

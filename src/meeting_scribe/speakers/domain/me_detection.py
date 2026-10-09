@@ -24,6 +24,8 @@ from meeting_scribe.speakers.domain.turns import ME, UNKNOWN, Turn
 BLEED_MIN_ACTIVE_SECONDS = 30.0
 """Fewer seconds of clearly active system audio and the bleed is not estimated (k = 0)."""
 MERGE_GAP_SECONDS = 0.3
+"""Two runs of "Me" (or "Unknown") frames closer than this are one turn: a breath or a short
+pause is not a change of speaker. Fixed on purpose (spec 2.4 step 5); not a setting."""
 IN_PERSON_SYSTEM_SPEECH_FRACTION = 0.01
 """OQ-4: system audio with speech in less than this share of the meeting means an in-person one."""
 
@@ -39,12 +41,12 @@ class MeDetection(BaseModel):
     """``k``: the share of the system energy that reaches the microphone (0 with a headset)."""
 
 
-def estimate_bleed(mic: Sequence[float], system: Sequence[float]) -> float:
+def estimate_bleed(mic: Sequence[float], system: Sequence[float], margin_db: float) -> float:
     """Median ``E_mic / E_sys`` over clearly active system frames, clamped to [0, 1].
 
     The median is robust because the user is silent during most remote speech.
     """
-    threshold = active_threshold(system)
+    threshold = active_threshold(system, margin_db)
     ratios = [m / s for m, s in zip(mic, system, strict=False) if s >= threshold]
     if len(ratios) * FRAME_SECONDS < BLEED_MIN_ACTIVE_SECONDS:
         return 0.0
@@ -62,7 +64,7 @@ def detect_me(
     mic, system = mic[:frames], system[:frames]
     if not frames:
         return MeDetection(me_turns=(), unknown_turns=(), bleed=0.0)
-    bleed = estimate_bleed(mic, system)
+    bleed = estimate_bleed(mic, system, params.noise_margin_db)
     floor = noise_floor(mic)
     speech_level = floor * db_to_ratio(params.noise_margin_db)
     dominance = db_to_ratio(params.dominance_db)
@@ -79,7 +81,7 @@ def detect_me(
     unknown_turns = [
         turn
         for turn in _turns(ambiguous, min_frames, UNKNOWN)
-        if not any(_overlap(turn, other) > 0 for other in system_turns)
+        if not any(turn.overlap(other) > 0 for other in system_turns)
     ]
     return MeDetection(me_turns=me_turns, unknown_turns=tuple(unknown_turns), bleed=bleed)
 
@@ -93,11 +95,11 @@ def merge_turns(
     return tuple(sorted((*me, *pieces), key=lambda turn: (turn.start, turn.end)))
 
 
-def choose_diarization_channel(system: Sequence[float]) -> DiarizedChannel:
+def choose_diarization_channel(system: Sequence[float], margin_db: float) -> DiarizedChannel:
     """OQ-4: with speech in under 1 % of the system frames everyone is on the mic (in person)."""
     if not system:
         return "system"
-    threshold = active_threshold(system)
+    threshold = active_threshold(system, margin_db)
     active = sum(1 for energy in system if energy >= threshold)
     return "mic" if active / len(system) < IN_PERSON_SYSTEM_SPEECH_FRACTION else "system"
 
@@ -118,10 +120,6 @@ def _turns(flags: Sequence[bool], min_frames: int, speaker: str) -> tuple[Turn, 
         for first, last in runs
         if last - first >= min_frames
     )
-
-
-def _overlap(a: Turn, b: Turn) -> float:
-    return min(a.end, b.end) - max(a.start, b.start)
 
 
 def _cut(turn: Turn, covered: Sequence[tuple[float, float]]) -> list[Turn]:

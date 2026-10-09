@@ -477,7 +477,7 @@ A pure function in `speakers/domain/` turns two energy envelopes into "Me" turns
 `E_sys` are mean squares per frame.
 
 1. **Noise floors**: `N_mic`, `N_sys` = 10th percentile of each envelope.
-2. **Bleed coefficient** `k`: over frames where the system is clearly active (`E_sys >= N_sys * 10^(10/10)`), `k` =
+2. **Bleed coefficient** `k`: over frames where the system is clearly active (`E_sys >= N_sys * 10^(SPEAKERS_ME_NOISE_MARGIN_DB/10)`), `k` =
    median of `E_mic / E_sys`, clamped to [0, 1]. With a headset `k` is about 0; with loudspeakers it estimates how
    much system audio reaches the microphone. The median is robust because the user is silent during most remote
    speech. With fewer than 30 s of active system frames, `k` = 0.
@@ -653,7 +653,7 @@ Each class inherits `MeetingScribeSettings`, lives in its domain's `infrastructu
 | `SPEAKERS_MIN_SPEAKERS` / `SPEAKERS_MAX_SPEAKERS` | `SpeakersSettings` | unset | Bounds when the count is automatic |
 | `SPEAKERS_UTTERANCE_GAP_SECONDS` | `SpeakersSettings` | `5.0` | Same-speaker gap that still joins an utterance |
 | `SPEAKERS_ME_DOMINANCE_DB` | `SpeakersSettings` | `6.0` | Residual mic energy over predicted bleed plus noise needed for "Me" |
-| `SPEAKERS_ME_NOISE_MARGIN_DB` | `SpeakersSettings` | `10.0` | Residual mic energy over the mic noise floor needed for speech |
+| `SPEAKERS_ME_NOISE_MARGIN_DB` | `SpeakersSettings` | `10.0` | Margin over a channel's noise floor that counts as speech or activity: the mic residual for "Me", and the system channel for the bleed estimate, the in-person decision and quiet-system samples |
 | `SPEAKERS_ME_MIN_TURN_SECONDS` | `SpeakersSettings` | `0.5` | Shortest "Me" turn kept |
 | `SPEAKERS_SAMPLE_MAX_CLIPS` | `SpeakersSettings` | `3` | Clips per speaker sample |
 | `SPEAKERS_SAMPLE_TARGET_SECONDS` | `SpeakersSettings` | `15.0` | Target total sample length |

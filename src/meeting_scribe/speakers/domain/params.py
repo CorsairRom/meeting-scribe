@@ -1,6 +1,8 @@
 """Thresholds the domain functions take as arguments; the settings class builds them."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Self
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class MeParams(BaseModel):
@@ -24,3 +26,12 @@ class SampleParams(BaseModel):
     target_seconds: float = Field(gt=0)
     min_clip_seconds: float = Field(gt=0)
     max_clip_seconds: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _clips_fit_the_target(self) -> Self:
+        """Contradictory bounds would select nothing, silently."""
+        if self.min_clip_seconds > self.max_clip_seconds:
+            raise ValueError("min_clip_seconds must not exceed max_clip_seconds")
+        if self.target_seconds < self.min_clip_seconds:
+            raise ValueError("target_seconds must be at least min_clip_seconds")
+        return self
