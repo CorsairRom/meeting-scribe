@@ -46,7 +46,7 @@ flowchart LR
 
 | Element | Technology | Status |
 |---|---|---|
-| Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root serves the `Recording1` D-Bus interface (`create_app`, `serve`, `run`); more interfaces in later phases, unit file and activation in F6 |
+| Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root serves the `Recording1` D-Bus interface (`create_app`, `serve`, `run`); more interfaces in later phases, unit file and activation installed by `make install` (F2.5) |
 | GNOME extension | GJS, thin client, no ML | planned (F2), [ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md) |
 | Capture | ffmpeg on PipeWire, 2-channel 30 s chunks | adapter built (F1.3), wiring planned (F1.4), [ADR-002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) |
 | Transcription | faster-whisper `large-v3-turbo`, float16, CUDA | planned (F3) |
@@ -105,7 +105,7 @@ on its own, `AudioCapture.exit_detail()` gives the exit code plus the `ffmpeg.lo
 as the session `failure_reason` (generic text only when empty). Opening `ffmpeg.log` and spawning ffmpeg fail with
 distinct messages. Not yet wired into `main.py` (F1.4).
 
-The GNOME extension lives in `gnome-extension/` (F2 in progress) and the GTK review app in a separate top-level directory (planned, F4), both outside the Python package. Packaging files (systemd `--user` unit template and D-Bus activation file, installed in F6) live in `packaging/`.
+The GNOME extension lives in `gnome-extension/` (F2 in progress) and the GTK review app in a separate top-level directory (planned, F4), both outside the Python package. Packaging files (systemd `--user` unit template and D-Bus activation file, installed by `make install`) live in `packaging/`.
 
 Extension layout (`gnome-extension/`): the extension itself is `meeting-scribe@meetingscribe.dev/`. Presentation logic (view model, elapsed formatting, D-Bus error to message mapping) lives in pure ES modules under `lib/` with no `gi://` or `resource:///org/gnome/shell/` imports, translated through an injected `_` function, and is unit-tested with `gjs -m` (`make test-extension`, tests in `gnome-extension/tests/`). Code that touches the Shell (`extension.js`, `lib/panelIndicator.js`, `lib/glibScheduler.js`) stays thin and only wires those modules.
 
@@ -203,14 +203,14 @@ Names are proposed and renamable until F6. The contract lives in [`docs/architec
 | `dev.meetingscribe.Speakers1` | rename, merge, sample path |
 | `dev.meetingscribe.Summaries1` | generate/read summary |
 | Errors | `dev.meetingscribe.Error.<ERROR_CODE>` (see [error codes](docs/architecture/error-codes-catalog.md)) |
-| Activation | `systemd --user` unit plus D-Bus session activation file (F6) |
+| Activation | `systemd --user` unit plus D-Bus session activation file, installed by `make install` |
 
 Trust boundary: the session bus is per-user and unreachable from websites; any process of the same user can call the
 service, the same boundary as the user's files. The service runs one asyncio loop; ML work runs off the event loop
 so D-Bus stays responsive. The review app runs on system Python ([ADR-005](docs/decisions/005-review-ui-native-gtk-app.md)).
 Tooling: `gdbus call` or `busctl --user`. E2E tests (`@pytest.mark.dbus`) start a private `dbus-daemon`, connect to its
 address explicitly and wire the controller with fakes; they never touch the user's session bus or an audio device.
-The service itself runs in the foreground (`make run`, `meeting-scribe`), exits non-zero if the bus name is already
+`make install` (`scripts/install.sh`) installs the service as a `uv tool` (Python 3.12), renders the unit with the absolute `ExecStart`, copies the activation file, runs `systemctl --user enable --now` (restart on upgrade, never while recording) and packs, installs and enables the extension; `make uninstall` reverses it and never touches the meetings directory or `.env`. The service can also run in the foreground for development (`make run`, `meeting-scribe`); it exits non-zero if the bus name is already
 owned (1), stops an active recording on SIGINT/SIGTERM, exits 2 if that stop fails and 3 if the bus connection is lost
 (the recording is stopped first, so ffmpeg is never left running unreachable). Shutdown lets the crash monitor finish
 its current poll before stopping, so controller calls never overlap.

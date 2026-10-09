@@ -9,21 +9,31 @@ unless you explicitly ask for a cloud summary.
 
 ## Quickstart
 
-Requires Python 3.12 and [`uv`](https://docs.astral.sh/uv/).
+Prerequisites: Fedora with GNOME on Wayland, [`uv`](https://docs.astral.sh/uv/), `ffmpeg` and PipeWire (with the
+PulseAudio shim).
 
 ```bash
-make setup   # install runtime + dev dependencies
-make check   # ruff, pyrefly, import-linter contracts, pytest
-make run     # serve the D-Bus API in the foreground (Ctrl+C to stop)
+make install     # everything: service, systemd user unit, D-Bus activation, GNOME extension
+make uninstall   # reverse it (keeps your meetings and your .env)
 ```
 
-Copy `.env.example` to `~/.config/meeting-scribe/.env` (or `$XDG_CONFIG_HOME/meeting-scribe/.env`) to override
-settings (`LOG_LEVEL`, `STORAGE_MEETINGS_DIR`); a `./.env` in the project directory is the development fallback.
-Run `make help` to list all targets.
+You never start the service by hand. `make install` does the following, and is safe to re-run to upgrade:
+
+1. Installs the service as a `uv` tool (Python 3.12) from this checkout.
+2. Installs and enables the `systemd --user` unit and the D-Bus activation file, then starts the service
+   (on upgrade it restarts it, but never while a recording is running).
+3. Packs, installs and enables the GNOME extension. On Wayland a brand-new extension is discovered only after you
+   log out and back in once; the installer tells you when that is needed.
+
+Configure by creating `~/.config/meeting-scribe/.env` (or `$XDG_CONFIG_HOME/meeting-scribe/.env`; template:
+`.env.example`) with `LOG_LEVEL`, `STORAGE_MEETINGS_DIR` and so on, then `systemctl --user restart meeting-scribe.service`.
+
+Development: `make setup` (dev dependencies), `make check` (ruff, pyrefly, import-linter, pytest, extension tests),
+`make run` (foreground service on your session bus, stop the installed one first). `make help` lists all targets.
 
 ## Try the D-Bus API
 
-Run the service in the foreground (`make run`), then from another terminal use `gdbus` against your session bus
+Once installed the service is already running (or starts on the first call). Use `gdbus` against your session bus
 (contract: [`api-contracts.md`](docs/architecture/api-contracts.md)):
 
 ```bash
@@ -34,7 +44,7 @@ gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meeting
   --method dev.meetingscribe.Recording1.Stop
 ```
 
-A second `make run` exits with an error while one instance owns the bus name. Stopping the service while recording
+`make run` exits with an error while another instance (such as the installed service) owns the bus name. Stopping the service while recording
 stops the recording first.
 
 ## Documentation
