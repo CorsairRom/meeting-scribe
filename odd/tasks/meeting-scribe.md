@@ -195,8 +195,8 @@ repo from F1).
 
 Goal: start/stop recording from a GNOME Shell 50.4 panel indicator (Wayland) talking to
 `dev.meetingscribe.Recording1` over the session bus; timer + status.
-UX decision (user, 2026-10-09): idle `●` → one click starts; while recording `■ HH:MM:SS` → click
-opens a menu with status and "Stop recording" (no accidental stop). UI strings in English via
+UX decision (user, 2026-10-09, revised the same day after real use): every click opens the
+drop-down menu; Start/Stop are explicit menu actions (the first one-click-start design recorded by accident). UI strings in English via
 gettext (translatable later). Environment: gjs 1.88.1, `gnome-shell --devkit` for a nested shell.
 Safety: tests never touch the real session bus or the running shell; installing/enabling the
 extension in the user's session, or running the nested shell, only with the user's consent.
@@ -269,6 +269,23 @@ extension in the user's session, or running the nested shell, only with the user
       log-once flag resets after a successful tick (RED `expected 2, got 1` → GREEN 74 passed).
       Extension packed and installed (not enabled) in the user's session with consent;
       manual check pending (logout/login, enable, `make run`, click).
+- [x] F2.5 Plug-and-play install (user feedback 2026-10-09, after enabling the extension and
+      finding the service not running: "installing must bring everything up, including enabling the
+      extension"). Pulls the install part of F6 forward: `make install` = `uv tool install` of the
+      service, render + install the systemd user unit and the D-Bus activation file,
+      `systemctl --user enable --now`, pack + install + enable the extension; idempotent;
+      `make uninstall` reverses it. Tested with fake `systemctl`/`gnome-extensions`/`uv` on PATH
+      and a temp HOME/XDG tree. Branch `f2/feat-plug-and-play-install`.
+      Route: delegated writer. Commits `539b324` (install/uninstall/_common scripts, Makefile,
+      18 tests with fake tools on an isolated PATH; +403/-4) and `cb25d05` (docs; +49/-32).
+      `uv tool install --force --reinstall --python 3.12 <repo>`; unit ExecStart from
+      `uv tool dir --bin`; `enable --now` first time, `restart` on re-install only when not
+      RECORDING; extension pack+install+enable with a log-out-once hint on Wayland. TDD RED (no
+      scripts) → GREEN 193 python / 74 extension. Nothing run against the real system by the writer.
+- [x] F2.6 Menu-only click (user feedback 2026-10-09 after a stray click recorded 4 s): every
+      state opens the drop-down; Start/Stop are explicit menu actions. Inline TDD in a worktree:
+      RED 5 failing → GREEN 75; guard test "no state starts a recording on a plain click".
+      Merged as #44 (78 lines, under budget). Supersedes the 2026-10-09 one-click-start decision.
 ### F3 Processing — pending
 ### F4 Review UI — pending
 ### F5 Summaries — pending

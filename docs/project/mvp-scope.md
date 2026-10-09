@@ -35,7 +35,8 @@ and generate a summary — all running locally on the developer's machine.
 | F3 Processing | Queued transcription + diarization on stop, per-speaker voice samples, "Me" auto-label, desktop notification | get "Done: N speakers" | pending |
 | F4 Review app | Native GTK4 + libadwaita app opened from the extension menu: listen per speaker, rename, merge, view transcript (ADR-005) | do speaker review in a native window | pending |
 | F5 Summaries | "Generate summary" button, Ollama/DeepSeek choice, export `.md` | complete the end-to-end flow | pending |
-| F6 Install | `make install` (service + extension), runbook | use it daily | pending |
+| F2.5 Install | `make install` / `make uninstall`: service as a `uv` tool, systemd user unit, D-Bus activation, extension enabled; idempotent | install everything with one command, never start the service by hand | in progress |
+| F6 Hardening | Install runbook (update, troubleshoot), resilience checks | use it daily | pending |
 
 **Status**: in progress, done, blocked, pending.
 
@@ -76,7 +77,7 @@ and generate a summary — all running locally on the developer's machine.
 | FR-4 voice samples, notification | F3 | pending | pending |
 | FR-5 review: listen, rename, merge | F4 | pending | pending |
 | FR-6 summary via LLM provider | F5 | pending | pending |
-| FR-7 install | F6 | pending | pending |
+| FR-7 install | F2.5 (runbook in F6) | `scripts/install.sh`, `scripts/uninstall.sh` | `tests/unit/test_install_scripts.py` |
 
 > When you add a deliverable, fill its row. If a column is empty, that deliverable is not finished.
 
