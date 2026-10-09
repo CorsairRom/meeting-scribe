@@ -1,11 +1,22 @@
 """Ports implemented by meetings infrastructure adapters."""
 
+from collections.abc import Callable
+from datetime import datetime
+from pathlib import Path
 from typing import Protocol
 
 from returns.result import Result
 
-from meeting_scribe.meetings.domain.errors import MeetingSchemaUnsupportedError, MeetingStorageError
+from meeting_scribe.base.domain.errors import MeetingScribeError
+from meeting_scribe.meetings.domain.errors import (
+    MeetingAudioMissingError,
+    MeetingAudioUnsupportedError,
+    MeetingSchemaUnsupportedError,
+    MeetingStorageError,
+)
 from meeting_scribe.meetings.domain.meeting import Meeting
+from meeting_scribe.meetings.domain.timeline import Timeline
+from meeting_scribe.meetings.domain.worker import ProgressOrNotice, ResultEvent, WorkerJob
 
 
 class MeetingRepository(Protocol):
@@ -24,3 +35,65 @@ class MeetingRepository(Protocol):
     def list_all(self) -> Result[list[Meeting], MeetingStorageError]:
         """Meetings with a readable ``meeting.json``, newest first. Unreadable ones are skipped."""
         ...
+
+
+class Clock(Protocol):
+    def now(self) -> datetime:
+        """Timezone-aware current time."""
+        ...
+
+
+class AudioInspector(Protocol):
+    def inspect(
+        self, meeting_dir: Path
+    ) -> Result[
+        Timeline, MeetingAudioMissingError | MeetingAudioUnsupportedError | MeetingStorageError
+    ]:
+        """Build the timeline from the chunk headers under ``<meeting_dir>/audio``."""
+        ...
+
+
+class CancelSignal(Protocol):
+    """Set from another thread to stop a running worker (``threading.Event`` fits)."""
+
+    def is_set(self) -> bool: ...
+
+    def wait(self, timeout: float | None = None) -> bool: ...
+
+
+class WorkerRunner(Protocol):
+    def run(
+        self,
+        job: WorkerJob,
+        timeout_seconds: float,
+        on_event: Callable[[ProgressOrNotice], Result[None, MeetingScribeError]],
+        cancel: CancelSignal,
+    ) -> Result[ResultEvent, MeetingScribeError]:
+        """Run one worker to its end; blocks, so call it from a thread, never the event loop.
+
+        ``on_event`` receives every non-final event in order; a ``Failure`` from it stops the
+        worker and becomes the outcome. ``cancel`` set (before or during the run) stops the worker
+        and yields ``WorkerCancelledError``. Other failures: ``WorkerTimeoutError``,
+        ``WorkerCrashedError``, ``WorkerProtocolError``, ``WorkerReportedError``.
+        """
+        ...
+
+
+class ProcessingEvents(Protocol):
+    """Observer of the job lifecycle (D-Bus signals and notifications are wired on it later)."""
+
+    def state_changed(self, meeting: Meeting) -> None:
+        """Called after the new state is persisted."""
+        ...
+
+    def finished(self, meeting: Meeting) -> None:
+        """Called after a job ends ``DONE`` or ``FAILED`` was persisted."""
+        ...
+
+
+class NullProcessingEvents:
+    def state_changed(self, meeting: Meeting) -> None:  # noqa: ARG002
+        return None
+
+    def finished(self, meeting: Meeting) -> None:  # noqa: ARG002
+        return None

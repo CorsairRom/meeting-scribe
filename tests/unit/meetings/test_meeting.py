@@ -185,3 +185,20 @@ def test_with_audio_and_with_device_set_processing_fields_and_keep_state() -> No
     assert (updated.processing.audio, updated.processing.device) == (audio, device)
     assert updated.processing.state == "DIARIZING"
     assert base.processing.audio is None  # immutable
+
+
+def test_resume_restarts_an_interrupted_job_keeping_its_queue_position() -> None:
+    later = T0 + timedelta(hours=1)
+    interrupted = _at("EXTRACTING_SAMPLES")
+
+    resumed = interrupted.resume(later, PARAMS).unwrap()
+
+    assert resumed.processing.state == "TRANSCRIBING"
+    assert resumed.processing.queued_at == T0
+    assert resumed.processing.started_at == later
+    assert resumed.processing.attempt == interrupted.processing.attempt
+
+
+def test_resume_is_refused_outside_in_progress_states() -> None:
+    assert isinstance(_queued().resume(T0, PARAMS), Failure)
+    assert isinstance(_queued().fail(FAILURE, T0).unwrap().resume(T0, PARAMS), Failure)

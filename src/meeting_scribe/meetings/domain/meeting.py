@@ -130,6 +130,15 @@ class Meeting(BaseEntity):
     ) -> Result[Self, InvalidStateTransitionError]:
         return self._move(("QUEUED",), "TRANSCRIBING", {"started_at": now, "params": params})
 
+    def resume(
+        self, now: datetime, params: ProcessingParams
+    ) -> Result[Self, InvalidStateTransitionError]:
+        """Restart an interrupted job at the first worker; its caches skip finished work.
+
+        Keeps ``queued_at`` (queue position) and ``attempt``: it is the same attempt.
+        """
+        return self._move(_IN_PROGRESS, "TRANSCRIBING", {"started_at": now, "params": params})
+
     def transcription_done(self) -> Result[Self, InvalidStateTransitionError]:
         return self._move(("TRANSCRIBING",), "DIARIZING", {})
 
