@@ -7,6 +7,7 @@ import './indicatorController.test.js';
 import './indicatorModel.test.js';
 import './privateBus.test.js';
 import './recordingClient.test.js';
+import './shellGlue.test.js';
 
 let failed = 1;
 try {

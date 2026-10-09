@@ -1,0 +1,11 @@
+.meeting-scribe-recording {
+    color: #e01b24;
+}
+
+.meeting-scribe-dimmed {
+    opacity: 128;
+}
+
+.meeting-scribe-failed {
+    color: #e5a50a;
+}
