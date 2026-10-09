@@ -258,6 +258,11 @@ extension in the user's session, or running the nested shell, only with the user
       Nested shell on GNOME 49+: `dbus-run-session gnome-shell --devkit --wayland` needs the
       `mutter-devkit` package (not installed here); extensions load from a throwaway
       `XDG_DATA_HOME` (no `--extension-dir` option). Nothing installed or run.
+      RDD (#40 + F2.4, 328 lines, high) under the standing consent: lineage
+      `review-a6b681e2a2ff5906` approved + acked. Applied: standing-consent row scoped to review
+      consent only (R1); failing tick logged once (R4); blocking, roomier scheduler test (R3);
+      forwarding guard asserts the wrapper parameter reaches the controller (mutation
+      `onPrimaryClick()` → test fails); pack fixture closes the zip; runbook symptom row split.
 ### F3 Processing — pending
 ### F4 Review UI — pending
 ### F5 Summaries — pending
@@ -272,7 +277,7 @@ extension in the user's session, or running the nested shell, only with the user
 | gitignore fix | inline | one mechanical file, root cause already understood |
 | F0.3 + F0.4 | delegated (1 writer, ran in parallel with the code review — disjoint files) | 30+ doc files |
 | review suggestions | inline | two mechanical one-line doc edits |
-| RDD consent | standing | user instruction 2026-10-09: always answer `granted` in this repo |
+| RDD consent | standing | user instruction 2026-10-09: always answer `granted` to Gentle AI review-consent envelopes in this repo. Scope: review consent ONLY — it does not cover recordings, installing/enabling the extension, running a nested shell, product decisions or pushes; those still need explicit consent. |
 
 ## Accepted deviations from HANDOFF (verified by mapping)
 
