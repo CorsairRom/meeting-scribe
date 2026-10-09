@@ -282,7 +282,7 @@ ai_instructions:
 ### GO-026 — `serve` races the stop signal against bus disconnect and has defined exit codes
 - **Date**: 2026-10-09
 - **Status**: active
-- **Detail**: `serve` waits for `stop` or `bus.wait_for_disconnect()` (dbus-fast 5.2.0 raises or resolves when the connection closes). A lost bus is logged at ERROR, the active recording is stopped, and the exit code is 3. Exit codes: 0 clean, 1 name taken, 2 shutdown stop failed, 3 bus disconnected (disconnect wins over a stop failure). `_publish` catches emit errors so a dead bus cannot abort shutdown.
+- **Detail**: `serve` waits for `stop` or `bus.wait_for_disconnect()` (dbus-fast 5.2.0 raises or resolves when the connection closes). A lost bus is logged at ERROR, the active recording is stopped, and the exit code is 3. Exit codes: 0 clean, 1 name taken, 2 shutdown stop failed, 3 bus disconnected, 4 the processing loop outlived the shutdown bound (`SHUTDOWN_TIMEOUT_SECONDS`; a worker process may be left over, see the ERROR log). Precedence when several apply: 3, then 2, then 4. Only exit 1 is excluded from `Restart=on-failure`. `_publish` catches emit errors so a dead bus cannot abort shutdown.
 
 ### GO-027 — Run extension tests as ES modules: `gjs -m`, explicit imports, `System.exit`
 - **Date**: 2026-10-09

@@ -12,14 +12,17 @@ from returns.result import Failure
 
 from meeting_scribe.meetings.application.processing_controller import ProcessingController
 from meeting_scribe.meetings.domain.meeting import RecordingInfo
+from meeting_scribe.meetings.domain.notification import Notification
+from meeting_scribe.meetings.domain.ports import Notifier
 from meeting_scribe.recording.domain.recording_session import RecordingSession
 
 logger = logging.getLogger(__name__)
 
 
 class ProcessingRecordingListener:
-    def __init__(self, processing: ProcessingController) -> None:
+    def __init__(self, processing: ProcessingController, notifier: Notifier | None = None) -> None:
         self._processing = processing
+        self._notifier = notifier
 
     def on_started(self, session: RecordingSession) -> None:  # noqa: ARG002
         """No GPU work while recording (ADR-003, OQ-3): the running worker is stopped."""
@@ -43,5 +46,22 @@ class ProcessingRecordingListener:
                     session.id,
                     error.error_code,
                 )
+                self._tell_user()
         finally:
             self._processing.release()  # GO-045: the GPU is released however the session ends
+
+    def _tell_user(self) -> None:
+        """Text only, no meeting id or content: the recording is safe but will not process alone."""
+        if self._notifier is None:
+            return
+        sent = self._notifier.notify(
+            Notification(
+                summary="Meeting could not be queued for processing",
+                body=(
+                    "The recording is saved. Check the disk space and permissions of the "
+                    "meetings folder, then restart the service to retry."
+                ),
+            )
+        )
+        if isinstance(sent, Failure):
+            logger.warning("Desktop notification failed: [%s]", sent.failure().error_code)

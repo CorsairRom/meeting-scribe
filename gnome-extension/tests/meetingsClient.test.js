@@ -157,9 +157,12 @@ test('meetings: the service vanishing resets the snapshot and reports it once', 
     await withFixture(async ({client, fake, changes, until}) => {
         client.connect();
         await until(() => client.snapshot.available);
-        fake.setStatus('m1', 'DIARIZING', 1);
         fake.finish('m0', 'DONE', 2);
-        await until(() => client.snapshot.last !== null && client.snapshot.activeState === 'DIARIZING');
+        await until(() => client.snapshot.last !== null);
+        fake.setStatus('m1', 'DIARIZING', 1);
+        await until(() => client.snapshot.activeState === 'DIARIZING');
+        fake.finish('m0', 'DONE', 2); // a late signal: the snapshot has both again
+        await until(() => client.snapshot.last !== null);
         fake.vanish();
         await until(() => !client.snapshot.available);
         assertDeepEqual(client.snapshot, {
@@ -204,4 +207,56 @@ test('meetings: destroy stops all reporting', async () => {
         assertEqual(changes.snapshots.length, count);
         assertEqual(client.snapshot.available, false);
     });
+});
+
+test('meetings: a new job forgets the previous result', async () => {
+    await withFixture(async ({client, fake, until}) => {
+        client.connect();
+        await until(() => client.snapshot.available);
+        fake.finish('m1', 'FAILED', 0);
+        await until(() => client.snapshot.last !== null);
+        fake.setStatus('m2', 'TRANSCRIBING', 0); // a job starts; its ProcessingFinished may be missed
+        await until(() => client.snapshot.activeState === 'TRANSCRIBING');
+        assertEqual(client.snapshot.last, null);
+    });
+});
+
+test('meetings: a result survives status changes inside the same idle period', async () => {
+    await withFixture(async ({client, fake, until}) => {
+        client.connect();
+        await until(() => client.snapshot.available);
+        fake.finish('m1', 'DONE', 2);
+        await until(() => client.snapshot.last !== null);
+        fake.setStatus('', 'IDLE', 0); // still idle: nothing started
+        await sleep(100);
+        assertEqual(client.snapshot.last?.meetingId, 'm1');
+    });
+});
+
+test('meetings: a restarted service does not bring the old result back', async () => {
+    await withFixture(async ({client, fake, until}) => {
+        client.connect();
+        await until(() => client.snapshot.available);
+        fake.finish('m1', 'FAILED', 0);
+        await until(() => client.snapshot.last !== null);
+        fake.vanish();
+        await until(() => !client.snapshot.available);
+        await fake.appear();
+        await until(() => client.snapshot.available);
+        assertEqual(client.snapshot.last, null);
+    });
+});
+
+test('meetings: a proxy that cannot be built is logged once and stays unavailable', async () => {
+    const logged = [];
+    await withFixture(async ({client}) => {
+        client.connect();
+        await sleep(300); // no change is ever reported, so there is nothing to wait on
+        assertEqual(logged.length, 1);
+        assertEqual(client.snapshot.available, false);
+    }, {clientOptions: {
+        logError: message => logged.push(message),
+        createProxy: (_connection, _name, _path, callback) =>
+            callback(null, new Error('no interface')),
+    }});
 });
