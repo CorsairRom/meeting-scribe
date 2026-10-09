@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 import pytest
 from pydantic import ValidationError
 from returns.result import Failure, Success
@@ -11,6 +13,7 @@ class Sample(BaseEntity):
 
 
 class _NullSample(Sample):
+    _is_null_object: ClassVar[bool] = True
     id: str = ""
     name: str = ""
 
@@ -45,3 +48,26 @@ def test_null_entity_fails_with_given_error() -> None:
 
     assert null.is_null is True
     assert null.as_result(error) == Failure(error)
+
+
+def test_null_marker_is_independent_of_class_name() -> None:
+    class Missing(Sample):
+        _is_null_object: ClassVar[bool] = True
+        id: str = ""
+        name: str = ""
+
+    assert Missing().is_null is True
+
+
+def test_class_named_null_without_marker_is_not_null() -> None:
+    class _NullLooking(Sample):
+        pass
+
+    assert _NullLooking(id="1", name="a").is_null is False
+
+
+def test_subclass_of_null_object_stays_null() -> None:
+    class MoreNull(_NullSample):
+        pass
+
+    assert MoreNull().is_null is True

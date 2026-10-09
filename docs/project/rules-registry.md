@@ -91,7 +91,7 @@ ai_instructions:
 ### CR-005 — Repositories return null objects, not `None`
 - **Date**: 2026-10-09
 - **Status**: active
-- **Rule**: A missing entity is a `_Null<Entity>` (class name starting with `_Null`); callers convert it with `BaseEntity.as_result(error)`.
+- **Rule**: A missing entity is a null object: a subclass setting the explicit `_is_null_object: ClassVar[bool] = True` marker on `BaseEntity` (conventionally named `_Null<Entity>`, but the name is not what makes it null); callers convert it with `BaseEntity.as_result(error)`.
 - **Verifiable in**: `src/meeting_scribe/base/domain/entity.py::BaseEntity`; `tests/unit/base/test_entity.py`
 
 ### CR-006 — State transitions are entity methods returning `model_copy`

@@ -1,5 +1,7 @@
 import re
 
+import pytest
+
 from meeting_scribe.base.domain.errors import (
     EntityNotFoundError,
     InvalidStateTransitionError,
@@ -41,3 +43,16 @@ def test_detail_code_is_appended_to_instance_code_only() -> None:
 
 def test_instance_code_defaults_to_class_code() -> None:
     assert InvalidValueError("bad").error_code == "INVALID_VALUE"
+
+
+@pytest.mark.parametrize("code", ["MEETING", "A1", "NOT_FOUND_2", "X"])
+def test_valid_detail_codes_are_accepted(code: str) -> None:
+    assert EntityNotFoundError("x", detail_code=code).error_code == f"ENTITY_NOT_FOUND_{code}"
+
+
+@pytest.mark.parametrize(
+    "code", ["", "meeting", "Meeting", "1A", "_A", "A-B", "A B", "A\n", "ÁB", " "]
+)
+def test_invalid_detail_codes_raise_value_error(code: str) -> None:
+    with pytest.raises(ValueError, match="detail_code"):
+        EntityNotFoundError("x", detail_code=code)

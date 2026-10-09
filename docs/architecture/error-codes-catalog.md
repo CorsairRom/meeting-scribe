@@ -86,6 +86,9 @@ The rule, implemented in `MeetingScribeError.__init__`:
 {BASE_ERROR_CODE}_{DETAIL_CODE}   # only when detail_code is given; otherwise just {BASE_ERROR_CODE}
 ```
 
+`detail_code` must match `^[A-Z][A-Z0-9_]*$`. Anything else, including the empty string, raises `ValueError`
+at construction instead of being silently ignored.
+
 Clients can then:
 
 1. **Match broadly** on the base code (`ENTITY_NOT_FOUND`) for a generic message.

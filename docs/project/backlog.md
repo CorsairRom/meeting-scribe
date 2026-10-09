@@ -28,7 +28,7 @@ Fine-grained task tracking lives in [`odd/tasks/meeting-scribe.md`](../../odd/ta
 - [ ] e2e tests under `dbus-run-session` (private session bus)
 - [ ] systemd `--user` unit
 - [ ] Docs: `architecture/api-contracts.md` (D-Bus interfaces), rules-registry entries
-- [ ] **Follow-up**: `STORAGE_MEETINGS_DIR=~/...` is not expanded by pydantic; add an expanding validator (TDD)
+- [x] **Follow-up**: `STORAGE_MEETINGS_DIR=~/...` expanded; `.env` from XDG config; validated `log_level` (F1.1, 2026-10-09)
 - [x] ~~**Follow-up**: Starlette `httpx` deprecation warning~~ obsolete: HTTP stack removed (2026-10-09)
 
 ### [EPIC] F2 GNOME extension — ADR-001

@@ -82,7 +82,38 @@ ADR-001 disappears. ADRs are still `proposed`, so 001 and 005 are rewritten in p
 - [x] F0.8 Docs: rewrite ADR-001 (D-Bus service) and ADR-005 (GTK4 app); ripple to PRD,
       ARCHITECTURE, AGENTS, mvp-scope, backlog, rules-registry, error-codes catalog, README.
 
-### F1 Recording — pending (after F0 review)
+### F1 Recording — integration branch `feat/recording` (based on `feat/foundations` until #2 lands)
+
+Goal: the user can start/stop a recording with `gdbus call` against the running service.
+Safety: tests never touch audio devices — ffmpeg adapter tests use `-f lavfi` synthetic sources;
+D-Bus e2e tests run on a private bus (`dbus-run-session`). A real-device smoke test is only run
+after asking the user. Installing the systemd unit / D-Bus activation file is F6 (files live in the
+repo from F1).
+
+- [x] F1.1 Settings hardening (F0 follow-ups): tilde expansion for `STORAGE_MEETINGS_DIR`; `.env`
+      loaded from `$XDG_CONFIG_HOME/meeting-scribe/.env` (fallback CWD) and effective source logged;
+      `log_level` Literal; shared base settings config; `detail_code` UPPER_SNAKE validation;
+      `is_null` via explicit `ClassVar` marker; remove duplicate import contract and dead ruff
+      ignores; portable `make help`. Branch `f1/chore-settings-hardening`.
+      Route: delegated writer (8+ files). Commits `59dc9b5`, `0707115`, `9d97a7c` (+279/-41).
+      TDD: settings RED `ImportError: effective_env_files` → `21 passed, 2 failed` (create_app log
+      tests) → GREEN; errors/entity RED `13 failed, 13 passed` → GREEN `49 passed`. Import-linter:
+      duplicate removed, every contract re-verified BROKEN→KEPT (incl. `dbus_fast` forbid).
+      `.env` is an exclusive fallback: XDG file if present, else `./.env`; process env wins.
+- [ ] F1.2 `recording` domain + application (TDD): `RecordingSession` entity (states, transitions
+      returning copies), errors (`RECORDING_ALREADY_ACTIVE`, `NO_ACTIVE_RECORDING`, ...), ports
+      (`AudioCapture`, `AudioDeviceResolver`, `Clock`), `RecordingController` (start/stop/status →
+      `Result`), session folder `<meetings_dir>/<YYYY-MM-DD_HHMMSS>/audio/`. Fakes in tests.
+- [ ] F1.3 ffmpeg/PipeWire adapter (TDD): `pactl` device resolver; 2-channel 30 s WAV segments
+      (ch0 mic, ch1 system monitor, ADR-002); `start_new_session=True`; stop with `q` + timeout +
+      kill fallback; integration test with lavfi sources only.
+- [ ] F1.4 D-Bus adapter (TDD): dbus-fast `dev.meetingscribe.Recording1` (`Start`, `Stop`,
+      `State`, `ElapsedSeconds`, `StateChanged`), error mapping `dev.meetingscribe.Error.<CODE>`;
+      `main.run()` becomes the asyncio service loop with SIGINT/SIGTERM handling; e2e under
+      `dbus-run-session`; `docs/architecture/api-contracts.md`.
+- [ ] F1.5 Packaging + runbook: systemd `--user` unit and D-Bus activation file under
+      `packaging/` (not installed), runbook "record via gdbus"; real-device smoke test only with
+      user consent.
 ### F2 GNOME extension — pending
 ### F3 Processing — pending
 ### F4 Review UI — pending
@@ -159,6 +190,9 @@ ADR-001 disappears. ADRs are still `proposed`, so 001 and 005 are rewritten in p
 
 ## Follow-ups (carry into F1, from review advisory findings)
 
+All resolved in F1.1 except: `run()` must become the D-Bus event loop before any systemd unit uses
+it (F1.4). Items below kept for traceability.
+
 - `STORAGE_MEETINGS_DIR=~/...` not expanded → expanding validator (TDD).
 - `.env` resolved relative to CWD: under systemd it is silently ignored → load from a fixed XDG
   config path (e.g. `~/.config/meeting-scribe/.env`) and log the effective config source.
@@ -174,5 +208,7 @@ ADR-001 disappears. ADRs are still `proposed`, so 001 and 005 are rewritten in p
 
 ## Next step
 
-Owner merges tracker #2 (`feat/foundations` → `main`). Meanwhile F1 starts on integration branch
-`feat/recording`, based on `feat/foundations` until #2 lands, then retargeted to `main`.
+Owner merges tracker #2 (`feat/foundations` → `main`). Meanwhile F1 runs on integration branch
+`feat/recording` (based on `feat/foundations` until #2 lands, then retargeted to `main`).
+Current: F1.1 done (PR into `feat/recording`); next F1.2 recording domain. RDD boundary for F1 = tip of `feat/foundations`
+(its tree equals the reviewed F0 tree).
