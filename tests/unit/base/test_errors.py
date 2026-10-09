@@ -4,9 +4,12 @@ import pytest
 
 from meeting_scribe.base.domain.errors import (
     EntityNotFoundError,
+    GpuOutOfMemoryError,
+    GpuUnavailableError,
     InvalidStateTransitionError,
     InvalidValueError,
     MeetingScribeError,
+    ModelUnavailableError,
 )
 
 
@@ -56,3 +59,9 @@ def test_valid_detail_codes_are_accepted(code: str) -> None:
 def test_invalid_detail_codes_raise_value_error(code: str) -> None:
     with pytest.raises(ValueError, match="detail_code"):
         EntityNotFoundError("x", detail_code=code)
+
+
+def test_shared_gpu_and_model_error_codes_are_stable() -> None:
+    assert GpuUnavailableError.error_code == "GPU_UNAVAILABLE"
+    assert GpuOutOfMemoryError.error_code == "GPU_OUT_OF_MEMORY"
+    assert ModelUnavailableError.error_code == "MODEL_UNAVAILABLE"

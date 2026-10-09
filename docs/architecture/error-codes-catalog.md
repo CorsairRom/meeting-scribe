@@ -6,6 +6,7 @@ verifiable_by:
   - src/meeting_scribe/base/domain/errors.py
   - src/meeting_scribe/recording/domain/errors.py
   - src/meeting_scribe/meetings/domain/errors.py
+  - src/meeting_scribe/transcription/domain/errors.py
   - tests/unit/meetings/test_errors.py
   - tests/unit/recording/test_errors.py
   - tests/unit/base/test_errors.py
@@ -67,6 +68,10 @@ All classes derive from `MeetingScribeError` in `src/meeting_scribe/base/domain/
 | `WorkerTimeoutError` | `WORKER_TIMEOUT` | `meetings`: a processing worker exceeded its stage timeout | `dev.meetingscribe.Error.WORKER_TIMEOUT` |
 | `WorkerProtocolError` | `WORKER_PROTOCOL_ERROR` | `meetings`: a worker emitted an unparseable or out-of-order event | `dev.meetingscribe.Error.WORKER_PROTOCOL_ERROR` |
 | `WorkerReportedError` | instance code from the worker (`GPU_OUT_OF_MEMORY`, ...; class default `WORKER_REPORTED_ERROR`) | `meetings`: the worker's own `error` event, carried into `processing.failure` | the worker's code under `dev.meetingscribe.Error.` |
+| `GpuUnavailableError` | `GPU_UNAVAILABLE` | `base` (shared by the GPU stages): no usable CUDA device or driver; the message suggests `PROCESSING_DEVICE=cpu`; never a silent CPU fallback | `dev.meetingscribe.Error.GPU_UNAVAILABLE` |
+| `GpuOutOfMemoryError` | `GPU_OUT_OF_MEMORY` | `base`: the GPU ran out of memory; no automatic CPU retry | `dev.meetingscribe.Error.GPU_OUT_OF_MEMORY` |
+| `ModelUnavailableError` | `MODEL_UNAVAILABLE` | `base`: a model is neither cached nor downloadable (offline or unknown name) | `dev.meetingscribe.Error.MODEL_UNAVAILABLE` |
+| `TranscriptionError` | `TRANSCRIPTION_FAILED` | `transcription`: the model or the `words.json` cache failed for a reason not covered by a more specific code | `dev.meetingscribe.Error.TRANSCRIPTION_FAILED` |
 | `WorkerCancelledError` | `WORKER_CANCELLED` | `meetings`: the worker was stopped on request (preemption or shutdown); internal, the job is not failed and it never reaches a client | not exposed |
 
 Domain packages add their own subclasses next to their domain code (for example a `recording` error) and
