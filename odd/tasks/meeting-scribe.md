@@ -354,7 +354,11 @@ own meeting, without reading its content into the repo or logs.
       resume after; in-person meetings diarize the mic without "Me"; CUDA required unless CPU set
       explicitly; `Meetings1.Reprocess` in F3; models downloaded during `make install`, worker
       offline afterwards; keep "Unknown".
-- [ ] F3.1 `meetings` domain: Meeting entity + processing state machine, versioned `meeting.json`
+- [ ] F3.1 `meetings` domain (F3.1a done: `665c812` entity + state machine + timeline/fingerprint,
+      +657 incl. ~350 tests; `8f7b926` filesystem repository meeting.json v1, atomic `Path.replace`,
+      unknown keys preserved, UNSUPPORTED for newer schemas, null object for missing, path-traversal
+      ids → null; RED `ModuleNotFoundError` per module → GREEN 332 python. Open for F3.1b: resume of a
+      job stored in DIARIZING restarts at transcribe → controller needs a resume transition): Meeting entity + processing state machine, versioned `meeting.json`
       repository (folder per meeting), job queue + single worker orchestration, resume at start.
 - [ ] F3.2 `transcription` domain + faster-whisper adapter (CUDA lib preload with logging, WAV
       decode without PyAV, word timestamps, params-keyed cache).
