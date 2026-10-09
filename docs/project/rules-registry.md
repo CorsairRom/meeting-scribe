@@ -281,6 +281,16 @@ ai_instructions:
 - **Status**: active
 - **Detail**: `gjs -m <file>` runs the entry file as a module (ESM specifiers need the `.js` extension and relative paths). gjs has no directory discovery, so `gnome-extension/tests/run.js` imports each `*.test.js` explicitly (add new files there). A failing run must end with `System.exit(1)` (`import System from 'system'`); an uncaught exception also exits 1 but only logs `Gjs-CRITICAL`. The uuid directory contains `@`, which is valid in a relative import specifier.
 
+### GO-028 — GJS D-Bus proxies: unannounced properties go stale, and error names must be read before stripping
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: verified against GJS 1.88.1 with a private bus. (1) A `Gio.DBusProxy` property getter reads the proxy cache, which only refreshes on `PropertiesChanged`; a property the service never announces (`ElapsedSeconds`) stays at its construction-time value, so read it with an explicit `org.freedesktop.DBus.Properties.Get` and count locally afterwards (`recordingClient.js`). (2) Proxy-wrapper methods have `<Name>Async()` promise variants that resolve with the unpacked out args array. (3) On a failed call, read `Gio.DBusError.get_remote_error(e)` first: `strip_remote_error(e)` rewrites `e.message` in place. (4) `connectSignal` ids are released with `proxy.disconnectSignal(id)`, `g-properties-changed` ids with `proxy.disconnect(id)`. (5) Watch a name with `Gio.bus_watch_name_on_connection(..., Gio.BusNameWatcherFlags.NONE, ...)` and create the proxy with `Gio.DBusProxyFlags.DO_NOT_AUTO_START` so merely watching never launches the service. Sources: gjs.guide D-Bus guide (Context7) plus the tests in `gnome-extension/tests/recordingClient.test.js`.
+
+### GO-029 — Extension D-Bus tests run on a private daemon and must always clean up
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `gnome-extension/tests/privateBus.js` starts `dbus-daemon --config-file=<temp> --nofork --print-address=1` (no service directories, like GO-025) via `Gio.Subprocess` and connects with `Gio.DBusConnection.new_for_address`; the session bus is never used. The harness timeout rejects a test but cannot cancel it, so a body that waits forever would leak the daemon: every wait inside a fixture has its own shorter timeout (3 s) so `finally` runs `bus.stop()`, which force-exits the daemon by PID and removes the temp dir including the socket the killed daemon leaves behind. Check with `pgrep -a dbus-daemon` after a run.
+
 ---
 
 ## Anti-Patterns (AP)
@@ -313,11 +323,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 12 | 0 | 0 |
-| GO | 27 | 0 | 0 |
+| GO | 29 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-027 — 2026-10-09
-**Next available IDs**: BR-005, CR-013, GO-028, AP-005
+**Last rule added**: GO-029 — 2026-10-09
+**Next available IDs**: BR-005, CR-013, GO-030, AP-005
 
 ---
 

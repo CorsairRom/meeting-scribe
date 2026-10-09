@@ -4,5 +4,6 @@ import System from 'system';
 
 import {runAll} from './harness.js';
 import './indicatorModel.test.js';
+import './recordingClient.test.js';
 
 System.exit(await runAll() === 0 ? 0 : 1);
