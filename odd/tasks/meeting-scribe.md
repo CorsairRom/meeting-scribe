@@ -292,6 +292,9 @@ extension in the user's session, or running the nested shell, only with the user
       during the reinstall is never killed; restart skipped with a warning), `FORCE=1` overrides only
       `unknown` for install, explicit IDLE/STOPPED/FAILED matching (anything else → unknown), real
       PATH assertion, separate daemon-reload cause. RED 6 → GREEN 237 python / 75 extension.
+      RDD on F2.5c (115 lines, standing consent): lineage `review-65c7e305b205e63c` approved + acked.
+      Fixed inline: `FORCE=1` now also restarts an active service whose state stays unknown (the
+      documented wedged-service remedy), never a recording (RED 2 → GREEN 240 python).
 - [x] F2.6 Menu-only click (user feedback 2026-10-09 after a stray click recorded 4 s): every
       state opens the drop-down; Start/Stop are explicit menu actions. Inline TDD in a worktree:
       RED 5 failing → GREEN 75; guard test "no state starts a recording on a plain click".
