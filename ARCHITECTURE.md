@@ -46,9 +46,9 @@ flowchart LR
 
 | Element | Technology | Status |
 |---|---|---|
-| Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root exists (`create_app`, `run`); D-Bus interfaces in F1, unit file and activation in F6 |
+| Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root serves the `Recording1` D-Bus interface (`create_app`, `serve`, `run`); more interfaces in later phases, unit file and activation in F6 |
 | GNOME extension | GJS, thin client, no ML | planned (F2), [ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md) |
-| Capture | ffmpeg on PipeWire, 2-channel 30 s chunks | planned (F1), [ADR-002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) |
+| Capture | ffmpeg on PipeWire, 2-channel 30 s chunks | adapter built (F1.3), wiring planned (F1.4), [ADR-002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) |
 | Transcription | faster-whisper `large-v3-turbo`, float16, CUDA | planned (F3) |
 | Diarization | pyannote `speaker-diarization-community-1` | planned (F3) |
 | Review UI | Native GTK4 + libadwaita app on system python, thin D-Bus client | planned (F4), [ADR-005](docs/decisions/005-review-ui-native-gtk-app.md) |
@@ -72,7 +72,40 @@ Source root: `src/meeting_scribe/`. Each package has `domain/`, `application/`, 
 | `settings.py` | Root `Settings` composed of per-domain settings classes |
 | `main.py` | Composition root: `create_app(settings)`, `run()` |
 
-The GNOME extension lives in `gnome-extension/` (planned, F2) and the GTK review app in a separate top-level directory (planned, F4), both outside the Python package.
+### Recording session
+
+`RecordingController` (application) holds the single in-progress `RecordingSession` (domain entity) in memory and
+talks to the outside only through ports: `Clock`, `AudioDeviceResolver`, `AudioCapture`, `RecordingStorage`.
+Session id and folder name are the local start time, `YYYY-MM-DD_HHMMSS`; audio chunks go to `<folder>/audio/`.
+
+```mermaid
+stateDiagram-v2
+  [*] --> IDLE
+  IDLE --> RECORDING: start (devices resolved, folder prepared, capture started)
+  RECORDING --> STOPPED: stop (capture stopped cleanly)
+  RECORDING --> FAILED: capture start/stop error, or capture process exited
+  STOPPED --> RECORDING: start (new session)
+  FAILED --> RECORDING: start (new session)
+```
+
+`IDLE` is the absence of a session (null object); the entity itself only has `RECORDING`, `STOPPED` and `FAILED`.
+`status()` detects a crashed capture (`is_running()` false while `RECORDING`) and moves the session to `FAILED`;
+chunks already on disk are kept.
+
+**Capture adapter** (`recording/infrastructure/`): `PactlDeviceResolver` asks `pactl` for the default sink (monitor =
+`<sink>.monitor`) and default source (microphone). `FfmpegAudioCapture` runs one ffmpeg process built by the pure
+`build_ffmpeg_command`: each input is converted to mono at `RECORDING_SAMPLE_RATE`, then `amerge` makes a 2-channel
+stream, so **channel 0 = microphone, channel 1 = system** (ADR-002), `pcm_s16le`, cut by the segment muxer. Files in
+the session folder: `audio/chunk_%05d.wav` (`chunk_00000.wav`, ...) and `ffmpeg.log` (ffmpeg stderr, appended). Stop
+sends `q` on stdin and waits `RECORDING_STOP_TIMEOUT_SECONDS`; if ffmpeg does not exit it is terminated (SIGTERM), then
+killed (SIGKILL) after 2 s, and `stop` returns a failure that says which one happened. Every wait is bounded: the
+worst case is stop timeout + 2 s + 2 s (14 s with the defaults). A process that survives SIGKILL is reported as "could
+not be reaped" and its handle is kept so a later call can retry. Exit code 0 is a clean stop. When the process dies
+on its own, `AudioCapture.exit_detail()` gives the exit code plus the `ffmpeg.log` tail, and the controller stores it
+as the session `failure_reason` (generic text only when empty). Opening `ffmpeg.log` and spawning ffmpeg fail with
+distinct messages. Not yet wired into `main.py` (F1.4).
+
+The GNOME extension lives in `gnome-extension/` (planned, F2) and the GTK review app in a separate top-level directory (planned, F4), both outside the Python package. Packaging files (systemd `--user` unit template and D-Bus activation file, installed in F6) live in `packaging/`.
 
 ---
 
@@ -84,7 +117,7 @@ Inside every package the dependency direction is `infrastructure` -> `applicatio
 |---|---|---|
 | `domain/` | Entities, value objects, ports, errors | stdlib, pydantic, returns. No framework code. |
 | `application/` | `*_controller.py` returning `Result[T, E]` | its own `domain` |
-| `infrastructure/` | Adapters, `dbus/*_interface.py` (planned, F1), repositories | `application`, `domain`, frameworks |
+| `infrastructure/` | Adapters, `dbus/*_interface.py`, repositories | `application`, `domain`, frameworks |
 
 Cross-package rules: `recording`, `transcription`, `speakers` and `summaries` never import each other. Only
 `meetings` depends on them, and only through their `application` layer. `base` depends on no domain, and no
@@ -100,7 +133,7 @@ Defined in `pyproject.toml` under `[tool.importlinter]` (`root_package = "meetin
 | 1 | Domains recording, transcription, speakers and summaries are independent | independence | `recording`, `transcription`, `speakers`, `summaries` do not import each other |
 | 2 | Layers per package: infrastructure > application > domain | layers | In `base`, `recording`, `transcription`, `speakers`, `summaries`, `meetings`: `infrastructure` may import `application` may import `domain`, never the reverse |
 | 3 | meetings only depends on other domains through their application layer | forbidden | `meetings` may not import `<domain>.domain` or `<domain>.infrastructure` of `recording`, `transcription`, `speakers`, `summaries` (`allow_indirect_imports = true`) |
-| 4 | Shared kernel does not depend on domains or the composition root | forbidden | `base` may not import any domain, `meetings`, `settings` or `main` |
+| 4 | Shared kernel does not depend on the domains | forbidden | `base` may not import any domain or `meetings` (`settings`/`main` are covered by contract 6) |
 | 5 | Domain layers do not import frameworks | forbidden | every `<package>.domain` (including `base` and `meetings`) may not import `pydantic_settings`, `dbus_fast`, `gi` |
 | 6 | Domain packages do not import settings or the composition root | forbidden | `base` and all domain packages may not import `meeting_scribe.main` or `meeting_scribe.settings` |
 
@@ -148,17 +181,17 @@ Target GPU: RTX 5060 Laptop, 8 GB.
 
 ---
 
-## 6. D-Bus API (planned, F1)
+## 6. D-Bus API (`Recording1` implemented, others planned)
 
 All clients (extension, review app, e2e tests) use the session bus; there is no HTTP server ([ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md)).
-Names are proposed and renamable until F6. The contract will live in `docs/architecture/api-contracts.md`.
+Names are proposed and renamable until F6. The contract lives in [`docs/architecture/api-contracts.md`](docs/architecture/api-contracts.md).
 
 | Item | Value |
 |---|---|
 | Bus name | `dev.meetingscribe.Service` |
 | Object path | `/dev/meetingscribe/Service` |
-| `dev.meetingscribe.Recording1` | `Start`, `Stop`; properties `State`, `ElapsedSeconds`; signal `StateChanged` |
-| `dev.meetingscribe.Meetings1` | list/get; signal `ProcessingFinished` |
+| `dev.meetingscribe.Recording1` (implemented, F1.4) | `Start`, `Stop`; properties `State`, `SessionId`, `ElapsedSeconds`, `Directory`, `FailureReason`; signal `StateChanged` |
+| `dev.meetingscribe.Meetings1` (planned) | list/get; signal `ProcessingFinished` |
 | `dev.meetingscribe.Speakers1` | rename, merge, sample path |
 | `dev.meetingscribe.Summaries1` | generate/read summary |
 | Errors | `dev.meetingscribe.Error.<ERROR_CODE>` (see [error codes](docs/architecture/error-codes-catalog.md)) |
@@ -167,22 +200,38 @@ Names are proposed and renamable until F6. The contract will live in `docs/archi
 Trust boundary: the session bus is per-user and unreachable from websites; any process of the same user can call the
 service, the same boundary as the user's files. The service runs one asyncio loop; ML work runs off the event loop
 so D-Bus stays responsive. The review app runs on system Python ([ADR-005](docs/decisions/005-review-ui-native-gtk-app.md)).
-Tooling: `gdbus call` or `busctl --user`; e2e tests under `dbus-run-session`.
+Tooling: `gdbus call` or `busctl --user`. E2E tests (`@pytest.mark.dbus`) start a private `dbus-daemon`, connect to its
+address explicitly and wire the controller with fakes; they never touch the user's session bus or an audio device.
+The service itself runs in the foreground (`make run`, `meeting-scribe`), exits non-zero if the bus name is already
+owned (1), stops an active recording on SIGINT/SIGTERM, exits 2 if that stop fails and 3 if the bus connection is lost
+(the recording is stopped first, so ffmpeg is never left running unreachable). Shutdown lets the crash monitor finish
+its current poll before stopping, so controller calls never overlap.
 
 ---
 
 ## 7. Configuration
 
-`Settings` (root) composes per-domain classes, each with its own `env_prefix`. All read `.env`
-(`extra="ignore"`, `case_sensitive=False`); `get_settings()` is `lru_cache`d. Template: [`.env.example`](.env.example).
+`Settings` (root) composes per-domain classes via `Field(default_factory=...)`. All inherit the shared
+`MeetingScribeSettings` base (`extra="ignore"`, `case_sensitive=False`, utf-8) and only set their own
+`env_prefix`. The base class lives in `base/infrastructure/settings.py` (re-exported by `meeting_scribe.settings`) so
+domain infrastructure can inherit it without importing the root settings module (import contract 6). `get_settings()` is `lru_cache`d. Template: [`.env.example`](.env.example).
+
+Env file resolution (once, in the base class): `$XDG_CONFIG_HOME/meeting-scribe/.env` (default
+`~/.config/meeting-scribe/.env`) if it exists, otherwise `./.env` in the CWD (development). Process environment
+variables always win. `Settings.load()` (behind `get_settings()`) notes the env file in effect in `Settings.env_files` (a best-effort lookup for the startup log, resolved separately from the settings sources), and `create_app` logs
+that file at INFO (path only, never values); settings injected into `create_app` are logged as "settings injected by
+caller" instead of re-resolving. Under `systemd --user` the CWD is not the project, so use the XDG path.
 
 | Variable | Settings class | Default | Meaning |
 |---|---|---|---|
-| `LOG_LEVEL` | `Settings.log_level` | `INFO` | stdlib logging level |
-| `STORAGE_MEETINGS_DIR` | `StorageSettings.meetings_dir` | `~/Documents/meetings` | Where meetings are stored |
+| `LOG_LEVEL` | `Settings.log_level` | `INFO` | One of DEBUG, INFO, WARNING, ERROR, CRITICAL (case-insensitive); invalid fails at load |
+| `STORAGE_MEETINGS_DIR` | `StorageSettings.meetings_dir` | `~/Documents/meetings` | Where meetings are stored (`~` is expanded) |
+| `RECORDING_CHUNK_SECONDS` | `RecordingSettings.chunk_seconds` | `30` | Length of each audio chunk (>= 1) |
+| `RECORDING_STOP_TIMEOUT_SECONDS` | `RecordingSettings.stop_timeout_seconds` | `10` | Wait for ffmpeg to exit after `q` before terminating (> 0) |
+| `RECORDING_FFMPEG_BINARY` | `RecordingSettings.ffmpeg_binary` | `ffmpeg` | ffmpeg executable name or path |
+| `RECORDING_SAMPLE_RATE` | `RecordingSettings.sample_rate` | `16000` | Sample rate of the recorded chunks (Hz) |
 
-Known gap: `~` in `STORAGE_MEETINGS_DIR` is not expanded by pydantic; an expanding validator is a F1 follow-up
-(see [`docs/project/backlog.md`](docs/project/backlog.md)). Future per-domain settings (for example `TRANSCRIPTION_`,
+`RecordingSettings` lives in `recording/infrastructure/recording_settings.py`. Future per-domain settings (for example `TRANSCRIPTION_`,
 `SUMMARIES_`) live in each domain's `infrastructure/` and are composed into `Settings` by the root.
 
 ---

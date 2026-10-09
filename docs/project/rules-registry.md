@@ -91,7 +91,7 @@ ai_instructions:
 ### CR-005 — Repositories return null objects, not `None`
 - **Date**: 2026-10-09
 - **Status**: active
-- **Rule**: A missing entity is a `_Null<Entity>` (class name starting with `_Null`); callers convert it with `BaseEntity.as_result(error)`.
+- **Rule**: A missing entity is a null object: a subclass setting the explicit `_is_null_object: ClassVar[bool] = True` marker on `BaseEntity` (conventionally named `_Null<Entity>`, but the name is not what makes it null); callers convert it with `BaseEntity.as_result(error)`.
 - **Verifiable in**: `src/meeting_scribe/base/domain/entity.py::BaseEntity`; `tests/unit/base/test_entity.py`
 
 ### CR-006 — State transitions are entity methods returning `model_copy`
@@ -129,7 +129,7 @@ ai_instructions:
 - **Status**: active
 - **Rule**: The bus name is `dev.meetingscribe.Service`, the object path `/dev/meetingscribe/Service`, interfaces are `dev.meetingscribe.<Name>1`, and domain errors are raised as `DBusError("dev.meetingscribe.Error.<ERROR_CODE>", message)`. Names are renamable until F6.
 - **Source**: [ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md); [`error-codes-catalog.md`](../architecture/error-codes-catalog.md)
-- **Verifiable in**: `docs/architecture/api-contracts.md` (from F1); e2e tests under `dbus-run-session`
+- **Verifiable in**: `docs/architecture/api-contracts.md`; `tests/e2e/recording/` (private `dbus-daemon`)
 
 ---
 
@@ -209,6 +209,66 @@ ai_instructions:
 - **Status**: active
 - **Detail**: the project venv is uv Python 3.12 (required by torch, ctranslate2 and pyannote), where the system `gi` is not importable. The GTK4 review app runs with `/usr/bin/python3` and system PyGObject (Fedora 44: python3-gobject 3.56.3, gtk4 4.22.4, libadwaita 1.9.3). Keep presenters free of `gi` so pytest in the venv can test them. Building PyGObject into the venv needs `gobject-introspection-devel` and `cairo-gobject-devel`; revisit only if the split causes friction ([ADR-005](../decisions/005-review-ui-native-gtk-app.md)).
 
+### GO-015 — Session folder creation must fail on an existing folder
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `audio_dir.mkdir(parents=True, exist_ok=False)` alone succeeds when the session folder already exists without `audio/`, so a second recording started in the same second could reuse a folder. `FilesystemRecordingStorage.prepare` creates the session directory with `exist_ok=False` first, then `audio/`. Session ids have one-second resolution (`YYYY-MM-DD_HHMMSS`).
+
+### GO-016 — lavfi test sources need `-re` and a hard `-t` cap
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: ffmpeg `-f lavfi` sources ignore the wall clock: without `-re`, 60 s of audio was written in 0.08 s (measured), and an uncapped source would fill the disk. Integration tests pass `-re` (real-time pacing) and `-t 15` as a safety net, write only under `tmp_path`, and reap every process by PID. Never use `-f pulse`/`alsa` in tests (BR-001, AP-003).
+
+### GO-017 — A clean `q` stop exits with code 0 and finalizes the last chunk
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: measured with ffmpeg 8.1.2: `q` on stdin makes ffmpeg exit with code 0 in about 0.1 s, and the in-progress WAV is closed with a valid header (the last chunk is just shorter, a few frames if stop lands right after a boundary). `FfmpegAudioCapture.stop` therefore treats any non-zero code as failure. stdin must stay open, so `-nostdin` must never be added to the command.
+
+### GO-018 — Segment chunks are slightly longer than `chunk_seconds` and are final only once the next starts
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: the segment muxer cuts on packet boundaries (1 s chunks measured at 16026-16043 frames at 16 kHz, not exactly 16000), so never compute timing as `index * chunk_seconds` (see GO-013); read real durations. The muxer finalizes a chunk when it starts the next one or when ffmpeg stops (not verified mid-recording), so while recording treat only chunks below the highest index as complete; tests read chunks after `stop`.
+
+### GO-019 — `amerge` keeps input order: the microphone must be input 0
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: channel 0 = first `-i` (microphone), channel 1 = second (system monitor), per ADR-002. Verified with synthetic sines and silence, swapping the inputs. Each input is forced to mono first (`aformat=channel_layouts=mono`), otherwise a stereo monitor would add channels and shift the mapping.
+
+### GO-020 — Capture stop must stay bounded and say what it did
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: the service runs on one D-Bus event loop (F1.4), so an unbounded wait wedges everything. `FfmpegAudioCapture.stop` bounds every wait (`q` timeout, SIGTERM grace, SIGKILL grace; worst case 14 s with defaults), reports "terminated" vs "killed" truthfully, and returns "could not be reaped" (keeping the handle for a retry) if the process survives SIGKILL, for example in uninterruptible I/O on a hung mount.
+
+### GO-021 — Surface the ffmpeg exit cause, not a generic crash message
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `AudioCapture.exit_detail()` returns the exit code and `ffmpeg.log` tail of a dead process. `RecordingController` uses it for `failure_reason` and the returned error (status/start/stop crash paths), falling back to `CAPTURE_CRASHED_REASON`. ffmpeg can also die after the startup grace; that shows up as `FAILED` on the next call. Opening `ffmpeg.log` and spawning ffmpeg have separate error handling, so a missing session folder is not reported as "ffmpeg not found".
+
+### GO-022 — dbus-fast `@dbus_method` wrappers swallow the return value in Python
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: calling a decorated method directly (`interface.Start()`) runs it and returns `None` (an `async` one is never awaited), because the decorator wraps the function for the bus and registers the original separately (dbus-fast 5.2.0, `service.py`). Keep behavior in plain methods (`start`/`stop`) and make the decorated member a one-line delegate. `dbus_property` getters do work as ordinary Python properties. Annotations must not use `type` statement aliases (parse_annotation rejects them): annotate with `dbus_fast.annotations` types or `Annotated[..., DBusSignature(...)]` assigned to a plain name.
+
+### GO-023 — Request the bus name with `DO_NOT_QUEUE` and check the reply
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `request_name(name)` with default flags queues behind the current owner and returns `IN_QUEUE`, so a second instance would sit silent. `serve` passes `NameFlag.DO_NOT_QUEUE` and exits with code 1 unless the reply is `PRIMARY_OWNER`.
+
+### GO-024 — The controller is not thread-safe: serialize calls and never read it mid-call
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `RecordingInterface` runs each controller call in `asyncio.to_thread` under one `asyncio.Lock`. While a call is in flight, property reads and the 2 s crash monitor use the last published snapshot instead of calling `status()` from the loop thread. Shutdown (`RecordingInterface.shutdown`) asks the monitor to finish its current iteration (never cancel it mid-`to_thread`: the worker thread would keep running), then `stop_if_active` takes the same lock and stops an active recording because ffmpeg runs in its own session and would otherwise be orphaned. A failed stop is returned, logged at ERROR with its code, and makes `serve` exit 2. The monitor logs a failing poll and keeps polling.
+
+### GO-025 — Private-bus tests: explicit address, own config, kill by PID
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: the `bus_address` fixture (`tests/e2e/conftest.py`) runs `dbus-daemon --config-file=<temp> --nofork --print-address=1` and clients pass that address to `MessageBus(bus_address=...)`; `DBUS_SESSION_BUS_ADDRESS` is never read, so the user's bus cannot be reached by accident. The temp config has no service directories, so nothing is activated. Every app is wired with the fakes: `Start` on real adapters records the microphone.
+
+### GO-026 — `serve` races the stop signal against bus disconnect and has defined exit codes
+- **Date**: 2026-10-09
+- **Status**: active
+- **Detail**: `serve` waits for `stop` or `bus.wait_for_disconnect()` (dbus-fast 5.2.0 raises or resolves when the connection closes). A lost bus is logged at ERROR, the active recording is stopped, and the exit code is 3. Exit codes: 0 clean, 1 name taken, 2 shutdown stop failed, 3 bus disconnected (disconnect wins over a stop failure). `_publish` catches emit errors so a dead bus cannot abort shutdown.
+
 ---
 
 ## Anti-Patterns (AP)
@@ -241,11 +301,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 11 | 0 | 0 |
-| GO | 14 | 0 | 0 |
+| GO | 26 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: AP-004 — 2026-10-09
-**Next available IDs**: BR-005, CR-012, GO-015, AP-005
+**Last rule added**: GO-026 — 2026-10-09
+**Next available IDs**: BR-005, CR-012, GO-027, AP-005
 
 ---
 

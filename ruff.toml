@@ -34,14 +34,10 @@ lint.select = [
 ]
 
 lint.ignore = [
-    "D100",
-    "D104",
-    "COM812",
     "ISC001",
     "G004",
     "ANN401",
     "TRY400",
-    "BLE001",
     "EM101",
     "EM102",
     "TRY003",
@@ -56,6 +52,9 @@ lint.ignore = [
     "PLR2004",
     "SLF001",
 ]
+
+# D-Bus member names are PascalCase by convention (api-contracts.md).
+"src/**/infrastructure/dbus/*_interface.py" = ["N802"]
 
 [lint.pylint]
 max-args = 10

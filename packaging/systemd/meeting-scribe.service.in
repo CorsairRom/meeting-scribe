@@ -1,0 +1,24 @@
+# Template rendered by `make install` (F6): the ExecStart placeholder becomes the absolute path of the
+# installed `meeting-scribe` entry point. Configuration is read by the service itself from
+# $XDG_CONFIG_HOME/meeting-scribe/.env; nothing secret belongs in this unit.
+[Unit]
+Description=meeting-scribe recording service (D-Bus dev.meetingscribe.Service)
+# Audio capture goes through the PipeWire PulseAudio shim, so start after it.
+After=pipewire.service pipewire-pulse.service
+Wants=pipewire.service pipewire-pulse.service
+
+[Service]
+# The service is ready once it owns its bus name; D-Bus activation waits for that.
+Type=dbus
+BusName=dev.meetingscribe.Service
+ExecStart=@EXEC_START@
+Restart=on-failure
+RestartSec=3
+# Exit 1 means another instance owns the bus name (GO-026); restarting cannot fix that.
+RestartPreventExitStatus=1
+# Signal only the main process on stop so it can end ffmpeg gracefully with `q`; the default
+# control-group mode would SIGTERM ffmpeg at the same time and truncate the last chunk.
+KillMode=mixed
+
+[Install]
+WantedBy=default.target

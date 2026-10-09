@@ -31,7 +31,7 @@ import-linter, errors as `returns.Result`.
 
 ## Entities and policies
 
-- Entities are pydantic v2 `BaseModel` subclasses of `BaseEntity` (`src/meeting_scribe/base/domain/entity.py`); a null variant has a class name starting with `_Null`.
+- Entities are pydantic v2 `BaseModel` subclasses of `BaseEntity` (`src/meeting_scribe/base/domain/entity.py`); a null variant sets the `_is_null_object = True` class marker (named `_Null<Entity>` by convention).
 - Invariants an entity can check from its own state live on the entity; thresholds, cross-entity or user-dependent rules live in a separately named policy class in the domain.
 - Ports (repositories, providers, capture, GPU model wrappers) are defined in `domain/`; adapters live in `infrastructure/`.
 - Details and gotchas: `docs/project/rules-registry.md` (BR/CR/GO/AP).
@@ -51,6 +51,7 @@ import-linter, errors as `returns.Result`.
 | Add a setting                        | `src/meeting_scribe/settings.py` + `.env.example` + `ARCHITECTURE.md` section 7 |
 | Wire a new D-Bus interface or adapter | `src/meeting_scribe/main.py` (composition root)               |
 | Change an import contract            | `pyproject.toml` `[tool.importlinter]`                         |
+| Package or activate the service      | `packaging/` + `docs/runbooks/record-via-gdbus.md`             |
 | Write a doc                          | `docs/README.md` (taxonomy) and `docs/_templates/`             |
 | Know when to update docs             | `docs/project/doc-sync-protocol.md`                            |
 | See the canonical shared-kernel code | `src/meeting_scribe/base/`                                     |
