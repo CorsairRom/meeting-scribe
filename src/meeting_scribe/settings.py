@@ -50,7 +50,12 @@ class Settings(MeetingScribeSettings):
 
     @classmethod
     def load(cls) -> Self:
-        """Build settings from the environment, remembering which env file fed them."""
+        """Build settings from the environment and note the env file in effect.
+
+        Best effort, for the startup log only: the file is looked up here and again by each
+        settings source (nested settings resolve their own), so a file created or removed in
+        between would make ``env_files`` disagree with what was actually read.
+        """
         env_files = effective_env_files()
         settings = cls()
         settings._env_files = env_files

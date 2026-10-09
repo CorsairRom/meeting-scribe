@@ -213,7 +213,7 @@ domain infrastructure can inherit it without importing the root settings module 
 
 Env file resolution (once, in the base class): `$XDG_CONFIG_HOME/meeting-scribe/.env` (default
 `~/.config/meeting-scribe/.env`) if it exists, otherwise `./.env` in the CWD (development). Process environment
-variables always win. `Settings.load()` (behind `get_settings()`) records the file it used in `Settings.env_files`, and `create_app` logs
+variables always win. `Settings.load()` (behind `get_settings()`) notes the env file in effect in `Settings.env_files` (a best-effort lookup for the startup log, resolved separately from the settings sources), and `create_app` logs
 that file at INFO (path only, never values); settings injected into `create_app` are logged as "settings injected by
 caller" instead of re-resolving. Under `systemd --user` the CWD is not the project, so use the XDG path.
 
