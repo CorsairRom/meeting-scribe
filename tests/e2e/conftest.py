@@ -2,6 +2,7 @@
 
 import subprocess
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -21,9 +22,15 @@ _CONFIG = """<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configura
 """
 
 
+@dataclass(frozen=True)
+class PrivateBus:
+    address: str
+    daemon: subprocess.Popen[str]
+
+
 @pytest.fixture
-def bus_address(tmp_path: Path) -> Iterator[str]:
-    """Address of a throwaway ``dbus-daemon``; it is killed by PID at teardown."""
+def private_bus(tmp_path: Path) -> Iterator[PrivateBus]:
+    """A throwaway ``dbus-daemon``; it is killed by PID at teardown."""
     config = tmp_path / "bus.conf"
     config.write_text(_CONFIG.format(tmpdir=tmp_path))
     daemon = subprocess.Popen(  # noqa: S603
@@ -35,7 +42,7 @@ def bus_address(tmp_path: Path) -> Iterator[str]:
         assert daemon.stdout is not None
         address = daemon.stdout.readline().strip()
         assert address.startswith("unix:"), "private dbus-daemon did not print an address"
-        yield address
+        yield PrivateBus(address=address, daemon=daemon)
     finally:
         daemon.terminate()
         try:
@@ -45,3 +52,8 @@ def bus_address(tmp_path: Path) -> Iterator[str]:
             daemon.wait()
         if daemon.stdout is not None:
             daemon.stdout.close()
+
+
+@pytest.fixture
+def bus_address(private_bus: PrivateBus) -> str:
+    return private_bus.address

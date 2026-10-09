@@ -17,6 +17,7 @@ from meeting_scribe.recording.application.recording_controller import (
     RecordingController,
     RecordingStatus,
 )
+from meeting_scribe.recording.domain.errors import NoActiveRecordingError
 from meeting_scribe.recording.domain.recording_session import RecordingSession
 
 logger = logging.getLogger(__name__)
@@ -100,8 +101,9 @@ class RecordingInterface(ServiceInterface):
         """Poll the controller so a capture crash is announced without a client call.
 
         A failing poll is logged and the loop keeps going: one unreadable log must not end
-        crash detection for the rest of the process. The loop only ends on ``halt_monitor``
-        (after its current iteration) or cancellation.
+        crash detection for the rest of the process. The loop ends when ``shutdown()`` sets the
+        private ``_monitor_halt`` event (after the current iteration). Do not cancel the task: a
+        cancelled ``to_thread`` keeps its worker running while shutdown starts another call.
         """
         while not self._monitor_halt.is_set():
             with contextlib.suppress(TimeoutError):
@@ -144,15 +146,26 @@ class RecordingInterface(ServiceInterface):
         """
         outcome: Result[RecordingSession, MeetingScribeError] | None = None
         async with self._lock:
-            status = await asyncio.to_thread(self._controller.status)
-            if status.state == "RECORDING":
+            status = await self._status_for_shutdown()
+            # Unknown status: try to stop anyway; the controller refuses if nothing records.
+            if status is None or status.state == "RECORDING":
                 outcome = await asyncio.to_thread(self._controller.stop)
-                status = await asyncio.to_thread(self._controller.status)
+                status = await self._status_for_shutdown()
+        if isinstance(outcome, Failure) and isinstance(outcome.failure(), NoActiveRecordingError):
+            outcome = None
         if isinstance(outcome, Failure):
             error = outcome.failure()
             logger.error("Shutdown could not stop the recording: [%s] %s", error.error_code, error)
-        self._publish(status)
+        if status is not None:
+            self._publish(status)
         return outcome
+
+    async def _status_for_shutdown(self) -> RecordingStatus | None:
+        try:
+            return await asyncio.to_thread(self._controller.status)
+        except Exception:
+            logger.exception("Shutdown could not read the recording status; stopping anyway.")
+            return None
 
     async def _call(
         self, operation: Callable[[], Result[RecordingSession, MeetingScribeError]]

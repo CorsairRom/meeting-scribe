@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from dbus_fast import NameFlag, RequestNameReply
 from dbus_fast.aio import MessageBus
+from returns.result import Failure
 
 from meeting_scribe.base.infrastructure.dbus.constants import BUS_NAME, OBJECT_PATH
 from meeting_scribe.base.infrastructure.logging import configure_logging
@@ -31,7 +32,10 @@ from meeting_scribe.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
+EXIT_OK = 0
 EXIT_NAME_TAKEN = 1
+EXIT_STOP_FAILED = 2
+EXIT_BUS_DISCONNECTED = 3
 
 
 @dataclass(frozen=True)
@@ -91,6 +95,23 @@ def create_app(
     return Application(settings=settings, recording=recording)
 
 
+async def _wait_for_stop_or_disconnect(stop: asyncio.Event, bus: MessageBus) -> bool:
+    """Wait for ``stop`` or for the bus to close; True when the bus was lost unexpectedly."""
+    stop_waiter = asyncio.create_task(stop.wait())
+    disconnect_waiter = asyncio.create_task(bus.wait_for_disconnect())
+    try:
+        await asyncio.wait({stop_waiter, disconnect_waiter}, return_when=asyncio.FIRST_COMPLETED)
+        if stop.is_set() or not disconnect_waiter.done():
+            return False
+        cause = None if disconnect_waiter.cancelled() else disconnect_waiter.exception()
+        logger.error("The D-Bus connection was lost (%r); stopping the recording.", cause)
+        return True
+    finally:
+        for waiter in (stop_waiter, disconnect_waiter):
+            waiter.cancel()
+        await asyncio.gather(stop_waiter, disconnect_waiter, return_exceptions=True)
+
+
 async def serve(
     app: Application,
     bus_address: str | None = None,
@@ -101,7 +122,9 @@ async def serve(
 ) -> int:
     """Export the D-Bus API and run until ``stop`` (or SIGINT/SIGTERM when not given).
 
-    Returns the process exit code: 0 after a clean shutdown, 1 if the bus name is taken.
+    Returns the process exit code: ``EXIT_OK`` (0) after a clean shutdown, ``EXIT_NAME_TAKEN`` (1)
+    if the bus name is taken, ``EXIT_STOP_FAILED`` (2) if stopping the active recording at
+    shutdown failed, ``EXIT_BUS_DISCONNECTED`` (3) if the bus connection was lost.
     """
     loop = asyncio.get_running_loop()
     handled: list[signal.Signals] = []
@@ -122,12 +145,17 @@ async def serve(
         logger.info("meeting-scribe serving %s on the D-Bus session bus.", BUS_NAME)
         if ready is not None:
             ready.set()
+        disconnected = False
         try:
-            await stop.wait()
+            disconnected = await _wait_for_stop_or_disconnect(stop, bus)
         finally:
-            await recording.shutdown()
+            outcome = await recording.shutdown()
+        if disconnected:
+            return EXIT_BUS_DISCONNECTED
+        if isinstance(outcome, Failure):
+            return EXIT_STOP_FAILED  # already logged at ERROR with its code
         logger.info("meeting-scribe stopped.")
-        return 0
+        return EXIT_OK
     finally:
         bus.disconnect()
         for signum in handled:

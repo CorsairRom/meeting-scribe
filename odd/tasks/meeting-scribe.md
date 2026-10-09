@@ -160,6 +160,19 @@ repo from F1).
       no stray dbus-daemon/ffmpeg. `request_name` uses `DO_NOT_QUEUE`; a second instance exits.
       `run()` now blocks serving D-Bus (closes R3-001). Untested: real SIGINT/SIGTERM handler path —
       covered manually in the F1.5 runbook smoke test.
+- [x] F1.4b D-Bus service hardening (Gentle AI review `review-3fd503f16952534e`, approved with
+      warnings; the service runs daily, so they are accepted): crash monitor survives exceptions
+      (R4-001); bus disconnect stops an active recording and exits (R4-002); shutdown stop failures
+      logged at ERROR with non-zero exit (R4-003/R2-002); no concurrent controller access during
+      shutdown (R3-001); SAFETY note in the e2e module names the real construct (R2-001).
+      Branch `f1/fix-dbus-service-hardening`. Route: delegated writer. Commits `012f202`
+      (+190/-28) and `d749217` (+153/-18). TDD RED per item (monitor task died; `stop_if_active`
+      returned None; `no attribute 'start_monitor'`; `assert 0 == 2`; disconnect `TimeoutError`) →
+      GREEN `159 passed`; no stray dbus-daemon/ffmpeg. Exit codes: 0 clean, 1 name owned,
+      2 shutdown stop failed, 3 bus lost (GO-026). Shutdown waits for an in-flight monitor poll.
+      RDD (399 lines, high): user granted; lineage `review-9a0327b7d3c2cc8e` approved + acked.
+      Warnings fixed inline: R3-001 shutdown now stops even if `status()` raises (RED `OSError:
+      ffmpeg.log unreadable` → GREEN 160 passed); R2-001 monitor docstring names the real halt.
 - [ ] F1.5 Packaging + runbook: systemd `--user` unit and D-Bus activation file under
       `packaging/` (not installed), runbook "record via gdbus"; real-device smoke test only with
       user consent.
@@ -259,5 +272,5 @@ it (F1.4). Items below kept for traceability.
 
 Owner merges tracker #2 (`feat/foundations` → `main`). Meanwhile F1 runs on integration branch
 `feat/recording` (based on `feat/foundations` until #2 lands, then retargeted to `main`).
-Current: F1.1–F1.3 integrated (#14, #16–#20); F1.3b and F1.4 done; next F1.5 packaging + runbook. RDD boundary for F1 = tip of `feat/foundations`
+Current: F1.1–F1.3 integrated (#14, #16–#20); F1.4 integrated (#23–#25); F1.4b done; next F1.5. RDD boundary for F1 = tip of `feat/foundations`
 (its tree equals the reviewed F0 tree).

@@ -1,7 +1,8 @@
 """Recording1 end to end on a private bus. The controller is wired with fakes only.
 
 SAFETY: ``Start`` on a service wired with real adapters would record the microphone, so every
-app here is built through ``fake_app`` and never with the default adapters.
+app here is built through ``Rig`` (its constructor injects the fake adapters) and never with
+the default adapters.
 """
 
 import asyncio
@@ -16,8 +17,17 @@ from dbus_fast import DBusError, Message, MessageType
 from dbus_fast.aio import MessageBus
 
 from meeting_scribe.base.infrastructure.dbus.constants import BUS_NAME, OBJECT_PATH
-from meeting_scribe.main import Application, RecordingAdapters, create_app, serve
+from meeting_scribe.main import (
+    EXIT_BUS_DISCONNECTED,
+    EXIT_STOP_FAILED,
+    Application,
+    RecordingAdapters,
+    create_app,
+    serve,
+)
+from meeting_scribe.recording.domain.errors import AudioCaptureError
 from meeting_scribe.settings import Settings, StorageSettings
+from tests.e2e.conftest import PrivateBus
 from tests.unit.recording.fakes import (
     FakeAudioCapture,
     FakeClock,
@@ -35,8 +45,8 @@ ERROR = "dev.meetingscribe.Error"
 
 
 class Rig:
-    def __init__(self, tmp_path: Path) -> None:
-        self.capture = FakeAudioCapture()
+    def __init__(self, tmp_path: Path, capture: FakeAudioCapture | None = None) -> None:
+        self.capture = capture or FakeAudioCapture()
         self.app: Application = create_app(
             Settings(storage=StorageSettings(meetings_dir=tmp_path / "meetings")),
             recording_adapters=RecordingAdapters(
@@ -220,3 +230,76 @@ def test_service_methods_are_registered_under_the_published_names(
 
     assert 'interface name="dev.meetingscribe.Recording1"' in xml
     assert 'signal name="StateChanged"' in xml
+
+
+RECORDING_LOGGER = "meeting_scribe.recording.infrastructure.dbus.recording_interface"
+
+
+def test_shutdown_stop_failure_is_logged_and_exits_non_zero(
+    tmp_path: Path, bus_address: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    rig = Rig(tmp_path, FakeAudioCapture(stop_error=AudioCaptureError("ffmpeg would not stop")))
+
+    async def main() -> int:
+        ready, stop = asyncio.Event(), asyncio.Event()
+        task = asyncio.create_task(
+            serve(rig.app, bus_address=bus_address, ready=ready, stop=stop, poll_interval=POLL)
+        )
+        await asyncio.wait_for(ready.wait(), timeout=5)
+        client = await connect(bus_address)
+        try:
+            await (await recording_proxy(client)).call_start()
+        finally:
+            client.disconnect()
+        stop.set()
+        return await asyncio.wait_for(task, timeout=5)
+
+    recording_logger = logging.getLogger(RECORDING_LOGGER)
+    recording_logger.addHandler(caplog.handler)
+    try:
+        exit_code = asyncio.run(main())
+    finally:
+        recording_logger.removeHandler(caplog.handler)
+
+    assert exit_code == EXIT_STOP_FAILED
+    assert any(
+        record.levelname == "ERROR"
+        and "AUDIO_CAPTURE_FAILED" in record.getMessage()
+        and "ffmpeg would not stop" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_bus_disconnect_stops_the_recording_and_exits_non_zero(
+    tmp_path: Path, private_bus: PrivateBus, caplog: pytest.LogCaptureFixture
+) -> None:
+    rig = Rig(tmp_path)
+
+    async def main() -> int:
+        ready = asyncio.Event()
+        task = asyncio.create_task(
+            serve(rig.app, bus_address=private_bus.address, ready=ready, poll_interval=POLL)
+        )
+        await asyncio.wait_for(ready.wait(), timeout=5)
+        client = await connect(private_bus.address)
+        try:
+            await (await recording_proxy(client)).call_start()
+        finally:
+            client.disconnect()
+        private_bus.daemon.kill()  # the bus goes away under the running service
+        return await asyncio.wait_for(task, timeout=5)
+
+    main_logger = logging.getLogger("meeting_scribe.main")
+    main_logger.addHandler(caplog.handler)
+    try:
+        exit_code = asyncio.run(main())
+    finally:
+        main_logger.removeHandler(caplog.handler)
+
+    assert exit_code == EXIT_BUS_DISCONNECTED
+    assert rig.capture.stop_calls == 1  # ffmpeg is not left recording with nobody to stop it
+    assert not rig.capture.running
+    assert any(
+        record.levelname == "ERROR" and "connection was lost" in record.getMessage()
+        for record in caplog.records
+    )
