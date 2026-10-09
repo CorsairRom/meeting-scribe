@@ -242,6 +242,12 @@ extension in the user's session, or running the nested shell, only with the user
       GO-030/031). Static check: `node --check --input-type=module` via stdin (proven on broken
       sources); `make test-extension` now needs node (fails loudly if missing). NOT yet run in a
       shell — F2.4, with consent.
+      RDD (#37 + F2.3, 958 lines): user granted; lineage `review-365649800a580c9f` approved + acked.
+      Fixed inline with TDD: a click on an open menu now only closes it (the decision moved into the
+      controller as `close-menu`; RED `expected "close-menu", got "start"`), and the orchestrator
+      found `extension.js` wrapped the callback without forwarding `{menuOpen}` — fixed plus a
+      static guard (RED → GREEN); a throwing tick no longer kills the GLib timer (RED `expected 2,
+      got 1`). GREEN 73 passed.
 - [ ] F2.4 Packaging + runbook: `make extension-pack` (`gnome-extensions pack`), runbook for the
       nested `--devkit` shell and for installing in the real session (logout/login on Wayland);
       manual verification only with consent.
