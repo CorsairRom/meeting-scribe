@@ -80,7 +80,7 @@ Starting a recording opens the microphone and the system audio monitor: only cal
 
 | Member | Status | Reason |
 |---|---|---|
-| `dev.meetingscribe.Meetings1`, `Speakers1`, `Summaries1` | planned (F3+) | Their domains do not exist yet |
+| `dev.meetingscribe.Meetings1`, `Speakers1`, `Summaries1` | planned (F3.4+) | The domains exist (`Meetings1` arrives in F3.4); only their D-Bus adapters are missing |
 
 ---
 

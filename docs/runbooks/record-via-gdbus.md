@@ -74,7 +74,7 @@ output format without listening to it.
 Inspect the chunks without playing them. Use the session directory from the `Directory` property (step 3):
 
 ```bash
-ffprobe -hide_banner <session-dir>/chunk_00000.wav
+ffprobe -hide_banner <session-dir>/audio/chunk_00000.wav
 ```
 
 Expect `2 channels` (mic left, system audio right), `16000 Hz`, `s16`. Chunks are 30 s by default

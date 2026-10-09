@@ -64,12 +64,13 @@ changes, mark it `superseded` and create a new ADR.
 
 | File | Decision | Status |
 |---|---|---|
-| [`001`](decisions/001-thin-gnome-extension-dbus-service.md) | Thin GNOME extension + local Python service over the D-Bus session bus | proposed |
-| [`002`](decisions/002-separate-mic-and-system-audio-tracks.md) | Separate mic and system audio tracks (2-channel chunks) | proposed |
-| [`003`](decisions/003-process-after-stop-single-gpu-worker.md) | Process after stop, single GPU worker, no live transcription | proposed |
-| [`004`](decisions/004-folder-per-meeting-json-storage.md) | One folder per meeting with versioned `meeting.json` | proposed |
-| [`005`](decisions/005-review-ui-native-gtk-app.md) | Review UI as a native GTK4 + libadwaita app | proposed |
-| [`006`](decisions/006-summary-provider-openai-compatible.md) | `SummaryProvider` port with an OpenAI-compatible adapter | proposed |
+| [`001`](decisions/001-thin-gnome-extension-dbus-service.md) | Thin GNOME extension + local Python service over the D-Bus session bus | active |
+| [`002`](decisions/002-separate-mic-and-system-audio-tracks.md) | Separate mic and system audio tracks (2-channel chunks) | active |
+| [`003`](decisions/003-process-after-stop-single-gpu-worker.md) | Process after stop, single GPU worker, no live transcription | active |
+| [`004`](decisions/004-folder-per-meeting-json-storage.md) | One folder per meeting with versioned `meeting.json` | active |
+| [`005`](decisions/005-review-ui-native-gtk-app.md) | Review UI as a native GTK4 + libadwaita app | active |
+| [`006`](decisions/006-summary-provider-openai-compatible.md) | `SummaryProvider` port with an OpenAI-compatible adapter | active |
+| [`007`](decisions/007-gpu-worker-subprocess.md) | GPU work in short-lived worker processes, one per GPU stage | active |
 
 > **AI**: before taking a technical decision, check whether an ADR already covers it.
 > If an ADR is `superseded`, follow the one that replaces it.

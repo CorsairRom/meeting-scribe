@@ -31,7 +31,7 @@ it with dbus-fast as `DBusError("dev.meetingscribe.Error.<ERROR_CODE>", message)
 The error-name prefix is proposed and renamable until F6, together with the bus name
 ([ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md)). Inspect errors with `gdbus call` or `busctl --user call`.
 
-> **State today (F1.4)**: `to_dbus_error` (`src/meeting_scribe/base/infrastructure/dbus/errors.py`) builds this error
+> **Current behavior**: `to_dbus_error` (`src/meeting_scribe/base/infrastructure/dbus/errors.py`) builds this error
 > from any `MeetingScribeError` using the instance `error_code` (so detail codes carry through); the `Recording1`
 > adapter applies it to every `Failure`. Only the error message crosses the bus: no stack trace.
 
@@ -73,6 +73,8 @@ All classes derive from `MeetingScribeError` in `src/meeting_scribe/base/domain/
 | `ModelUnavailableError` | `MODEL_UNAVAILABLE` | `base`: a model is neither cached nor downloadable (offline or unknown name) | `dev.meetingscribe.Error.MODEL_UNAVAILABLE` |
 | `TranscriptionError` | `TRANSCRIPTION_FAILED` | `transcription`: the model or the `words.json` cache failed for a reason not covered by a more specific code | `dev.meetingscribe.Error.TRANSCRIPTION_FAILED` |
 | `WorkerCancelledError` | `WORKER_CANCELLED` | `meetings`: the worker was stopped on request (preemption or shutdown); internal, the job is not failed and it never reaches a client | not exposed |
+| (no class) | `WORKER_UNKNOWN_STAGE` | `worker.py`: the worker was asked for a stage name it does not know; reported as a worker `error` event | the worker's code under `dev.meetingscribe.Error.` |
+| (no class) | `WORKER_STAGE_UNAVAILABLE` | `worker.py`: the stage is known but not implemented in this build (for example diarize before F3.3b); reported as a worker `error` event | the worker's code under `dev.meetingscribe.Error.` |
 
 Domain packages add their own subclasses next to their domain code (for example a `recording` error) and
 register them in this table.
