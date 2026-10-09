@@ -52,6 +52,7 @@ import-linter, errors as `returns.Result`.
 | Wire a new D-Bus interface or adapter | `src/meeting_scribe/main.py` (composition root)               |
 | Change an import contract            | `pyproject.toml` `[tool.importlinter]`                         |
 | Package or activate the service      | `packaging/` + `docs/runbooks/record-via-gdbus.md`             |
+| Pack, try or install the extension   | `docs/runbooks/gnome-extension.md`                             |
 | Write a doc                          | `docs/README.md` (taxonomy) and `docs/_templates/`             |
 | Know when to update docs             | `docs/project/doc-sync-protocol.md`                            |
 | See the canonical shared-kernel code | `src/meeting_scribe/base/`                                     |
@@ -69,7 +70,7 @@ import-linter, errors as `returns.Result`.
 ## Tooling
 
 - **Package manager**: `uv` (Python ~=3.12). Dev tools are in the `quality-assurance` extra.
-- **Make targets**: `make setup` (install), `make lint` (ruff + pyrefly + import-linter), `make format` (auto-fix), `make imports` (architecture contracts), `make test`, `make test-extension` (extension logic and D-Bus client against a private `dbus-daemon`, `gjs -m`), `make check` (lint + test + test-extension), `make run` (start the service). `make install` is reserved for F6.
+- **Make targets**: `make setup` (install), `make lint` (ruff + pyrefly + import-linter), `make format` (auto-fix), `make imports` (architecture contracts), `make test`, `make test-extension` (extension logic and D-Bus client against a private `dbus-daemon`, `gjs -m`), `make check` (lint + test + test-extension), `make run` (start the service), `make extension-pack` (build the extension zip into `dist/`), `make extension-install` (install it, does not enable). `make install` is reserved for F6.
 - **Linter/formatter**: ruff (`ruff.toml`, line length 100). **Type checker**: pyrefly (`pyrefly.toml`).
 - **Search/read tools**: prefer `rg`, `fd`, `bat`, `eza` over `grep`, `find`, `cat`, `ls`.
 
