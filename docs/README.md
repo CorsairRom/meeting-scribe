@@ -52,7 +52,7 @@ If the code changes, these docs change in the same commit. The system-level over
 | [`api-contracts.md`](architecture/api-contracts.md) | D-Bus interfaces: methods, properties, signals and their errors. |
 | [`error-codes-catalog.md`](architecture/error-codes-catalog.md) | Error response format and every stable `error_code`. |
 
-Planned (created with the phase that introduces them): `data-model.md` (F1/F3).
+Planned (created with the phase that introduces them): `data-model.md` (deferred to F4).
 Copy from [`_templates/architecture/`](_templates/architecture/).
 
 > **AI**: before touching a D-Bus interface or entity, read the matching file first.
