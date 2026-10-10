@@ -44,7 +44,7 @@ export function errorMessage(dbusErrorName, fallbackMessage, _ = s => s) {
     case `${ERROR_PREFIX}MEETING_STORAGE_FAILED`:
         return _('Could not read the meetings folder.');
     case 'org.freedesktop.DBus.Error.ServiceUnknown':
-        return _('The Meeting Scribe service is not running. Start it with: meeting-scribe');
+        return _('The Meeting Scribe service is not running. Start it with: systemctl --user start meeting-scribe.service');
     case 'org.freedesktop.DBus.Error.NoReply':
         return _('The Meeting Scribe service is not responding.');
     default:
@@ -73,7 +73,7 @@ function unavailableModel(_) {
         clickAction: 'open-menu',
         menuItems: [
             status(_('The Meeting Scribe service is not running.')),
-            status(_('Start it with `meeting-scribe` (or `make run` from the repository).')),
+            status(_('Start it with `systemctl --user start meeting-scribe.service` (or run `make install`).')),
         ],
         tooltip: _('The Meeting Scribe service is not running.'),
         dimmed: true,

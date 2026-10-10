@@ -316,7 +316,7 @@ THEN meeting_scribe.main imports none of torch, torchaudio, faster_whisper, ctra
 | Chunk is mono, another sample rate or not 16-bit (prototype folder) | Job FAILED with `MEETING_AUDIO_UNSUPPORTED` |
 | Silence only, or Whisper returns no words | DONE with 0 speakers; `transcript.md` holds "(no speech detected)"; notification "Meeting processed: no speech detected" |
 | Diarization returns no turns but words exist | Words go to a single fallback "Speaker 1" (the prototype crashed on `max()` of an empty list) |
-| System channel silent for the whole meeting (in-person meeting, only the mic) | Pending OQ-4: diarize the mic channel and skip "Me" |
+| System channel silent for the whole meeting (in-person meeting, only the mic) | Diarize the mic channel and skip "Me" (OQ-4) |
 | No microphone (mic channel is silence) | No "Me" turns; diarization unaffected |
 | A remote participant's echo of the user appears on the system channel | Inside "Me" turns the mic decision wins; a leftover small cluster can be merged in F4 |
 | Another person in the room speaks into the user's microphone | Labelled "Me" (known limitation; the dominance rule cannot tell two local voices apart) |
@@ -492,8 +492,9 @@ A pure function in `speakers/domain/` turns two energy envelopes into "Me" turns
    system turn, "Me" wins for the overlap and the system turn is cut around it, so the combined turn list stays
    exclusive (one speaker per instant), which is what word assignment needs.
 
-Defaults (`SPEAKERS_ME_DOMINANCE_DB=6.0`, noise margin 10 dB, minimum turn 0.5 s) are a starting point; they are
-validated on the user's own setups in F3.5, with consent (assumption A-7). Fixtures are synthetic tones and noise
+Defaults (`SPEAKERS_ME_DOMINANCE_DB=6.0`, noise margin 10 dB, minimum turn 0.5 s) are a starting point. One real
+recording processed to DONE with them; headset and loudspeaker setups are not compared yet, so they stay as the
+defaults (assumption A-7). Fixtures are synthetic tones and noise
 (AC-10, AC-11).
 
 ### 3. Algorithms ported from the prototype (pure, tested domain functions)
@@ -619,7 +620,7 @@ ambient login in the Hugging Face cache (GO-004).
 
 #### 6.4 Device policy, CUDA libraries, CPU fallback
 
-- `PROCESSING_DEVICE=cuda` (default, pending OQ-5): a GPU stage that finds no usable CUDA device fails with
+- `PROCESSING_DEVICE=cuda` (default; OQ-5, approved): a GPU stage that finds no usable CUDA device fails with
   `GPU_UNAVAILABLE`. Nothing falls back silently (GO-011).
 - `PROCESSING_DEVICE=cpu`: both stages run on the CPU (`TRANSCRIPTION_CPU_COMPUTE_TYPE`, default `int8`); logged at
   WARNING and recorded in `processing.device`; the notification says "(CPU)".
@@ -658,7 +659,7 @@ Each class inherits `MeetingScribeSettings`, lives in its domain's `infrastructu
 | `SPEAKERS_SAMPLE_MAX_CLIPS` | `SpeakersSettings` | `3` | Clips per speaker sample |
 | `SPEAKERS_SAMPLE_TARGET_SECONDS` | `SpeakersSettings` | `15.0` | Target total sample length |
 | `SPEAKERS_SAMPLE_MIN_CLIP_SECONDS` / `SPEAKERS_SAMPLE_MAX_CLIP_SECONDS` | `SpeakersSettings` | `1.5` / `6.0` | Clip length bounds |
-| `PROCESSING_DEVICE` | `ProcessingSettings` | `cuda` | `cuda` or `cpu`; no automatic fallback (pending OQ-5) |
+| `PROCESSING_DEVICE` | `ProcessingSettings` | `cuda` | `cuda` or `cpu`; no automatic fallback (OQ-5, approved) |
 | `PROCESSING_WORKER_TIMEOUT_FACTOR` | `ProcessingSettings` | `1.0` | Stage timeout as a multiple of the audio length |
 | `PROCESSING_WORKER_MIN_TIMEOUT_SECONDS` | `ProcessingSettings` | `900` | Lower bound of the stage timeout |
 | `PROCESSING_WORKER_KILL_GRACE_SECONDS` | `ProcessingSettings` | `5` | SIGTERM to SIGKILL grace |
@@ -735,14 +736,14 @@ Logic goes in pure `lib/` modules with `gjs -m` tests (CR-012).
 - **Placement**: an optional extra `ml` in `pyproject.toml`. `make setup` installs it (the development machine is the
   target machine, and pyrefly must see the adapters' imports); `make install` installs the tool with `.[ml]`. Unit
   tests never import these packages (adapters import them lazily inside the worker), so the suite also runs in an
-  environment without them. How the prototype obtained torch `+cu130` (default index or a `[tool.uv.index]` entry)
-  is confirmed in F3.3 (assumption A-9).
-- **Size and time**: torch with CUDA plus the nvidia wheels are several GB (assumption A-10: measure in F3.5). Every
+  environment without them. torch comes from the default PyPI index, with no `[tool.uv.index]` entry (assumption A-9).
+- **Size and time**: one installed version measures 7.1 GB, with torch 2.14.1 from the
+  default PyPI index (assumption A-10). Every
   `make install` builds a fresh `versions/<id>/` environment; uv hardlinks from its cache when the cache is on the
   same filesystem, otherwise each version copies the full set, and two versions coexist until the new one is
   verified. The first install downloads everything; later installs reuse the uv cache.
-- **Models**: `large-v3-turbo` (about 1.6 GB, assumption A-10) and community-1 download into the Hugging Face cache
-  on first use, which needs network (see OQ-7). community-1 is **gated**: the user must accept its terms at
+- **Models**: `large-v3-turbo` (1.6 GB) and community-1 (32 MB) are downloaded into the Hugging Face cache by
+  `meeting-scribe prefetch-models` during `make install`, so the worker runs offline (see OQ-7). community-1 is **gated**: the user must accept its terms at
   `https://hf.co/pyannote/speaker-diarization-community-1` and run `hf auth login` once in a real terminal (GO-004,
   GO-008). Without it the first job fails with `DIARIZATION_MODEL_ACCESS_DENIED` and that instruction; transcription
   is kept and Reprocess resumes after the fix.
@@ -807,8 +808,8 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
 | A-3 | Worker start plus CUDA init costs a few seconds per stage | F3.2 / F3.3. **Confirmed for transcribe (2026-10-09)**: 4.2 s wall for an 11 s synthetic session, of which the model load is 2.5 s (includes CUDA init) and decoding 0.1 s; a cache hit costs 0.2 s |
 | A-4 | Whisper `large-v3-turbo` float16 and community-1 each fit comfortably in 8 GB on their own | F3.2 / F3.3 (GPU test). **Whisper confirmed (2026-10-09)**: peak about 2.1 GB above the 457 MiB desktop baseline on an 8 GB card. **community-1 confirmed (2026-10-09)**: peak about 0.5 GB over a 13 MiB baseline for 20 s of synthetic audio, pipeline load 4.0 s on cuda, VRAM back to baseline after the worker exits |
 | A-5 | The ambient Hugging Face login works without passing `token` (prototype behaviour) or with `token=True` | F3.3. The adapter passes `token=True`, which makes `huggingface_hub` read the stored login and raise `LocalTokenNotFoundError` when there is none (read from source, GO-042). **Confirmed (2026-10-09)**: with the user's consent, `make install` downloaded community-1 with the stored login and the GPU test loaded it offline |
-| A-6 | Averaging the channels (-6 dB) does not hurt Whisper accuracy | F3.5 validation |
-| A-7 | "Me" defaults (6 dB dominance, 10 dB noise margin, 0.5 s) work on headset and loudspeaker setups | F3.5 validation with consent |
+| A-6 | Averaging the channels (-6 dB) does not hurt Whisper accuracy | F3.5 validation. **Partially answered (2026-10-09)**: one real recording processed to DONE with the defaults; mono averaging and headset vs loudspeaker setups not compared yet, kept as defaults |
+| A-7 | "Me" defaults (6 dB dominance, 10 dB noise margin, 0.5 s) work on headset and loudspeaker setups | F3.5 validation with consent. **Partially answered (2026-10-09)**: one real recording processed to DONE with the defaults; mono averaging and headset vs loudspeaker setups not compared yet, kept as defaults |
 | A-8 | pyannote telemetry is off by default; the opt-out variable name | F3.3 (read pyannote source). **Answered (2026-10-09, pyannote.audio 4.0.7)**: the assumption was wrong, telemetry is ON by default (`metrics_enabled: true` in the package config). The opt-out is `PYANNOTE_METRICS_ENABLED=false`; the service sets it in the worker environment and the backend forces it again before the first import (GO-042) |
 | A-9 | Where torch `+cu130` comes from in the prototype lock | F3.3. **Answered in F3.2 (2026-10-09)**: the prototype lock takes torch 2.14.1 from the default PyPI index (`registry = pypi.org`, no custom index); that Linux wheel depends on the cu13 NVIDIA packages (`nvidia-cudnn-cu13`, `cuda-toolkit`, ...). faster-whisper does not pull torch, so the `ml` extra has none until pyannote lands. **Resolved in F3.3b**: `uv add --optional ml pyannote.audio` gives pyannote.audio 4.0.7, torch 2.14.1 and torchaudio 2.11.0 from the default PyPI index (no custom index) |
 | A-10 | Install size (several GB) and model size (about 1.6 GB for turbo) | F3.5. **Measured (2026-10-09)**: one installed version is 7.1 GB (torch with CUDA and the NVIDIA wheels); the Hugging Face cache holds 1.6 GB for `large-v3-turbo` and 32 MB for community-1 |

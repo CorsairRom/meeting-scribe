@@ -177,8 +177,8 @@ test('service unavailable is dimmed and explains how to start it', () => {
     assertEqual(m.menuItems[0].kind, 'status');
     assertEqual(m.menuItems[0].text, 'The Meeting Scribe service is not running.');
     assertEqual(m.menuItems[1].kind, 'status');
-    assertEqual(m.menuItems[1].text.includes('meeting-scribe'), true);
-    assertEqual(m.menuItems[1].text.includes('make run'), true);
+    assertEqual(m.menuItems[1].text.includes('systemctl'), true);
+    assertEqual(m.menuItems[1].text.includes('make install'), true);
     assertDeepEqual(ids(m.menuItems), []);
 });
 
