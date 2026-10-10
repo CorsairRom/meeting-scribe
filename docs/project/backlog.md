@@ -31,6 +31,18 @@ Fine-grained task tracking lives in [`odd/tasks/meeting-scribe.md`](../../odd/ta
 - [ ] OpenAI-compatible adapter (Ollama default, DeepSeek opt-in)
 - [ ] Cloud opt-in setting, "cloud" label, per-request confirmation
 - [ ] Export `.md` in the reference structure
+- [ ] Extension menu action that opens the last meeting's summary (decided 2026-10-09: the menu opens the summary, not the transcript, so it waits for F5); show the meeting date and time in a readable form instead of the folder id
+
+### [EPIC] Later improvements (not scheduled)
+
+Raised after the first real recording (2026-10-09); recorded so nothing is lost, not planned into a phase yet.
+
+- [ ] Storage layout: the meeting folder in `~/Documents/meetings` keeps only what the user reads (transcript, summary, optionally audio); `meeting.json` and `samples/` move to the XDG data dir, `words.json` / `turns.json` / `utterances.json` to the XDG cache dir, `processing.log` / `ffmpeg.log` to the service journal. Touches the worker job contract (one `meeting_dir` today), not only the repository adapter
+- [ ] Readable meeting folder names (date and time, title from the F5 summary) while keeping a stable internal id
+- [ ] Audio retention: setting to keep or drop the audio after review or after N days; optional Opus compression (about 230 MB/h today, about 20 MB/h as Opus)
+- [ ] A database (SQLite) only if search or long meeting lists need it; behind the `MeetingRepository` port
+- [ ] Recognise the same speaker across meetings (voice embeddings), out of the MVP
+- [ ] Import recordings made before F3 (no `meeting.json`) so they can be processed
 
 ### [EPIC] F6 Hardening
 
@@ -49,7 +61,7 @@ Fine-grained task tracking lives in [`odd/tasks/meeting-scribe.md`](../../odd/ta
 - [x] F3.3b pyannote diarization worker stage on the system channel
 - [x] F3.4a Wiring: Stop enqueues processing, recording preempts GPU work; D-Bus `Meetings1` (`List`, `Get`, `Reprocess`, processing signals); desktop notification
 - [x] F3.4b Extension shows the processing state (`Meetings1` proxy, menu line)
-- [ ] F3.5 `make install` with the ML extra and model prefetch, runbook [`processing.md`](../runbooks/processing.md) (done); real-recording validation with consent (pending, run by the user)
+- [x] F3.5 `make install` with the ML extra and model prefetch, runbook [`processing.md`](../runbooks/processing.md); real validation with the user's consent: install, opt-in GPU tests, and one real recording processed to DONE (2026-10-09)
 
 ---
 

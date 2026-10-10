@@ -437,7 +437,7 @@ own meeting, without reading its content into the repo or logs.
       result "Last meeting processed: N speakers" / "no speech detected", FAILED → Reprocess action;
       panel shows "…" while processing; click still only opens the menu). RED observed per behavior
       (client RED via stub swap after it was written first). GREEN 760 python / 104 extension.
-- [ ] F3.5 Install/packaging update (ML deps in the versioned install), runbook, real-recording
+- [x] F3.5 Install/packaging update (ML deps in the versioned install), runbook, real-recording
       validation with consent.
   - [x] F3.5a Code + docs (delegated writers; route: delegated direct, 2+ non-trivial files).
         `a2993f6` review follow-ups (enqueue-failure notification, exit 4 = processing outlived the
@@ -454,7 +454,7 @@ own meeting, without reading its content into the repo or logs.
         Follow-ups (not fixed, avoid review loop): exit 137 may be an OOM kill rather than the
         timeout (summary would say "timed out"); summary `*)` branch prints "downloaded" for an
         unknown status; prefetch hint hard-codes setting names.
-  - [ ] F3.5b Real validation with user consent: `hf auth login` + accept community-1 terms,
+  - [x] F3.5b Real validation with user consent: `hf auth login` + accept community-1 terms,
         `make install` (prefetch), `uv run pytest -m gpu`, one real meeting checked by states/counts
         only.
     - [x] `make install` (user go, 2026-10-09): exit 0, version 20261009204854-3729151, service active,
@@ -465,7 +465,11 @@ own meeting, without reading its content into the repo or logs.
           silent); fixture fixed with pauses (`c9b899d`), GREEN: community-1 peak 517 MiB over 13 MiB,
           load 4.0 s, VRAM back to baseline; Whisper peak 2075 MiB. Review review-3aca299aef832622
           approved. Integrated #79. Follow-up: no unit test pins the continuous-sound edge of OQ-4.
-    - [ ] One real meeting processed (needs the user's go), checked by states and counts only.
+    - [x] One real meeting processed (user-run, 2026-10-09): the extension menu showed the stages and
+          "Last meeting processed: 1 speaker" (DONE); checked from the user's screenshot only, no
+          content opened. User feedback recorded in the backlog "Later improvements" (storage layout,
+          readable names, audio retention, DB only if needed, cross-meeting voices, legacy import) and
+          F5 (menu opens the summary, not the transcript). Decision: F3 closes as is, then F4.
 ### F4 Review UI — pending
 ### F5 Summaries — pending
 ### F6 Install — pending
