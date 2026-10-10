@@ -7,6 +7,12 @@
 # `current` symlink atomically, so the environment a running service was loaded from is never
 # replaced. Old versions are pruned only once the service runs the new one. If the new version
 # fails to start, `current` (or, on a migration, the unit) is restored to what worked before.
+#
+# The ML models are downloaded as a visible step AFTER the switch (OQ-7): recording never needs
+# them, so a missing network or Hugging Face login must not block installing the service. A failed
+# download is reported in the summary (the worker runs offline and says MODEL_UNAVAILABLE until a
+# later `make install` fetches them); it never fails the install. The download is bounded by
+# MEETING_SCRIBE_PREFETCH_TIMEOUT seconds (default 3600) and skipped when the install rolled back.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -62,7 +68,7 @@ abort_before_switch() {
 echo "==> Installing the service with uv (Python 3.12) into $version_dir"
 mkdir -p "$VERSIONS_DIR"
 if ! UV_TOOL_DIR="$version_dir/tools" UV_TOOL_BIN_DIR="$version_dir/bin" \
-  uv tool install --force --reinstall --python 3.12 "$REPO_ROOT"; then
+  uv tool install --force --reinstall --python 3.12 "meeting-scribe[ml] @ $REPO_ROOT"; then
   abort_before_switch "uv tool install failed"
 fi
 if [[ ! -x "$version_dir/bin/meeting-scribe" ]]; then
@@ -147,6 +153,33 @@ elif ((legacy_tool)) && [[ -z "$rolled_back" ]]; then
   migration_note="the old uv tool is kept while the old service may still run; remove it later with: uv tool uninstall meeting-scribe"
 fi
 
+# Bounded (MEETING_SCRIBE_PREFETCH_TIMEOUT seconds, default 3600) so a stalled download cannot hang
+# the install. Skipped after a rollback: the new version failed to start, which is the real problem.
+readonly PREFETCH_TIMEOUT_DEFAULT=3600
+readonly EXIT_TIMED_OUT=124 # timeout(1): the command ran past the limit (SIGTERM)
+readonly EXIT_KILLED=137    # timeout --kill-after: SIGTERM was ignored, so it was SIGKILLed (128+9)
+prefetch_timeout="${MEETING_SCRIBE_PREFETCH_TIMEOUT:-$PREFETCH_TIMEOUT_DEFAULT}"
+if ! [[ "$prefetch_timeout" =~ ^[1-9][0-9]*$ ]]; then
+  echo "warning: MEETING_SCRIBE_PREFETCH_TIMEOUT='$prefetch_timeout' is not a positive integer of seconds; using $PREFETCH_TIMEOUT_DEFAULT." >&2
+  prefetch_timeout="$PREFETCH_TIMEOUT_DEFAULT"
+fi
+prefetch_cmd="$CURRENT_LINK/bin/meeting-scribe prefetch-models"
+models_state="downloaded (Hugging Face cache; processing runs offline)"
+models_status=ok # ok | failed | timed_out | skipped_rollback
+if [[ -n "$rolled_back" ]]; then
+  models_status=skipped_rollback
+else
+  echo "==> Downloading the speech models (Hugging Face cache; needs the network and 'hf auth login')"
+  prefetch_status=0
+  timeout --kill-after=10 "$prefetch_timeout" "$version_dir/bin/meeting-scribe" prefetch-models \
+    || prefetch_status=$?
+  case "$prefetch_status" in
+    0) ;;
+    "$EXIT_TIMED_OUT" | "$EXIT_KILLED") models_status=timed_out ;;
+    *) models_status=failed ;;
+  esac
+fi
+
 echo "==> Installing the GNOME extension"
 extension_failed=""
 extension_state="enabled"
@@ -201,6 +234,25 @@ if [[ -n "$extension_failed" ]]; then
 else
   echo "  extension: $extension_state ($EXTENSION_UUID)"
 fi
+case "$models_status" in
+  skipped_rollback)
+    echo "  models:    NOT downloaded, the install rolled back (the start failure is the real problem)."
+    echo "             Fix it, run 'make install' again, or fetch them later with: $prefetch_cmd"
+    ;;
+  timed_out)
+    echo "  models:    NOT downloaded, the download timed out after $prefetch_timeout s; recording works,"
+    echo "             processing will fail with MODEL_UNAVAILABLE. Retry with: $prefetch_cmd"
+    echo "             (MEETING_SCRIBE_PREFETCH_TIMEOUT sets the limit in seconds)."
+    ;;
+  failed)
+    echo "  models:    NOT downloaded; recording works, processing will fail with MODEL_UNAVAILABLE."
+    echo "             See the download output above for the cause (for a gated model: accept its terms"
+    echo "             and run 'hf auth login' once). Then retry with: $prefetch_cmd"
+    ;;
+  *)
+    echo "  models:    $models_state"
+    ;;
+esac
 echo "  config:    $CONFIG_HOME/meeting-scribe/.env (optional, see .env.example)"
 if ((start_failed || reload_failed)) || [[ -n "$extension_failed" ]]; then
   exit 1

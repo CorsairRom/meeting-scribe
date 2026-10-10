@@ -13,7 +13,12 @@ from meeting_scribe.base.infrastructure.settings import (
     effective_env_files,
     xdg_env_file,
 )
+from meeting_scribe.meetings.infrastructure.processing_settings import ProcessingSettings
 from meeting_scribe.recording.infrastructure.recording_settings import RecordingSettings
+from meeting_scribe.speakers.infrastructure.speakers_settings import SpeakersSettings
+from meeting_scribe.transcription.infrastructure.transcription_settings import (
+    TranscriptionSettings,
+)
 
 __all__ = [
     "APP_DIR_NAME",
@@ -44,6 +49,9 @@ class Settings(MeetingScribeSettings):
     log_level: LogLevel = "INFO"
     storage: StorageSettings = Field(default_factory=StorageSettings)
     recording: RecordingSettings = Field(default_factory=RecordingSettings)
+    processing: ProcessingSettings = Field(default_factory=ProcessingSettings)
+    transcription: TranscriptionSettings = Field(default_factory=TranscriptionSettings)
+    speakers: SpeakersSettings = Field(default_factory=SpeakersSettings)
 
     # Env files resolved when ``load`` ran; empty for settings built any other way.
     _env_files: tuple[Path, ...] = PrivateAttr(default=())

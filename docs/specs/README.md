@@ -18,6 +18,6 @@ A spec is the behavioral contract for one feature: goal, user stories, Gherkin a
 
 | Spec | Phase | Status |
 |---|---|---|
-| *(none yet)* | | |
+| [`processing.md`](processing.md) | F3 | in-progress |
 
-The "me vs system" labelling algorithm (ADR-002) is the first planned spec, written at the start of F3.
+The "Me" versus system labelling algorithm (ADR-002) is specified in `processing.md` section 2.4.

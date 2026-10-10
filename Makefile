@@ -7,8 +7,8 @@ PACK_DIR ?= dist
 help: ## List available targets
 	@awk -F':.*## ' '/^[a-z-]+:.*## / {printf "%s\t%s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-setup: ## Install runtime and quality-assurance dependencies
-	uv sync --extra quality-assurance
+setup: ## Install runtime, ML (worker) and quality-assurance dependencies
+	uv sync --extra ml --extra quality-assurance
 
 lint: ## ruff, pyrefly and import-linter
 	scripts/run-linter.sh

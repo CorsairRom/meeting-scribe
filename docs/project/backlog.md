@@ -4,7 +4,7 @@ status: living
 last_updated: 2026-10-09
 ai_instructions:
   - "This tracks pending and completed work. The per-task checklist lives in odd/tasks/meeting-scribe.md."
-  - "Before implementing, check that the matching ADR is 'active' (not 'proposed'). ADRs 001-006 were approved (active) in the F0 review on 2026-10-09."
+  - "Before implementing, check that the matching ADR is 'active' (not 'proposed'). ADRs 001-007 are active."
   - "When you complete a task: mark it done, add the date, and update mvp-scope.md if it applies."
   - "When you add tasks for an epic: follow the existing format and reference the ADR."
 ---
@@ -17,36 +17,6 @@ Fine-grained task tracking lives in [`odd/tasks/meeting-scribe.md`](../../odd/ta
 ---
 
 ## To do
-
-### [EPIC] F1 Recording — ADR-001, ADR-002, ADR-003
-
-> Unblocked: F0 review approved, ADR-001/002/003 `active` (2026-10-09).
-
-- [ ] `recording` domain: session entity, state transitions as entity methods returning copies
-- [ ] ffmpeg capture adapter: 2-channel 30 s chunks (mic + system monitor), stop with `q`, kill fallback, `start_new_session=True`
-- [x] D-Bus `dev.meetingscribe.Recording1` (`Start`, `Stop`, `State`, `ElapsedSeconds`, `StateChanged`) via dbus-fast, error mapping to `dev.meetingscribe.Error.<ERROR_CODE>`
-- [x] e2e tests on a private session bus (`dbus-daemon`, fakes only)
-- [x] systemd `--user` unit template and D-Bus activation file in `packaging/` (installation is F2.5) (F1.5, 2026-10-09)
-- [x] Runbook: record and stop via gdbus (F1.5, 2026-10-09)
-- [x] Docs: `architecture/api-contracts.md` (D-Bus interfaces), rules-registry entries
-- [x] **Follow-up**: `STORAGE_MEETINGS_DIR=~/...` expanded; `.env` from XDG config; validated `log_level` (F1.1, 2026-10-09)
-- [x] ~~**Follow-up**: Starlette `httpx` deprecation warning~~ obsolete: HTTP stack removed (2026-10-09)
-
-### [EPIC] F2 GNOME extension — ADR-001
-
-- [ ] GJS panel indicator: start/stop, timer, status
-- [ ] Talk to the service through `Gio.DBusProxy` (call `Recording1`, subscribe to `StateChanged`)
-- [ ] Menu item "Review last meeting" launching the review app
-- [x] Runbook: try and install the extension (F2.4, 2026-10-09)
-
-### [EPIC] F3 Processing — ADR-002, ADR-003, ADR-004
-
-- [ ] `transcription` domain + faster-whisper adapter (lazy load, release after use, CUDA preload with logging)
-- [ ] `speakers` domain + pyannote adapter, voice samples, "Me" labelling by per-turn energy dominance
-- [ ] `meetings` domain: catalog, `MeetingRepository` (folder + versioned `meeting.json`), processing queue, single GPU worker
-- [ ] Resume pending jobs at service start
-- [ ] Desktop notification on completion
-- [ ] Cache keyed on processing params (prototype bug)
 
 ### [EPIC] F4 Review app — ADR-005
 
@@ -61,10 +31,18 @@ Fine-grained task tracking lives in [`odd/tasks/meeting-scribe.md`](../../odd/ta
 - [ ] OpenAI-compatible adapter (Ollama default, DeepSeek opt-in)
 - [ ] Cloud opt-in setting, "cloud" label, per-request confirmation
 - [ ] Export `.md` in the reference structure
+- [ ] Extension menu action that opens the last meeting's summary (decided 2026-10-09: the menu opens the summary, not the transcript, so it waits for F5); show the meeting date and time in a readable form instead of the folder id
 
-### [EPIC] F2.5 Plug-and-play install
+### [EPIC] Later improvements (not scheduled)
 
-- [x] `make install` / `make uninstall` (`scripts/install.sh`, `scripts/uninstall.sh`): uv tool, systemd user unit, D-Bus activation, extension enabled, idempotent, no restart while recording (2026-10-09)
+Raised after the first real recording (2026-10-09); recorded so nothing is lost, not planned into a phase yet.
+
+- [ ] Storage layout: the meeting folder in `~/Documents/meetings` keeps only what the user reads (transcript, summary, optionally audio); `meeting.json` and `samples/` move to the XDG data dir, `words.json` / `turns.json` / `utterances.json` to the XDG cache dir, `processing.log` / `ffmpeg.log` to the service journal. Touches the worker job contract (one `meeting_dir` today), not only the repository adapter
+- [ ] Readable meeting folder names (date and time, title from the F5 summary) while keeping a stable internal id
+- [ ] Audio retention: setting to keep or drop the audio after review or after N days; optional Opus compression (about 230 MB/h today, about 20 MB/h as Opus)
+- [ ] A database (SQLite) only if search or long meeting lists need it; behind the `MeetingRepository` port
+- [ ] Recognise the same speaker across meetings (voice embeddings), out of the MVP
+- [ ] Import recordings made before F3 (no `meeting.json`) so they can be processed
 
 ### [EPIC] F6 Hardening
 
@@ -74,16 +52,16 @@ Fine-grained task tracking lives in [`odd/tasks/meeting-scribe.md`](../../odd/ta
 
 ## In progress
 
-### [EPIC] F0 Foundations
+### [EPIC] F3 Processing — ADR-002, ADR-003, ADR-004, ADR-007; spec [`processing.md`](../specs/processing.md)
 
-- [x] F0.1 Scaffold + tooling
-- [x] F0.2 Shared kernel (errors, `BaseEntity`)
-- [x] F0.3 Docs: PRD, ARCHITECTURE, AGENTS, docs taxonomy, templates, project docs (approved 2026-10-09)
-- [x] F0.4 ADRs 001-006 (`active`, approved 2026-10-09)
-- [x] F0.7 Drop the HTTP scaffold for a transport-neutral composition root (commit `01300e8`, 2026-10-09)
-- [x] F0.8 Switch ADR-001/005 to D-Bus and a native GTK4 review app; ripple through docs (2026-10-09)
-- [x] F0.5 Remove `HANDOFF.md`, full checks
-- [x] F0.6 Present PRD, scope and ADRs to the user for review (approved 2026-10-09)
+- [x] F3.0 Design: processing spec + ADR-007 (GPU work in short-lived worker processes); open product questions answered by the user
+- [x] F3.1 `meetings` domain: `Meeting` entity and processing state machine, `MeetingRepository` (folder + versioned `meeting.json`), FIFO queue, worker protocol and subprocess runner (timeouts, termination), resume at service start
+- [x] F3.2 `transcription` domain + faster-whisper worker stage (lazy import, CUDA preload with logging, no silent CPU fallback, params-keyed `words.json`), ML-isolation import contract
+- [x] F3.3a `speakers` domain: word assignment, utterances, numbering, transcript rendering, "Me" by per-frame energy dominance with bleed compensation, voice samples (PRs #65, #66)
+- [x] F3.3b pyannote diarization worker stage on the system channel
+- [x] F3.4a Wiring: Stop enqueues processing, recording preempts GPU work; D-Bus `Meetings1` (`List`, `Get`, `Reprocess`, processing signals); desktop notification
+- [x] F3.4b Extension shows the processing state (`Meetings1` proxy, menu line)
+- [x] F3.5 `make install` with the ML extra and model prefetch, runbook [`processing.md`](../runbooks/processing.md); real validation with the user's consent: install, opt-in GPU tests, and one real recording processed to DONE (2026-10-09)
 
 ---
 
@@ -95,3 +73,7 @@ Fine-grained task tracking lives in [`odd/tasks/meeting-scribe.md`](../../odd/ta
 | 2026-10-09 | F0.2 Shared kernel | commit `e94370a` |
 | 2026-10-09 | F0.7 Transport-neutral composition root | commit `01300e8` |
 | 2026-10-09 | F0.8 ADR-001/005 revised: D-Bus + native GTK4 review app | commit `b8e6b97` |
+| 2026-10-09 | F0.3-F0.6 Docs, ADRs 001-006 and the F0 review approved | F0 |
+| 2026-10-09 | F1 Recording: `recording` domain, ffmpeg capture adapter, D-Bus `Recording1`, e2e on a private bus, systemd unit and activation file, runbook | PRs #16-#21 |
+| 2026-10-09 | F2 GNOME extension: panel indicator, D-Bus client, controller, packaging, runbook | PRs #33-#48 |
+| 2026-10-09 | F2.5 `make install` / `make uninstall`: versioned uv tool, systemd user unit, D-Bus activation, extension enabled, idempotent, no restart while recording | F2.5 |

@@ -5,7 +5,9 @@ get a transcript with speakers told apart, name or merge speakers in a native GN
 with a local (Ollama) or opt-in cloud (DeepSeek) LLM. Everything runs on your machine; nothing leaves it
 unless you explicitly ask for a cloud summary.
 
-**Status**: F1 in progress — recording is exposed over the D-Bus session bus (`dev.meetingscribe.Recording1`); no UI yet. See the [scope](docs/project/mvp-scope.md).
+**Status**: F0, F1, F2 and F2.5 are done: recording over the D-Bus session bus (`dev.meetingscribe.Recording1`), a GNOME panel extension to start and stop, and `make install`. F3 (processing) is complete pending the merge of the tracker PR: transcription, speaker assignment, the "Me" label and voice samples are built as worker stages, and the service queues processing after every recording (a desktop notification when it ends, `dev.meetingscribe.Meetings1` to list meetings and retry a failed one). The panel menu shows the processing state (stage, last result such as "N speakers", a "Processing failed — Reprocess" action, and the queued count). There is no review app yet (F4). See the [scope](docs/project/mvp-scope.md).
+
+What exists today: record from the top-bar menu or `gdbus`, audio saved in 2-channel chunks. Processing needs the `ml` extra (`make setup`) and an NVIDIA GPU; it starts by itself after Stop and resumes unfinished meetings when the service starts.
 
 ## Quickstart
 
@@ -35,7 +37,11 @@ as NOT active and exits non-zero. A failing extension step is reported in the su
    the installer exits non-zero.
 2. Installs and enables the `systemd --user` unit and the D-Bus activation file, then starts the service
    (on upgrade it restarts it).
-3. Packs, installs and enables the GNOME extension. On Wayland a brand-new extension is discovered only after you
+3. Downloads the speech models with `meeting-scribe prefetch-models` (a visible step; needs the network and, for the gated
+   diarization model, `hf auth login` plus accepted terms, see [`processing.md`](docs/runbooks/processing.md)). The service
+   is installed with the `ml` extra, and processing then runs offline (`HF_HUB_OFFLINE=1`). A failed download does not
+   fail the install: the summary says `models: NOT downloaded` and `make install` again fixes it.
+4. Packs, installs and enables the GNOME extension. On Wayland a brand-new extension is discovered only after you
    log out and back in once; the installer tells you when that is needed.
 
 Upgrading from an install made before versioned installs (the service ran from `~/.local/bin/meeting-scribe`): the first
@@ -45,9 +51,9 @@ directory; a hand-edited unit is left alone). If the restart was skipped (record
 summary says how to remove it later. `make uninstall` removes the whole `meeting-scribe/` versions tree.
 
 Configure by creating `~/.config/meeting-scribe/.env` (or `$XDG_CONFIG_HOME/meeting-scribe/.env`; template:
-`.env.example`) with `LOG_LEVEL`, `STORAGE_MEETINGS_DIR` and so on, then `systemctl --user restart meeting-scribe.service`.
+`.env.example`) (every variable and its default is listed in [`ARCHITECTURE.md`](ARCHITECTURE.md) section 7), then `systemctl --user restart meeting-scribe.service`.
 
-Development: `make setup` (dev dependencies), `make check` (ruff, pyrefly, import-linter, pytest, extension tests),
+Development: `make setup` (dev and ML dependencies: faster-whisper and the NVIDIA wheels come from the `ml` extra), `make check` (ruff, pyrefly, import-linter, pytest, extension tests),
 `make run` (foreground service on your session bus, stop the installed one first). `make help` lists all targets.
 
 ## Try the D-Bus API
@@ -74,6 +80,7 @@ stops the recording first.
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | System context, bounded contexts, layering, GPU policy, configuration |
 | [`AGENTS.md`](AGENTS.md) | Conventions and workflow for AI agents and contributors (`CLAUDE.md` links to it) |
 | [`docs/runbooks/record-via-gdbus.md`](docs/runbooks/record-via-gdbus.md) | Record and stop a meeting by hand over D-Bus (records real audio) |
+| [`docs/runbooks/processing.md`](docs/runbooks/processing.md) | Hugging Face login, models downloaded by `make install`, first run, troubleshooting by error code |
 | [`docs/runbooks/gnome-extension.md`](docs/runbooks/gnome-extension.md) | Try the panel indicator in a nested shell and install it in your session |
 | [`docs/`](docs/README.md) | Taxonomy: project scope and rules, architecture, ADRs, specs, runbooks, ideas |
 

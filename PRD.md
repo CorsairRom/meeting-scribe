@@ -1,6 +1,6 @@
 ---
 type: prd
-status: draft
+status: approved
 last_updated: 2026-10-09
 ai_instructions:
   - "This PRD describes the full product vision. What is built NOW is defined by docs/project/mvp-scope.md; if they conflict, mvp-scope.md wins."
@@ -15,7 +15,7 @@ ai_instructions:
 **Version**: 0.1.0-draft
 **Author**: Richard
 **Date**: 2026-10-09
-**Status**: Draft — pending user review after F0
+**Status**: Approved (F0 review, 2026-10-09)
 
 > Scope for the current release: [`docs/project/mvp-scope.md`](docs/project/mvp-scope.md).
 > Rules and gotchas: [`docs/project/rules-registry.md`](docs/project/rules-registry.md).
@@ -63,7 +63,7 @@ GPU (8 GB). No accounts, no multi-user, no remote access.
 | F5 Summaries | As the user, I want a "Generate summary" button producing topics, decisions, action items and open questions, so that I do not write minutes. |
 | F5 Summaries | As the user, I want to choose between a local model and a cloud model, with the cloud one clearly marked, so that I control what leaves my machine. |
 | F5 Summaries | As the user, I want to export the summary as Markdown. |
-| F6 Install | As the user, I want a single `make install` for the service and the extension, so that daily use survives reboots. |
+| F2.5 Install | As the user, I want a single `make install` for the service and the extension, so that daily use survives reboots. |
 
 ## 5. Requirements
 
@@ -77,7 +77,7 @@ GPU (8 GB). No accounts, no multi-user, no remote access.
 | FR-4 | Extract a voice sample per speaker; send a desktop notification on completion | F3 |
 | FR-5 | Review app (GTK4, opened from the extension menu): listen per speaker, rename, merge speakers, view transcript | F4 |
 | FR-6 | Summary through a `SummaryProvider` (Ollama local default, DeepSeek cloud opt-in), export `.md` | F5 |
-| FR-7 | Installable as a `systemd --user` service plus GNOME extension | F6 |
+| FR-7 | Installable as a `systemd --user` service plus GNOME extension | F2.5 (runbook in F6) |
 
 ### 5.2 Non-functional
 
@@ -121,7 +121,7 @@ These come from the project history: a test once played speech into the user's h
 
 ## 9. Open questions
 
-1. Diarization of the system channel only (ADR-002): is per-turn energy dominance enough to decide "Me" with loudspeakers? Algorithm to be specified and validated in F3.
+1. Diarization of the system channel only (ADR-002): is per-turn energy dominance enough to decide "Me" with loudspeakers? Answered: the algorithm is specified in [`processing.md`](docs/specs/processing.md) section 2.4 and validated against a real recording at the end of F3.
 2. Summary language: follow the meeting language detected by Whisper, or a setting?
 3. Retention: should old meetings' raw audio be prunable after a summary exists?
 4. Should the review app also be launchable standalone (desktop entry), not only from the extension menu (ADR-005)?

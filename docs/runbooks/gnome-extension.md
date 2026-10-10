@@ -2,9 +2,10 @@
 type: runbook
 status: active
 last_updated: 2026-10-09
-phase: F2
+phase: F3
 verifiable_by:
   - gnome-extension/meeting-scribe@meetingscribe.dev/lib/indicatorModel.js
+  - gnome-extension/meeting-scribe@meetingscribe.dev/lib/meetingsClient.js
   - gnome-extension/meeting-scribe@meetingscribe.dev/metadata.json
   - Makefile
   - tests/unit/test_extension_pack.py
@@ -46,6 +47,21 @@ Derived from `lib/indicatorModel.js`:
 | `FAILED` | `⚠` | Opens the menu | "Recording failed: `<reason>`", **Start recording** |
 | Service unavailable | `○`, dimmed | Opens the menu | "The Meeting Scribe service is not running." and how to start it |
 | A Start or Stop call in flight | unchanged | Ignored | "Working…" |
+
+Meeting processing (from `dev.meetingscribe.Meetings1`, F3.4b) adds lines under the recording items, after a
+separator. It never changes what a click does: every click opens the menu and nothing starts a recording on click.
+
+| Pipeline | Panel | Extra menu lines |
+|---|---|---|
+| Idle, nothing finished yet | unchanged | none |
+| A job runs | label `…` (the `■` timer wins while recording) | "Processing meeting… (transcribing)", "(diarizing)" or "(extracting samples)"; "N meetings queued" when N > 0 |
+| Jobs waiting, none running (for example during a recording) | unchanged | "N meetings queued" |
+| Last job `DONE` | unchanged | "Last meeting processed: N speakers" ("no speech detected" for 0); no meeting id or content |
+| Last job `FAILED` | unchanged | **Processing failed — Reprocess** (calls `Meetings1.Reprocess`; a refusal is shown as a notification) |
+| Service unavailable | `○` | none (processing is hidden) |
+
+The last result is kept until a job starts or the service restarts; a successful Reprocess forgets a `FAILED` result so
+the action cannot fire twice. The service already sends the desktop notification; the extension sends none.
 
 ## Build the bundle
 

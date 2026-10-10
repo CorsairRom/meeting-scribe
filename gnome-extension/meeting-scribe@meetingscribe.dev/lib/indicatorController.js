@@ -10,14 +10,17 @@ export class IndicatorController {
     /**
      * @param {object} options
      * @param {object} options.client - `snapshot`, `start()` and `stop()` (a RecordingClient)
+     * @param {object} [options.meetings] - `snapshot` and `reprocess(id)` (a MeetingsClient);
+     *     omit it and the menu simply shows no processing state
      * @param {{render: Function}} options.view - receives the view model on every change
      * @param {{every: Function, cancel: Function}} options.scheduler - `every(seconds, fn)`
      *     returns a handle that `cancel(handle)` releases
      * @param {Function} options.notify - `notify(title, body)` shows an error to the user
      * @param {Function} [options._] - translation function (identity by default)
      */
-    constructor({client, view, scheduler, notify, _ = s => s}) {
+    constructor({client, meetings = null, view, scheduler, notify, _ = s => s}) {
         this._client = client;
+        this._meetings = meetings;
         this._view = view;
         this._scheduler = scheduler;
         this._notify = notify;
@@ -31,6 +34,12 @@ export class IndicatorController {
         this.handleChange(this._client.snapshot);
     }
 
+    /** Meetings client `onChange` hook: the pipeline changed, render again. */
+    handleProcessingChange() {
+        if (!this._destroyed)
+            this._view.render(this._model(this._client.snapshot));
+    }
+
     /** Client `onChange` hook: render and keep the tick in line with the state. */
     handleChange(snapshot) {
         if (this._destroyed)
@@ -40,7 +49,7 @@ export class IndicatorController {
             this._tick = this._scheduler.every(TICK_SECONDS, () => this._onTick());
         else if (!recording)
             this._stopTick();
-        this._view.render(viewModel(snapshot, this._));
+        this._view.render(this._model(snapshot));
     }
 
     /**
@@ -57,7 +66,7 @@ export class IndicatorController {
             return 'none';
         if (menuOpen)
             return 'close-menu';
-        const {clickAction} = viewModel(this._client.snapshot, this._);
+        const {clickAction} = this._model(this._client.snapshot);
         if (clickAction === 'start')
             this._run(() => this._client.start());
         return clickAction;
@@ -66,7 +75,7 @@ export class IndicatorController {
     /**
      * Handle a menu action item.
      *
-     * @param {string} id - `start` or `stop`
+     * @param {string} id - `start`, `stop` or `reprocess` (the failed meeting shown last)
      * @returns {Promise<void>} settles once the call (and any notification) is done
      */
     onMenuAction(id) {
@@ -76,6 +85,8 @@ export class IndicatorController {
             return this._run(() => this._client.start());
         if (id === 'stop')
             return this._run(() => this._client.stop());
+        if (id === 'reprocess')
+            return this._reprocess();
         return Promise.resolve();
     }
 
@@ -87,7 +98,18 @@ export class IndicatorController {
 
     _onTick() {
         if (!this._destroyed)
-            this._view.render(viewModel(this._client.snapshot, this._));
+            this._view.render(this._model(this._client.snapshot));
+    }
+
+    _model(snapshot) {
+        return viewModel({...snapshot, processing: this._meetings?.snapshot}, this._);
+    }
+
+    _reprocess() {
+        const last = this._meetings?.snapshot.last;
+        if (last?.state !== 'FAILED')
+            return Promise.resolve();
+        return this._run(() => this._meetings.reprocess(last.meetingId));
     }
 
     _stopTick() {

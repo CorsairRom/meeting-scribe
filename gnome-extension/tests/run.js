@@ -7,6 +7,7 @@ import './indicatorController.test.js';
 import './glibScheduler.test.js';
 import './indicatorModel.test.js';
 import './privateBus.test.js';
+import './meetingsClient.test.js';
 import './recordingClient.test.js';
 import './shellGlue.test.js';
 

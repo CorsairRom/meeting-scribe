@@ -330,7 +330,146 @@ extension in the user's session, or running the nested shell, only with the user
       `20261009173638-2310554`, `current` → that version, ExecStart `…/current/bin/meeting-scribe`,
       legacy `~/.local/bin/meeting-scribe` removed, service active (`IDLE`), extension enabled.
       Cosmetic follow-up: silence uv's "bin is not on your PATH" warning for versioned bins.
-### F3 Processing — pending
+### F3 Processing — integration branch `feat/processing` (from `main` after #35)
+
+Goal: on Stop, the service automatically transcribes (faster-whisper large-v3-turbo, CUDA float16)
+and diarizes (pyannote community-1) the recording, extracts a voice sample per speaker, labels the
+user's own voice "Me" from the mic channel (ADR-002), stores results in the meeting folder
+(ADR-004) and sends a desktop notification ("Done: N speakers"). One GPU job at a time; models are
+never resident together (ADR-003). Pending jobs resume at service start.
+Safety: tests use synthetic audio only and never load models (adapters behind ports, GPU tests
+opt-in and skipped by default); real-recording validation only with the user's consent, on their
+own meeting, without reading its content into the repo or logs.
+
+- [x] F3.0 Design spec `docs/specs/processing.md` + ADR-007 (GPU work in a short-lived worker
+      subprocess per job, so VRAM is fully released) after mapping the prototype and verifying
+      faster-whisper / pyannote.audio 4 APIs. Branch `f3/docs-processing-design`.
+      Route: delegated writer (opus). `59b34d4` spec (857 lines) + backlog/README; `89f005b` ADR-007 +
+      ARCHITECTURE. Revision vs plan: one worker process per GPU STAGE (CTranslate2 manages its own
+      VRAM; only process exit guarantees release). Transcribe the channel mix, diarize the system
+      channel, "Me" by per-frame energy dominance (6 dB) with bleed estimate, "Unknown" when
+      ambiguous; ML deps in an `ml` extra kept out of the service by an import contract.
+      User approved ADR-007 (now active) and all 8 product recommendations on 2026-10-09: process
+      FAILED captures; ignore folders without meeting.json; preempt processing while recording and
+      resume after; in-person meetings diarize the mic without "Me"; CUDA required unless CPU set
+      explicitly; `Meetings1.Reprocess` in F3; models downloaded during `make install`, worker
+      offline afterwards; keep "Unknown".
+- [x] F3.1 `meetings` domain: Meeting entity + processing state machine, versioned `meeting.json`
+      repository (folder per meeting), job queue + single worker orchestration, resume at start.
+      Evidence — F3.1a: `665c812` entity + state machine + timeline/fingerprint,
+      +657 incl. ~350 tests; `8f7b926` filesystem repository meeting.json v1, atomic `Path.replace`,
+      unknown keys preserved, UNSUPPORTED for newer schemas, null object for missing, path-traversal
+      ids → null; RED `ModuleNotFoundError` per module → GREEN 332 python. Open for F3.1b: resume of a
+      job stored in DIARIZING restarts at transcribe → controller needs a resume transition).
+      F3.1a integrated (#53, #54; review `review-3204a2c798a1571a` approved). F3.1b (delegated):
+      `d6297d0` save identity check + directory fsync; `9e81ef3` ProcessingController (enqueue with
+      RecordingInfo, resume, reprocess, preempt/release, shutdown) + FIFO single-worker loop +
+      `Meeting.resume`; `1e94014` subprocess WorkerRunner, JSON-lines protocol v1 (`event` key; job
+      spec on stdin; started/cache_hit/progress/stage/result/error), timeout/crash/protocol errors,
+      SIGTERM→SIGKILL on the process group, worker entry-point skeleton without ML imports;
+      `be6105f` ProcessingSettings + WavChunkInspector. RED per new module → GREEN 414 python / 75
+      extension; queue/preempt tests mutation-checked; no stray workers. Integrated #55–#58; review
+      `review-a90aa9ce9149e00c` approved (2422 lines). F3.1c fixes (delegated): `7f0b598` bare-id
+      check on save, dir-fsync errors tolerated, truncated WAV headers mapped; `320ec1a` a failed save
+      never strands a job (record failure, else requeue; give up in memory after 3); `bac0e10` bounded
+      wait after a worker result + spawn-failure cleanup; `f008a99`/`904dcf7` scoped ruff ignores,
+      `JobOutcome` enum, settings as single source of processing defaults. GREEN 437 python.
+      Integrated #59; review `review-f9c413cad1c9ae97` approved. F3.1d (`fd6c6d5`, +379/-35): storage
+      retries back off (`PROCESSING_STORAGE_RETRY_DELAYS_SECONDS`, default 2/8/30 s, budget = delays+1
+      runs), `storage_failed` event after the budget, read failures `UNLOADED` (retried) vs
+      `UNREADABLE` (corrupt/newer schema, reported, not retried, new `MEETING_CORRUPT`), result kept
+      when the deadline passes during the post-result grace. GREEN 454 python. Pending for the user:
+      `.env.example` is blocked by the permission settings for agents → add
+      `PROCESSING_STORAGE_RETRY_DELAYS_SECONDS=[2,8,30]` by hand.
+- [x] F3.2 `transcription` domain + faster-whisper adapter (CUDA lib preload with logging, WAV
+      decode without PyAV, word timestamps, params-keyed cache).
+      Evidence — integrated #60 (F3.1d, review `review-38ba44f658d2bbc7` approved). F3.2 (delegated):
+      `c5ea0f3` review fixes (deduped delayed retries, pure `_can_start` + `_promote_due_retries`,
+      `storage_failed` carries id + code only); `01ef76a` transcription domain, params, cache key
+      (params + audio fingerprint), TranscriptionSettings; `4268263` faster-whisper worker stage (lazy
+      imports, CUDA preload 17 libs logged, cuda default → `GPU_UNAVAILABLE` without CPU fallback,
+      wave+numpy decode, per-segment progress, cache hit), `ml` extra (faster-whisper 1.2.1,
+      ctranslate2 4.8.2, cublas 12.9.2.10, cudnn 9.27.0.42; no torch yet), 2 new import contracts
+      (8 kept; both proved to bite). GREEN 517 python (2 GPU deselected). Opt-in GPU test on synthetic
+      audio: VRAM 457 → 2516 → 457 MiB after exit; 4.2 s first run (load 2.5 s), 0.2 s cache hit
+      (A-1 partly, A-3/A-4 confirmed for Whisper). New env vars for the user's `.env.example`:
+      TRANSCRIPTION_MODEL/LANGUAGE/COMPUTE_TYPE/CPU_COMPUTE_TYPE/BEAM_SIZE/VAD_FILTER/
+      CONDITION_ON_PREVIOUS_TEXT.
+- [x] F3.3 `speakers` domain + pyannote adapter (exclusive diarization), word→speaker assignment,
+      utterance grouping, renumbering, "Me" by per-turn mic/system energy dominance, voice samples.
+      F3.3a (delegated): `3952db1` lazy worker stage build (refused invocations import no adapters
+      or numpy) + JsonWordsCache and load-audio failure tests; `3f521f2` assignment (max overlap,
+      else nearest by midpoint), grouping (gap 5.0 s), numbering, rendering, SpeakersSettings;
+      `6525895` "Me" by per-frame energy dominance (6 dB, noise margin 10 dB, bleed estimate, min
+      turn 0.5 s, "Unknown" when ambiguous), in-person fallback (<1 % system speech), voice sample
+      selection (3 clips, 15 s, 1.5–6 s) — pure Python over precomputed frame energies (speakers
+      domain never imports numpy). RED per module → GREEN 587 python; bleed mutation (k=0) fails 3
+      tests. New env vars SPEAKERS_* for the user's `.env.example`.
+      F3.3a integrated (#64–#66; review `review-2e02a0efe5b00027` approved). F3.3b (delegated; the
+      first run died with the previous session and was resumed): `7472173` settings/Me-turn fixes from
+      the F3.3a review; `82b2803` pyannote worker stage (pyannote.audio 4.0.7, torch 2.14.1 from PyPI;
+      `PYANNOTE_METRICS_ENABLED=false` (telemetry is ON by default, A-8); gated/401/403/no-token →
+      `DIARIZATION_MODEL_ACCESS_DENIED` with `hf auth login` hint (A-11); OOM → `GPU_OUT_OF_MEMORY`;
+      quiet progress hook (A-12)); `d984381` samples + `transcript.md` + `utterances.json`;
+      `e47daa9` contract-7 row (caught by the new drift test after rebasing onto #67).
+      TDD DEVIATION: the writer wrote code before tests and recorded RED afterwards by stashing `src`
+      (14 failures / collection errors) — not strict TDD; noted for future briefs. GREEN 672 python.
+      The model was NOT downloaded/loaded (user's HF login not authorized yet): the real GPU test
+      `tests/gpu/test_diarize_worker.py` (A-5) runs in F3.5 with consent.
+- [x] F3.4 Wiring (F3.4a + F3.4b done): Stop enqueues processing; D-Bus `Meetings1` (list/get, processing state,
+      `ProcessingFinished`); desktop notification; extension shows processing state.
+      F3.3b integrated (#68–#70; reviews d2b70651, 9f53b245, e9dfff1c approved; deps split from code to
+      fit the lens budget). F3.4a (delegated, test-first enforced): `7447def` diarization review fixes
+      (bounded energy memory 38.5→<4.8 MB, staged sample/transcript writes `.assembling/` + atomic swap,
+      final progress kept, PYTHONPATH-independent subprocess test); `e29d1cf` RecordingListener +
+      handoff (Stop/crash → enqueue + release, Start → preempt), ProcessingConfig built from settings
+      with a wiring test, processing loop thread started/stopped by serve() (resume at start, 20 s
+      bounded shutdown); `b2d1d50` Meetings1 (List/Get/Reprocess, ActiveMeetingId/ActiveState/
+      QueuedCount, ProcessingStateChanged/ProcessingFinished), Notifier + org.freedesktop.Notifications
+      adapter ("Meeting processed: N speakers"), private-bus e2e with fake worker + fake notifier.
+      GREEN 732 python / 75 extension; no stray daemons/workers. Open (F3.5): a stopped session that
+      cannot be enqueued (storage error) is only logged; loop outliving the shutdown bound exits 0.
+      F3.4a integrated (#71–#73; reviews 1a45351a, 03eb3d7c, 1117f150 approved). F3.4b (delegated):
+      `5a3d14d` outputs committed as one set (backup dir + manifest, `.commit.done` as commit point,
+      interrupted commits rolled back; 23 failure-injection cases, 14 RED before), handoff release in
+      `finally`, unexpected crash → FAILED announced, failed ProcessingFinished asserted e2e;
+      `15f9618` extension MeetingsClient + menu processing lines (running stage, queued count, last
+      result "Last meeting processed: N speakers" / "no speech detected", FAILED → Reprocess action;
+      panel shows "…" while processing; click still only opens the menu). RED observed per behavior
+      (client RED via stub swap after it was written first). GREEN 760 python / 104 extension.
+- [x] F3.5 Install/packaging update (ML deps in the versioned install), runbook, real-recording
+      validation with consent.
+  - [x] F3.5a Code + docs (delegated writers; route: delegated direct, 2+ non-trivial files).
+        `a2993f6` review follow-ups (enqueue-failure notification, exit 4 = processing outlived the
+        shutdown bound, extension stale last result / proxy error log); `1202d85` `uv tool install
+        "meeting-scribe[ml] @ <repo>"` + `meeting-scribe prefetch-models` (console script
+        `meeting_scribe.cli:run`; pyannote first, then Whisper; worker env forces HF_HUB_OFFLINE=1);
+        `d497289` `docs/runbooks/processing.md`; `d12ca59`/`f15a006`/`62914be` prefetch skipped after
+        rollback, bounded by MEETING_SCRIBE_PREFETCH_TIMEOUT (3600 s, validated), explicit outcome
+        status, accurate messages, CLI wiring test; KillMode=mixed kills a stray worker before restart
+        (man systemd.kill, GO-026). RED observed per behavior (commit-point matrix and CLI wiring are
+        characterization). GREEN 802 python / 108 extension, 8 contracts kept. Reviews
+        review-97213a81aa56a412, review-dbd9549303e5d65f, review-74262dea92e82e8b approved and
+        acknowledged. Integrated #76–#78; origin/feat/processing tree == local.
+        Follow-ups (not fixed, avoid review loop): exit 137 may be an OOM kill rather than the
+        timeout (summary would say "timed out"); summary `*)` branch prints "downloaded" for an
+        unknown status; prefetch hint hard-codes setting names.
+  - [x] F3.5b Real validation with user consent: `hf auth login` + accept community-1 terms,
+        `make install` (prefetch), `uv run pytest -m gpu`, one real meeting checked by states/counts
+        only.
+    - [x] `make install` (user go, 2026-10-09): exit 0, version 20261009204854-3729151, service active,
+          extension enabled, "Models ready: 2 of 2" with the stored login (no new login needed).
+          Measured: 7.1 GB per version, models 1.6 GB (turbo) + 32 MB (community-1).
+    - [x] `uv run pytest -m gpu`: first run RED, diarization chose `mic` because the synthetic
+          system channel had a tone in every frame (10th-percentile floor = the tone, OQ-4 reads it
+          silent); fixture fixed with pauses (`c9b899d`), GREEN: community-1 peak 517 MiB over 13 MiB,
+          load 4.0 s, VRAM back to baseline; Whisper peak 2075 MiB. Review review-3aca299aef832622
+          approved. Integrated #79. Follow-up: no unit test pins the continuous-sound edge of OQ-4.
+    - [x] One real meeting processed (user-run, 2026-10-09): the extension menu showed the stages and
+          "Last meeting processed: 1 speaker" (DONE); checked from the user's screenshot only, no
+          content opened. User feedback recorded in the backlog "Later improvements" (storage layout,
+          readable names, audio retention, DB only if needed, cross-meeting voices, legacy import) and
+          F5 (menu opens the summary, not the transcript). Decision: F3 closes as is, then F4.
 ### F4 Review UI — pending
 ### F5 Summaries — pending
 ### F6 Install — pending

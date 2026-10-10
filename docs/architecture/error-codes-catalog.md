@@ -5,6 +5,9 @@ last_updated: 2026-10-09
 verifiable_by:
   - src/meeting_scribe/base/domain/errors.py
   - src/meeting_scribe/recording/domain/errors.py
+  - src/meeting_scribe/meetings/domain/errors.py
+  - src/meeting_scribe/transcription/domain/errors.py
+  - tests/unit/meetings/test_errors.py
   - tests/unit/recording/test_errors.py
   - tests/unit/base/test_errors.py
 ai_instructions:
@@ -28,7 +31,7 @@ it with dbus-fast as `DBusError("dev.meetingscribe.Error.<ERROR_CODE>", message)
 The error-name prefix is proposed and renamable until F6, together with the bus name
 ([ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md)). Inspect errors with `gdbus call` or `busctl --user call`.
 
-> **State today (F1.4)**: `to_dbus_error` (`src/meeting_scribe/base/infrastructure/dbus/errors.py`) builds this error
+> **Current behavior**: `to_dbus_error` (`src/meeting_scribe/base/infrastructure/dbus/errors.py`) builds this error
 > from any `MeetingScribeError` using the instance `error_code` (so detail codes carry through); the `Recording1`
 > adapter applies it to every `Failure`. Only the error message crosses the bus: no stack trace.
 
@@ -55,6 +58,26 @@ All classes derive from `MeetingScribeError` in `src/meeting_scribe/base/domain/
 | `AudioDeviceNotFoundError` | `AUDIO_DEVICE_NOT_FOUND` | `recording`: default sink monitor or microphone source could not be resolved | `dev.meetingscribe.Error.AUDIO_DEVICE_NOT_FOUND` |
 | `AudioCaptureError` | `AUDIO_CAPTURE_FAILED` | `recording`: the capture process failed to start or stop cleanly | `dev.meetingscribe.Error.AUDIO_CAPTURE_FAILED` |
 | `RecordingStorageError` | `RECORDING_STORAGE_FAILED` | `recording`: the session folder could not be created (or already exists) | `dev.meetingscribe.Error.RECORDING_STORAGE_FAILED` |
+| `MeetingStorageError` | `MEETING_STORAGE_FAILED` | `meetings`: `meeting.json` could not be read, written or listed (I/O error) | `dev.meetingscribe.Error.MEETING_STORAGE_FAILED` |
+| `MeetingCorruptError` | `MEETING_CORRUPT` | `meetings`: `meeting.json` exists but is damaged or invalid (permanent; the processing loop never retries it) | `dev.meetingscribe.Error.MEETING_CORRUPT` |
+| `MeetingSchemaUnsupportedError` | `MEETING_SCHEMA_UNSUPPORTED` | `meetings`: `meeting.json` has a `schema_version` newer than the service supports; the meeting is never processed or rewritten | `dev.meetingscribe.Error.MEETING_SCHEMA_UNSUPPORTED` |
+| `MeetingProcessingActiveError` | `MEETING_PROCESSING_ACTIVE` | `meetings`: reprocess requested while the job is queued or running (subclass of `InvalidStateTransitionError`) | `dev.meetingscribe.Error.MEETING_PROCESSING_ACTIVE` |
+| `MeetingAudioMissingError` | `MEETING_AUDIO_MISSING` | `meetings`: the recording has no chunk with audio frames | `dev.meetingscribe.Error.MEETING_AUDIO_MISSING` |
+| `MeetingAudioUnsupportedError` | `MEETING_AUDIO_UNSUPPORTED` | `meetings`: a chunk is not 2-channel, 16 kHz, 16-bit PCM | `dev.meetingscribe.Error.MEETING_AUDIO_UNSUPPORTED` |
+| `WorkerCrashedError` | `WORKER_CRASHED` | `meetings`: a processing worker process exited abnormally | `dev.meetingscribe.Error.WORKER_CRASHED` |
+| `WorkerTimeoutError` | `WORKER_TIMEOUT` | `meetings`: a processing worker exceeded its stage timeout | `dev.meetingscribe.Error.WORKER_TIMEOUT` |
+| `WorkerProtocolError` | `WORKER_PROTOCOL_ERROR` | `meetings`: a worker emitted an unparseable or out-of-order event | `dev.meetingscribe.Error.WORKER_PROTOCOL_ERROR` |
+| `WorkerReportedError` | instance code from the worker (`GPU_OUT_OF_MEMORY`, ...; class default `WORKER_REPORTED_ERROR`) | `meetings`: the worker's own `error` event, carried into `processing.failure` | the worker's code under `dev.meetingscribe.Error.` |
+| `GpuUnavailableError` | `GPU_UNAVAILABLE` | `base` (shared by the GPU stages): no usable CUDA device or driver; the message suggests `PROCESSING_DEVICE=cpu`; never a silent CPU fallback | `dev.meetingscribe.Error.GPU_UNAVAILABLE` |
+| `GpuOutOfMemoryError` | `GPU_OUT_OF_MEMORY` | `base`: the GPU ran out of memory; no automatic CPU retry | `dev.meetingscribe.Error.GPU_OUT_OF_MEMORY` |
+| `ModelUnavailableError` | `MODEL_UNAVAILABLE` | `base`: a model is neither cached nor downloadable (offline or unknown name) | `dev.meetingscribe.Error.MODEL_UNAVAILABLE` |
+| `DiarizationError` | `DIARIZATION_FAILED` | `speakers`: the pipeline or the `turns.json` cache failed for a reason not covered by a more specific code | `dev.meetingscribe.Error.DIARIZATION_FAILED` |
+| `DiarizationModelAccessError` | `DIARIZATION_MODEL_ACCESS_DENIED` | `speakers`: the pyannote pipeline is gated or there is no Hugging Face login; the message names the model page and `hf auth login`; `words.json` is kept | `dev.meetingscribe.Error.DIARIZATION_MODEL_ACCESS_DENIED` |
+| `TranscriptionError` | `TRANSCRIPTION_FAILED` | `transcription`: the model or the `words.json` cache failed for a reason not covered by a more specific code | `dev.meetingscribe.Error.TRANSCRIPTION_FAILED` |
+| `NotificationError` | `NOTIFICATION_FAILED` | `meetings`: the desktop notification could not be delivered (no notification service, bus lost, timeout); logged at WARNING, never changes a job and never reaches a client | not exposed |
+| `WorkerCancelledError` | `WORKER_CANCELLED` | `meetings`: the worker was stopped on request (preemption or shutdown); internal, the job is not failed and it never reaches a client | not exposed |
+| (no class) | `WORKER_UNKNOWN_STAGE` | `worker.py`: the worker was asked for a stage name it does not know; reported as a worker `error` event | the worker's code under `dev.meetingscribe.Error.` |
+| (no class) | `WORKER_STAGE_UNAVAILABLE` | `worker.py`: the stage is known but not implemented in this build (for example diarize before F3.3b); reported as a worker `error` event | the worker's code under `dev.meetingscribe.Error.` |
 
 Domain packages add their own subclasses next to their domain code (for example a `recording` error) and
 register them in this table.
