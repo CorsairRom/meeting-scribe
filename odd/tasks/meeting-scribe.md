@@ -470,7 +470,13 @@ own meeting, without reading its content into the repo or logs.
           content opened. User feedback recorded in the backlog "Later improvements" (storage layout,
           readable names, audio retention, DB only if needed, cross-meeting voices, legacy import) and
           F5 (menu opens the summary, not the transcript). Decision: F3 closes as is, then F4.
+- [x] F3 docs gate: read-only audit (no P1/P2 left after #80), `make check` green, language scan clean
+      (no voseo in code, docs or commits; only neutral Spanish fixture words for non-ASCII tests).
+      Review review-9c4fa0825fe1a866 approved. Tracker #52 marked ready for the owner.
 ### F4 Review UI — pending
+- [ ] F4.0 Add the language scan to the "Integration PR docs gate" in
+      `docs/project/doc-sync-protocol.md` (user rule 2026-10-09: voseo and Spanish only in chat, never in
+      code, comments, UI strings, docs, commits or PR text; fixtures for non-ASCII text allowed).
 ### F5 Summaries — pending
 ### F6 Install — pending
 
