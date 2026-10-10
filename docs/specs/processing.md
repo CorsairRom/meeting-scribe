@@ -1,7 +1,7 @@
 ---
 type: spec
 feature: processing
-status: in-progress  # draft | approved | in-progress | done | blocked
+status: done  # draft | approved | in-progress | done | blocked
 mvp: true
 prd_ref: FR-3, FR-4, NFR-3, NFR-4, NFR-5, NFR-6, open question 1
 depends_on:
