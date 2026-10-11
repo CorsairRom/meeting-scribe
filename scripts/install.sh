@@ -11,12 +11,12 @@
 # The ML models are downloaded as a visible step AFTER the switch (OQ-7): recording never needs
 # them, so a missing network or Hugging Face login must not block installing the service. A failed
 # download is reported in the summary (the worker runs offline and says MODEL_UNAVAILABLE until a
-# later `make install` fetches them); it never fails the install.
+# later `make install` fetches them); it never fails the install. The download is bounded by
+# MEETING_SCRIBE_PREFETCH_TIMEOUT seconds (default 3600) and skipped when the install rolled back.
 #
 # Ollama and the local summary model are only CHECKED, read-only (`ollama list`, bounded by
 # MEETING_SCRIBE_OLLAMA_TIMEOUT seconds, default 10): the install never starts Ollama, never pulls a
-# model and never sends a prompt. A gap only warns with the command to fix it. The download is bounded by
-# MEETING_SCRIBE_PREFETCH_TIMEOUT seconds (default 3600) and skipped when the install rolled back.
+# model and never sends a prompt. A gap only warns with the command to fix it.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -246,6 +246,22 @@ else
     || review_missing+=(libadwaita)
 fi
 
+# The value of a `KEY=value` line: CR removed, surrounding spaces trimmed; a quoted value ends at its
+# closing quote (so a trailing comment is dropped); an unquoted one ends at a ` #` comment.
+parse_env_value() {
+  local value="${1%$'\r'}" quote
+  value="${value#"${value%%[![:space:]]*}"}"
+  case "$value" in
+    \"* | \'*)
+      quote="${value:0:1}"
+      value="${value:1}"
+      value="${value%%"$quote"*}" ;;
+    *) value="${value%%[[:space:]]\#*}" ;;
+  esac
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
 # The configured local model: SUMMARIES_LOCAL_MODEL from the environment, else that one line of the
 # settings file (nothing else in it is read), else the default. Quotes and spaces are stripped.
 readonly OLLAMA_MODEL_DEFAULT="qwen3.5:9b"
@@ -253,8 +269,7 @@ readonly OLLAMA_TIMEOUT_DEFAULT=10
 ollama_model="${SUMMARIES_LOCAL_MODEL:-}"
 if [[ -z "$ollama_model" && -f "$CONFIG_HOME/meeting-scribe/.env" ]]; then
   ollama_model="$(grep -m1 '^SUMMARIES_LOCAL_MODEL=' "$CONFIG_HOME/meeting-scribe/.env" 2>/dev/null || true)"
-  ollama_model="${ollama_model#SUMMARIES_LOCAL_MODEL=}"
-  ollama_model="${ollama_model//[\"\' ]/}"
+  ollama_model="$(parse_env_value "${ollama_model#SUMMARIES_LOCAL_MODEL=}")"
 fi
 ollama_model="${ollama_model:-$OLLAMA_MODEL_DEFAULT}"
 ollama_timeout="${MEETING_SCRIBE_OLLAMA_TIMEOUT:-$OLLAMA_TIMEOUT_DEFAULT}"

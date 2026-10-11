@@ -353,3 +353,34 @@ test('meetings: a path that is not absolute is never kept', async () => {
         assertEqual(client.snapshot.lastSummary, null);
     });
 });
+
+test('meetings: overlapping refreshes resolved out of order keep the newest answer', async () => {
+    await withFixture(async ({client, fake, until}) => {
+        client.connect();
+        await until(() => client.snapshot.available);
+        await sleep(150); // the refresh made on appear is settled
+        assertEqual(fake.summaryCalls, 1);
+        fake.summaryDelays = [400, 0];
+        fake.lastSummary = SUMMARY; // the first call is asked while this is the answer
+        const first = client.refreshLastSummary();
+        fake.lastSummary = {...SUMMARY, path: '/fake/dir/m2/summary.md'};
+        const second = client.refreshLastSummary();
+        await Promise.all([first, second]);
+        assertEqual(client.snapshot.lastSummary?.path, '/fake/dir/m2/summary.md');
+        assertEqual(fake.summaryCalls, 3);
+    });
+});
+
+test('meetings: a hung LastSummary times out, hides the item and does not hang the refresh', async () => {
+    await withFixture(async ({client, fake, until}) => {
+        client.connect();
+        await until(() => client.snapshot.available);
+        await sleep(100);
+        fake.hangSummary = true;
+        const startedAt = GLib.get_monotonic_time();
+        await client.refreshLastSummary();
+        const waitedMs = (GLib.get_monotonic_time() - startedAt) / 1000;
+        assertEqual(waitedMs < 2500, true, `waited ${waitedMs} ms: `);
+        assertEqual(client.snapshot.lastSummary, null);
+    }, {clientOptions: {callTimeoutMs: 300}});
+});

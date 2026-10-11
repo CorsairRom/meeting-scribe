@@ -227,6 +227,8 @@ export class FakeMeetingsService {
         this.lastSummary = null; // {meeting_id, started_at, generated_at, path}
         this.withSummaries = true; // false: an older service without Summaries1
         this.summaryCalls = 0;
+        this.summaryDelays = []; // per call, in order: ms to wait before answering (-1: never)
+        this.hangSummary = false;
         this._summaries = null;
     }
 
@@ -264,12 +266,27 @@ export class FakeMeetingsService {
 
     LastSummaryAsync(_params, invocation) {
         this.summaryCalls++;
-        if (this.lastSummary === null) {
+        if (this.hangSummary)
+            return; // never answers: simulates a stuck service
+        const delay = this.summaryDelays.shift() ?? 0;
+        const answer = this.lastSummary; // what the service knew when it was asked
+        if (delay > 0) {
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
+                this._answerSummary(answer, invocation);
+                return GLib.SOURCE_REMOVE;
+            });
+            return;
+        }
+        this._answerSummary(answer, invocation);
+    }
+
+    _answerSummary(answer, invocation) {
+        if (answer === null) {
             invocation.return_dbus_error(`${ERROR_PREFIX}ENTITY_NOT_FOUND_SUMMARY`, 'none');
             return;
         }
         const entries = {};
-        for (const [key, value] of Object.entries(this.lastSummary))
+        for (const [key, value] of Object.entries(answer))
             entries[key] = new GLib.Variant('s', value);
         invocation.return_value(new GLib.Variant('(a{sv})', [entries]));
     }

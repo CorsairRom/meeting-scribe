@@ -1270,3 +1270,28 @@ def test_uninstall_never_touches_ollama(sandbox: Env) -> None:
     sandbox.log.write_text("")
     sandbox.run(UNINSTALL, **IDLE)
     assert _ollama_calls(sandbox) == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'SUMMARIES_LOCAL_MODEL="gemma3:4b"  # the small one\r\n',  # CRLF, quotes, inline comment
+        "SUMMARIES_LOCAL_MODEL='gemma3:4b'\r\n",
+        "SUMMARIES_LOCAL_MODEL=  gemma3:4b   # note\n",
+        "SUMMARIES_LOCAL_MODEL=gemma3:4b\t#note\n",
+    ],
+)
+def test_the_model_line_is_parsed_robustly(sandbox: Env, line: str) -> None:
+    config = sandbox.home / ".config" / "meeting-scribe"
+    config.mkdir(parents=True)
+    (config / ".env").write_bytes(line.encode())
+    result = sandbox.run(INSTALL, FAKE_OLLAMA_MODEL="gemma3:4b", **IDLE)
+    assert "model gemma3:4b present" in _summary(result)
+
+
+def test_a_model_name_containing_a_hash_is_kept_when_no_space_precedes_it(sandbox: Env) -> None:
+    config = sandbox.home / ".config" / "meeting-scribe"
+    config.mkdir(parents=True)
+    (config / ".env").write_text("SUMMARIES_LOCAL_MODEL=org/model#1\n")
+    result = sandbox.run(INSTALL, **IDLE)
+    assert "model org/model#1 NOT found" in _summary(result)
