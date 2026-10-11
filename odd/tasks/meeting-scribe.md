@@ -514,9 +514,18 @@ Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv 
       playback not run on a display (manual check in F4.8). Follow-ups for F4.6 first commit: e2e client has no
       deadline (may hang if fewer signals), no test for the gateway INVALID_REPLY path (and KeyError/
       AttributeError not caught), sidebar timestamp() may raise before the fallback.
-- [ ] F4.6 packaging: launcher, desktop entry, install/uninstall, runbook (~300)
-- [ ] F4.7 extension "Review last meeting" item (~200)
-- [ ] F4.8 validation with consent, docs closure, docs gate (~150)
+- [x] F4.6 packaging: launcher (pinned /usr/bin/python3), desktop entry written only after a successful switch
+      and removed on rollback to a pre-F4 version, Exec quoted per spec, uninstall removes only what install
+      created, runbook `docs/runbooks/review-app.md`, GO-052. Integrated #95 (+ hardening in #96).
+- [x] F4.7 extension "Review last meeting" item: only in IDLE/STOPPED/FAILED, hidden while busy, failure
+      notification (GO-053). Reviews review-f12a84b35a5dde44 (4 lenses) and review-e21ff1119217dad3 approved.
+      Integrated #96. GREEN 1123 python / 122 gjs. Follow-ups (docs gate): GO-052 still says REVIEW_APP_PYTHON
+      is test-only (it is also the run-review-app override); install test comments/asserts (rollback summary
+      comment, Exec parser `%%`, rollback-keep assertion, make dry-run return code).
+- [x] F4.8 validation with the owner's go (2026-10-11): `make install` (version 20261011162806-703787, review app
+      ready, Meetings1 review methods confirmed by introspection); the owner opened the app from the menu and
+      reported it works. Docs gate: read-only audit (5 P1, 5 P2 doc drifts, no code issue) fixed in `6718079`;
+      language scan clean; `make check` green (1123 python / 122 gjs, 12 contracts). Tracker #82 marked ready.
 ### F5 Summaries — pending
 ### F6 Install — pending
 

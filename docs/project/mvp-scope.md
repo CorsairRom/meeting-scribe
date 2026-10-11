@@ -75,7 +75,7 @@ and generate a summary — all running locally on the developer's machine.
 | FR-2 panel button | F2 | `gnome-extension/meeting-scribe@meetingscribe.dev/` | `gnome-extension/tests/` (`make test-extension`), `tests/unit/test_extension_pack.py` |
 | FR-3 transcribe + diarize after stop | F3 | `src/meeting_scribe/meetings/`, `src/meeting_scribe/transcription/`, `src/meeting_scribe/speakers/`, `src/meeting_scribe/worker.py` | `tests/unit/meetings/`, `tests/unit/transcription/`, `tests/unit/speakers/` |
 | FR-4 voice samples, notification | F3 | `src/meeting_scribe/speakers/` (samples); `src/meeting_scribe/meetings/` (notification, `Meetings1`) | `tests/unit/speakers/` |
-| FR-5 review: listen, rename, merge | F4 | pending | pending |
+| FR-5 review: listen, rename, merge | F4 | `src/meeting_scribe/speakers/`, `src/meeting_scribe/meetings/`, `review-app/src/meeting_scribe_review/`, `gnome-extension/` | `tests/unit/speakers/`, `tests/unit/review_app/`, `tests/e2e/meetings/`, `gnome-extension/tests/` |
 | FR-6 summary via LLM provider | F5 | pending | pending |
 | FR-7 install | F2.5 (runbook in F6) | `scripts/install.sh`, `scripts/uninstall.sh` | `tests/unit/test_install_scripts.py` |
 

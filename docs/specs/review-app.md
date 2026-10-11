@@ -1,7 +1,7 @@
 ---
 type: spec
 feature: review-app
-status: approved  # draft | approved | in-progress | done | blocked
+status: in-progress  # draft | approved | in-progress | done | blocked
 mvp: true
 prd_ref: FR-5, NFR-1, NFR-2, NFR-6, safety requirements 1-3
 depends_on:
@@ -716,22 +716,22 @@ its tests and docs.
 | `Gtk.MediaFile.new_for_input_stream` accepts a `Gio.MemoryInputStream` and plays WAV through the GStreamer backend | F4.5b | Signature and a seekable in-memory stream verified (F4.5b); playing not verified, needs consent (A-3) |
 | `Adw.NavigationSplitView`, `Adw.Application`, `Adw.AlertDialog` (1.9) API names and signals | F4.5a, F4.5b | Verified on the installed typelibs and in the libadwaita docs (F4.5a, F4.5b, GO-051); not run on a display |
 | `Gio.DBusProxy.new_for_bus` / `call` with `a{sv}` and `ay` reply unpacking in PyGObject | F4.5a | Verified (F4.5a, GO-051; `ay` needs `get_data_as_bytes`) |
-| import-linter `root_packages` with two roots and the `independence` contract across them | F4.4a | Not verified (A-6) |
+| import-linter `root_packages` with two roots and the `independence` contract across them | F4.4a | Confirmed (F4.4a, `make imports`: 12 contracts with two roots) |
 | GNOME Shell activates the app named by a notification's `desktop-entry` hint on click | Not needed in F4 (OQ-6: menu only) | Not verified (A-5) |
 
 ## Assumptions to confirm
 
 | ID | Assumption | Confirm in |
 |---|---|---|
-| A-1 | System Python 3.14 with PyGObject 3.56.3, GTK 4.22.4 and libadwaita 1.9.3 can import `Gtk 4.0` and `Adw 1`. **Confirmed (2026-10-09)**: `gi` imports and reports GTK 4.22.4 and Adw 1.9 on this machine; no window was created | Done; F4.5a repeats it as the smoke test |
-| A-2 | The `Gtk.MediaFile` GStreamer backend is available without an extra package. **Partly confirmed (2026-10-09)**: `libgtk-4.so` links `libgstplay`; no module directory exists; playback itself was not tried (no audio without the user's go) | F4.8 with consent |
-| A-3 | `Gtk.MediaFile.new_for_input_stream` plays a `Gio.MemoryInputStream` of WAV bytes (seekable). If not, use the `$XDG_RUNTIME_DIR` temp file fallback | F4.5b, a synthetic tone, with consent |
-| A-4 | A sample is small enough to return as `ay`: at most 15 s of 16 kHz 16-bit mono, about 0.5 MB, far below the D-Bus message limit | F4.3 test with a generated maximum-size sample |
-| A-5 | Setting `desktop-entry` on the service's notification makes a click activate the app | Deferred with OQ-6 (backlog); not needed in F4 |
-| A-6 | import-linter allows two `root_packages` and an `independence` contract between them | F4.4a |
-| A-7 | `Gio.DesktopAppInfo.launch` from the shell process is acceptable for a short-lived launch (no blocking, no ML) and stays within ADR-001 | F4.7 |
-| A-8 | The extension can hide or show the item from state it already has (service available, not recording) without calling `List` | F4.7 |
-| A-9 | Speaker ids `S1..SN` are unique per meeting and never contain path characters (they are `ME`, `UNKNOWN`, `S<digits>`); `GetSpeakerSample` still checks the id against `meeting.json` | F4.1 |
+| A-1 | System Python 3.14 with PyGObject 3.56.3, GTK 4.22.4 and libadwaita 1.9.3 can import `Gtk 4.0` and `Adw 1`. **Confirmed (2026-10-09)**: `gi` imports and reports GTK 4.22.4 and Adw 1.9 on this machine; no window was created | Done; repeated by `tests/unit/review_app/test_ui_imports_on_system_python.py` and by the owner's manual check (2026-10-11) |
+| A-2 | The `Gtk.MediaFile` GStreamer backend is available without an extra package. **Partly confirmed (2026-10-09)**: `libgtk-4.so` links `libgstplay`; no module directory exists; playback itself was not tried (no audio without the user's go) | Confirmed by the owner's manual check: the sample played (2026-10-11) |
+| A-3 | `Gtk.MediaFile.new_for_input_stream` plays a `Gio.MemoryInputStream` of WAV bytes (seekable). If not, use the `$XDG_RUNTIME_DIR` temp file fallback | F4.5b, a synthetic tone, with consent. **Confirmed by the owner's manual check (2026-10-11)** |
+| A-4 | A sample is small enough to return as `ay`: at most 15 s of 16 kHz 16-bit mono, about 0.5 MB, far below the D-Bus message limit | Confirmed: `tests/e2e/meetings/test_review_over_dbus.py::test_a_maximum_size_sample_fits_in_one_reply` and `tests/unit/meetings/test_filesystem_sample_reader.py` |
+| A-5 | Setting `desktop-entry` on the service's notification makes a click activate the app | Deferred (OQ-6, backlog); not needed in F4 |
+| A-6 | import-linter allows two `root_packages` and an `independence` contract between them | F4.4a. **Confirmed (F4.4a, `make imports`: 12 contracts with two roots)** |
+| A-7 | `Gio.DesktopAppInfo.launch` from the shell process is acceptable for a short-lived launch (no blocking, no ML) and stays within ADR-001 | Covered: `gnome-extension/tests/shellGlue.test.js` (launch through the desktop entry); validated by the owner (2026-10-11) |
+| A-8 | The extension can hide or show the item from state it already has (service available, not recording) without calling `List` | Covered: `gnome-extension/tests/indicatorModel.test.js` (the review item follows the model state) |
+| A-9 | Speaker ids `S1..SN` are unique per meeting and never contain path characters (they are `ME`, `UNKNOWN`, `S<digits>`); `GetSpeakerSample` still checks the id against `meeting.json` | Covered: `tests/unit/meetings/test_review_controller.py` (an id such as `../S1` is refused) |
 
 ## Product decisions
 
@@ -753,19 +753,19 @@ All six questions were answered by the owner (OQ-1 on 2026-10-09, OQ-2 to OQ-6 o
 
 ## Definition of Done
 
-- [ ] All acceptance criteria pass in `make check`
-- [ ] The `Meetings1` additions are documented in `architecture/api-contracts.md` before the code (F4.3)
-- [ ] New error codes registered in `architecture/error-codes-catalog.md`, with the detail codes under "Known detail codes"
+- [x] All acceptance criteria pass in `make check`
+- [x] The `Meetings1` additions are documented in `architecture/api-contracts.md` before the code (F4.3)
+- [x] New error codes registered in `architecture/error-codes-catalog.md`, with the detail codes under "Known detail codes"
 - [ ] Unit tests written first (RED), then implementation (GREEN)
-- [ ] Lint, format, type check and import contracts clean, including the four new app contracts, each listed in `ARCHITECTURE.md`
-- [ ] The app imports nothing from `meeting_scribe` and runs on `/usr/bin/python3`; the import smoke test passes there
-- [ ] `make install` and `make uninstall` handle the app and the desktop entry; a missing system package only warns
-- [ ] `docs/runbooks/review-app.md` written (install, requirements, launch, troubleshooting)
-- [ ] Traceability for FR-5 filled in `project/mvp-scope.md`; `README.md`, `ARCHITECTURE.md` and the backlog updated
-- [ ] New gotchas and rules (Python version split, bytes over D-Bus, merge storage, the write order) in `project/rules-registry.md`
-- [ ] Manual validation with the user's consent: real window, real playback of a sample, a review of a real meeting (nothing recorded in the repo)
-- [ ] Open product questions answered by the user before the task that depends on each one
-- [ ] Docs gate before the integration PR is reported ready (`project/doc-sync-protocol.md`)
+- [x] Lint, format, type check and import contracts clean, including the four new app contracts, each listed in `ARCHITECTURE.md`
+- [x] The app imports nothing from `meeting_scribe` and runs on `/usr/bin/python3`; the import smoke test passes there
+- [x] `make install` and `make uninstall` handle the app and the desktop entry; a missing system package only warns
+- [x] `docs/runbooks/review-app.md` written (install, requirements, launch, troubleshooting)
+- [x] Traceability for FR-5 filled in `project/mvp-scope.md`; `README.md`, `ARCHITECTURE.md` and the backlog updated
+- [x] New gotchas and rules (Python version split, bytes over D-Bus, merge storage, the write order) in `project/rules-registry.md`
+- [x] Manual validation with the user's consent: real window, real playback of a sample, a review of a real meeting (nothing recorded in the repo)
+- [x] Open product questions answered by the user before the task that depends on each one
+- [x] Docs gate before the integration PR is reported ready (`project/doc-sync-protocol.md`)
 
 ---
 

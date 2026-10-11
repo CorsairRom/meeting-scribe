@@ -16,7 +16,8 @@ CURRENT_LINK="$INSTALL_ROOT/current"
 EXEC_START="$CURRENT_LINK/bin/meeting-scribe"
 
 # The review app (GTK4 + libadwaita) runs on the system Python, never on the uv tool's Python:
-# PyGObject comes from the distribution. REVIEW_APP_PYTHON exists so tests can substitute a fake.
+# PyGObject comes from the distribution. REVIEW_APP_PYTHON is an interpreter override: tests
+# substitute a fake, and `make run-review-app` uses it too.
 REVIEW_APP_PYTHON="${REVIEW_APP_PYTHON:-/usr/bin/python3}"
 APPLICATIONS_DIR="$DATA_HOME/applications"
 DESKTOP_ENTRY_NAME="dev.meetingscribe.Review.desktop"

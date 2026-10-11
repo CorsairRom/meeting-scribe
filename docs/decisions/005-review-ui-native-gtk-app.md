@@ -126,7 +126,8 @@ the UI inside GNOME, keeps risky UI code out of the compositor, and stays testab
 - **D-Bus client**: the app calls the interfaces defined in ADR-001 (`Meetings1`, `Speakers1`, `Summaries1`); the "cloud" summary flow keeps its per-request confirmation (ADR-006), shown as a dialog.
 - **Audio samples**: played with `Gtk.MediaFile` (GStreamer; needs `gstreamer1-plugins-good`).
 - **Launch**: the extension menu item "Review last meeting" starts the app.
-- Docs to update when built: `docs/architecture/api-contracts.md`, `docs/specs/` for rename/merge behavior.
+- **F4 implementation note**: F4 uses `Meetings1` only (GetSpeakers, GetTranscript, GetSpeakerSample, RenameSpeaker, MergeSpeakers, UnmergeSpeaker, SpeakersChanged). `Speakers1` and `Summaries1` are not built.
+- Docs to update when built (done): `docs/architecture/api-contracts.md`, `docs/specs/` for rename/merge behavior.
 
 ---
 
