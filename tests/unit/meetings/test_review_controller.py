@@ -33,6 +33,7 @@ from tests.unit.meetings.fakes import (
     ROOT,
     T0,
     FakeMeetingLock,
+    FakeSampleReader,
     FakeUtterancesStore,
     InMemoryMeetingRepository,
 )
@@ -56,8 +57,9 @@ class Rig:
         self.repository.lock = self.lock
         self.store = FakeUtterancesStore(self.repository, self.lock)
         self.store.utterances = UTTERANCES
+        self.samples = FakeSampleReader(self.lock)
         self.controller = ReviewController(
-            self.repository, self.lock, ReviewSpeakers(), RenderTranscript(self.store)
+            self.repository, self.lock, ReviewSpeakers(), RenderTranscript(self.store), self.samples
         )
 
     def add(self, meeting_id: str = MEETING_ID, review: SpeakerReview | None = None) -> Meeting:
@@ -295,7 +297,9 @@ def test_repair_fails_only_when_the_meetings_cannot_be_listed(rig: Rig) -> None:
         def list_all(self):  # type: ignore[no-untyped-def]
             return Failure(MeetingStorageError("io"))
 
-    controller = ReviewController(Broken(), rig.lock, ReviewSpeakers(), RenderTranscript(rig.store))
+    controller = ReviewController(
+        Broken(), rig.lock, ReviewSpeakers(), RenderTranscript(rig.store), rig.samples
+    )
 
     assert isinstance(controller.repair_stale().failure(), MeetingStorageError)
 
@@ -376,3 +380,48 @@ def test_repair_logs_the_mapped_code_and_never_a_name(
 
     assert "MEETING_STORAGE_FAILED" in caplog.text
     assert "TRANSCRIPT_STORAGE_FAILED" not in caplog.text
+
+
+def test_speaker_sample_returns_the_listed_file_under_the_lock(rig: Rig) -> None:
+    rig.add()
+    rig.samples.files["samples/S1.wav"] = b"RIFF-fake"
+    listed = tuple(
+        entry.model_copy(update={"sample": f"samples/{entry.id}.wav"}) for entry in SPEAKERS
+    )
+    rig.repository.meetings[MEETING_ID] = rig.stored().with_speaker_review(listed, SpeakerReview())
+
+    result = rig.controller.speaker_sample(MEETING_ID, "S1")
+
+    assert result.unwrap() == b"RIFF-fake"
+    assert rig.samples.lock_held_when_read == [True]
+
+
+def test_speaker_sample_errors_are_typed_and_never_reach_the_reader_for_unknown_ids(
+    rig: Rig,
+) -> None:
+    rig.add()
+    listed = tuple(
+        entry.model_copy(update={"sample": f"samples/{entry.id}.wav"})
+        if entry.id == "S1"
+        else entry
+        for entry in SPEAKERS
+    )
+    rig.repository.meetings[MEETING_ID] = rig.stored().with_speaker_review(listed, SpeakerReview())
+
+    unknown = rig.controller.speaker_sample(MEETING_ID, "../S1")
+    no_sample = rig.controller.speaker_sample(MEETING_ID, "S2")
+    missing_file = rig.controller.speaker_sample(MEETING_ID, "S1")
+    no_meeting = rig.controller.speaker_sample("nope", "S1")
+
+    assert unknown.failure().error_code == "ENTITY_NOT_FOUND_SPEAKER"
+    assert no_sample.failure().error_code == "ENTITY_NOT_FOUND_SPEAKER_SAMPLE"
+    assert missing_file.failure().error_code == "ENTITY_NOT_FOUND_SPEAKER_SAMPLE"
+    assert no_meeting.failure().error_code == "ENTITY_NOT_FOUND_MEETING"
+    assert rig.samples.requested == ["samples/S1.wav"]
+
+
+def test_speaker_sample_needs_a_done_meeting(rig: Rig) -> None:
+    rig.add()
+    rig.repository.meetings["q"] = Meeting.enqueue("q", ROOT / "q", RECORDING, T0)
+
+    assert rig.controller.speaker_sample("q", "S1").failure().error_code == "MEETING_NOT_PROCESSED"

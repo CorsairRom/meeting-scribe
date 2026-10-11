@@ -53,6 +53,18 @@ class MeetingLock(Protocol):
         ...
 
 
+class SampleReader(Protocol):
+    """Reads a speaker's voice sample so clients get bytes, never a path."""
+
+    def read(self, meeting_dir: Path, relative_path: str) -> Result[bytes, MeetingScribeError]:
+        """The file at ``relative_path`` inside the meeting folder.
+
+        ``ENTITY_NOT_FOUND_SPEAKER_SAMPLE`` when it is missing, unreadable, larger than the sample
+        bound or outside the folder. Never raises and never quotes a path in an error.
+        """
+        ...
+
+
 class Clock(Protocol):
     def now(self) -> datetime:
         """Timezone-aware current time."""

@@ -20,7 +20,7 @@ from meeting_scribe.meetings.domain.errors import (
     MeetingStorageError,
 )
 from meeting_scribe.meetings.domain.meeting import Meeting, SpeakerReview
-from meeting_scribe.meetings.domain.ports import MeetingLock, MeetingRepository
+from meeting_scribe.meetings.domain.ports import MeetingLock, MeetingRepository, SampleReader
 from meeting_scribe.speakers.application.render_transcript import RenderTranscript, Utterance
 from meeting_scribe.speakers.application.review_speakers import (
     EffectiveSpeaker,
@@ -51,11 +51,13 @@ class ReviewController:
         lock: MeetingLock,
         speakers: ReviewSpeakers,
         transcripts: RenderTranscript,
+        samples: SampleReader,
     ) -> None:
         self._repository = repository
         self._lock = lock
         self._speakers = speakers
         self._transcripts = transcripts
+        self._samples = samples
 
     def rename(
         self, meeting_id: str, speaker_id: str, name: str
@@ -90,6 +92,11 @@ class ReviewController:
                 .bind(self._shown)
                 .alt(self._at_boundary(meeting_id))
             )
+
+    def speaker_sample(self, meeting_id: str, speaker_id: str) -> Result[bytes, MeetingScribeError]:
+        """The WAV of a speaker's sample; the id is checked against ``meeting.json`` first."""
+        with self._lock.hold():
+            return self._done(meeting_id).bind(lambda meeting: self._sample(meeting, speaker_id))
 
     def repair_stale(self) -> Result[int, MeetingStorageError]:
         """Redo the transcript of every ``DONE`` meeting left stale by a crash (service start)."""
@@ -146,6 +153,20 @@ class ReviewController:
         return self._rendered(saved.unwrap()).map(
             lambda _: ReviewResult(speakers=rows.unwrap(), changed=True)
         )
+
+    def _sample(self, meeting: Meeting, speaker_id: str) -> Result[bytes, MeetingScribeError]:
+        entry = next((e for e in meeting.speakers if e.id == speaker_id), None)
+        if entry is None:
+            return Failure(
+                EntityNotFoundError(f"Unknown speaker {speaker_id}.", detail_code="SPEAKER")
+            )
+        if not entry.sample:
+            return Failure(
+                EntityNotFoundError(
+                    f"Speaker {speaker_id} has no sample.", detail_code="SPEAKER_SAMPLE"
+                )
+            )
+        return self._samples.read(meeting.directory, entry.sample)
 
     def _shown(self, meeting: Meeting) -> Result[tuple[Utterance, ...], MeetingScribeError]:
         return self._state(meeting).bind(
