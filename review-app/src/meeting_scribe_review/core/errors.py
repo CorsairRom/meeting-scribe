@@ -63,6 +63,44 @@ _MESSAGES: dict[str, UserMessage] = {
     "INVALID_VALUE": UserMessage("The request was not valid."),
     "SPEAKER_NAME_TAKEN": UserMessage("That name is already used by another speaker."),
     "SPEAKER_MERGE_INVALID": UserMessage("These speakers cannot be merged."),
+    "ENTITY_NOT_FOUND_SUMMARY": UserMessage("This meeting has no summary yet."),
+    "SUMMARY_FAILED": UserMessage("The summary could not be made. Try again."),
+    "SUMMARY_NO_SPEECH": UserMessage("There is nothing to summarize: this meeting has no speech."),
+    "SUMMARY_PROVIDER_UNAVAILABLE": UserMessage(
+        "The summary model is not reachable. Start Ollama, or check the network for the cloud."
+    ),
+    "SUMMARY_MODEL_NOT_FOUND": UserMessage(
+        "The configured summary model is not installed. Pull it with Ollama or change the model."
+    ),
+    "SUMMARY_AUTH_FAILED": UserMessage("The provider rejected the API key. Set the key again."),
+    "SUMMARY_RATE_LIMITED": UserMessage("The provider is busy. Try again in a few minutes."),
+    "SUMMARY_PROVIDER_REJECTED": UserMessage("The provider rejected the request."),
+    "SUMMARY_TIMEOUT": UserMessage("The model took too long to answer. Try again."),
+    "SUMMARY_CONTEXT_TOO_LARGE": UserMessage(
+        "The transcript does not fit the model. Raise the Ollama context and "
+        "SUMMARIES_LOCAL_CONTEXT_TOKENS together."
+    ),
+    "SUMMARY_OUTPUT_INVALID": UserMessage("The model did not return a usable summary. Try again."),
+    "SUMMARY_CANCELLED": UserMessage("The summary was cancelled."),
+    "SUMMARY_CLOUD_KEY_MISSING": UserMessage(
+        "No API key is stored for the cloud provider. Set the API key, then try again."
+    ),
+    "SUMMARY_CLOUD_KEY_LOCKED": UserMessage(
+        "The keyring is locked. Unlock the login keyring and try again."
+    ),
+    "SUMMARY_CLOUD_KEY_UNAVAILABLE": UserMessage(
+        "The keyring service is not reachable. Check that gnome-keyring is running."
+    ),
+    "SUMMARY_CLOUD_DISABLED": UserMessage("The cloud provider is turned off in the settings."),
+    "SUMMARY_CLOUD_NOT_CONFIRMED": UserMessage("Confirm sending to the cloud, then try again."),
+    "SUMMARY_ALREADY_RUNNING": UserMessage("This meeting is already being summarized."),
+    "SUMMARY_BUSY": UserMessage("Another meeting is being summarized. Wait for it or cancel it."),
+    "SUMMARY_GPU_BUSY": UserMessage(
+        "A recording or processing job is using the GPU. Try again when it ends."
+    ),
+    "SUMMARY_STORAGE_FAILED": UserMessage(
+        "The summary could not be saved. Check disk space and permissions."
+    ),
 }
 
 

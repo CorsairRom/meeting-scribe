@@ -159,3 +159,4 @@ is never mutated, so the base code stays stable.
 | `EntityNotFoundError(detail_code="SPEAKER")` | `ENTITY_NOT_FOUND_SPEAKER` | `speakers` | Unknown speaker id in this meeting |
 | `EntityNotFoundError(detail_code="SPEAKER_SAMPLE")` | `ENTITY_NOT_FOUND_SPEAKER_SAMPLE` | `meetings` | The speaker lists no sample, or the file is missing, unreadable or larger than the sample bound (A-4) |
 | `EntityNotFoundError(detail_code="TRANSCRIPT")` | `ENTITY_NOT_FOUND_TRANSCRIPT` | `speakers` | A finished meeting has no `utterances.json` |
+| `EntityNotFoundError(detail_code="SUMMARY")` | `ENTITY_NOT_FOUND_SUMMARY` | `meetings` | The meeting has no `summary.md` (`GetSummary`), or no meeting has one (`LastSummary`) |

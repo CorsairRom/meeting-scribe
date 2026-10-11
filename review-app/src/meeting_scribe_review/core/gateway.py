@@ -8,7 +8,14 @@ from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from meeting_scribe_review.core.errors import ServiceError
-from meeting_scribe_review.core.models import MeetingSummary, Speaker, Utterance
+from meeting_scribe_review.core.models import (
+    MeetingSummary,
+    ProviderRow,
+    Speaker,
+    SummaryDocument,
+    SummaryInfo,
+    Utterance,
+)
 from meeting_scribe_review.core.result import Result
 
 type Callback[T] = Callable[[Result[T, ServiceError]], None]
@@ -53,6 +60,38 @@ class MeetingsGateway(Protocol):
     ) -> None: ...
 
     def watch(self, listener: GatewayListener) -> None: ...
+
+
+class SummaryListener(Protocol):
+    """What ``Summaries1`` announces while a summary runs and when it ends."""
+
+    def on_summary_progress(self, meeting_id: str, step: int, total_steps: int) -> None: ...
+
+    def on_summary_finished(self, meeting_id: str, state: str, error_code: str) -> None: ...
+
+
+@runtime_checkable
+class SummariesGateway(Protocol):
+    """The ``Summaries1`` calls the app makes. Never exposes a path, a URL or a key (ADR-005)."""
+
+    def providers(self, done: Callback[list[ProviderRow]]) -> None: ...
+
+    def summarize(
+        self,
+        meeting_id: str,
+        provider_id: str,
+        done: Callback[str],
+        *,
+        cloud_confirmed: bool,
+    ) -> None: ...
+
+    def cancel_summary(self, meeting_id: str, done: Callback[bool]) -> None: ...
+
+    def get_summary_status(self, meeting_id: str, done: Callback[SummaryInfo]) -> None: ...
+
+    def get_summary(self, meeting_id: str, done: Callback[SummaryDocument]) -> None: ...
+
+    def watch_summaries(self, listener: SummaryListener) -> None: ...
 
 
 class PlayerListener(Protocol):

@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-from meeting_scribe_review.core.constants import METHODS
+from meeting_scribe_review.core.constants import METHODS, SUMMARY_METHODS
 from meeting_scribe_review.core.errors import (
     INVALID_REPLY,
     RENAME_CALL,
@@ -17,7 +17,7 @@ from meeting_scribe_review.core.errors import (
 ROOT = Path(__file__).resolve().parents[3]
 API_CONTRACTS = ROOT / "docs" / "architecture" / "api-contracts.md"
 CATALOG = ROOT / "docs" / "architecture" / "error-codes-catalog.md"
-CALLS = ("Get", *METHODS)
+CALLS = ("Get", *METHODS, *SUMMARY_METHODS)
 
 
 def _codes_a_review_call_can_return() -> set[str]:
@@ -48,6 +48,27 @@ def test_every_code_a_review_call_can_return_has_a_message() -> None:
     for code in sorted(codes):
         text = message_for(ServiceError(code)).text
         assert code not in text, f"{code} has no specific message in core/errors.py"
+
+
+def test_every_summary_code_of_the_catalog_has_a_message() -> None:
+    codes = {code for code in _catalog_codes() if code.startswith("SUMMARY_")}
+    assert {"SUMMARY_CLOUD_KEY_MISSING", "SUMMARY_TIMEOUT", "SUMMARY_FAILED"} <= codes
+    for code in sorted(codes):
+        text = message_for(ServiceError(code)).text
+        assert code not in text, f"{code} has no specific message in core/errors.py"
+
+
+def test_every_summary_call_code_has_a_message() -> None:
+    codes = _codes_a_review_call_can_return() | {"ENTITY_NOT_FOUND_SUMMARY"}
+    assert {"SUMMARY_GPU_BUSY", "SUMMARY_CLOUD_NOT_CONFIRMED", "SUMMARY_STORAGE_FAILED"} <= codes
+    for code in sorted(codes):
+        assert code not in message_for(ServiceError(code)).text, code
+
+
+def test_key_errors_say_what_to_do_without_a_command_for_the_service() -> None:
+    missing = message_for(ServiceError("SUMMARY_CLOUD_KEY_MISSING"))
+    assert "API key" in missing.text
+    assert "unlock" in message_for(ServiceError("SUMMARY_CLOUD_KEY_LOCKED")).text.lower()
 
 
 def test_invalid_value_is_worded_for_the_call_that_failed() -> None:

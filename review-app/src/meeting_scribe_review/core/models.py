@@ -42,3 +42,48 @@ class Utterance:
     start_seconds: float
     end_seconds: float
     text: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderRow:
+    """One row of ``Summaries1.Providers``; ``label`` is worded by the service."""
+
+    id: str
+    label: str
+    cloud: bool
+    model: str
+    available: bool
+    reason: str
+    default: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SummaryInfo:
+    """``Summaries1.GetSummaryStatus``: no content. ``generated_at`` is ``None`` without a file."""
+
+    state: str
+    stale: bool
+    cloud: bool
+    provider_label: str
+    generated_at: datetime | None
+    step: int
+    total_steps: int
+    failure_code: str
+
+    @property
+    def has_summary(self) -> bool:
+        return self.generated_at is not None
+
+
+@dataclass(frozen=True, slots=True)
+class SummaryDocument:
+    """``Summaries1.GetSummary``: the text and its facts. Private user data; never logged."""
+
+    markdown: str
+    title: str
+    generated_at: datetime
+    provider_label: str
+    cloud: bool
+    model: str
+    language: str
+    stale: bool

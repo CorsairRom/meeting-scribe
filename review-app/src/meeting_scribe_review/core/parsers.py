@@ -9,7 +9,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 from meeting_scribe_review.core.errors import INVALID_REPLY, ServiceError
-from meeting_scribe_review.core.models import MeetingSummary, Speaker, Utterance
+from meeting_scribe_review.core.models import (
+    MeetingSummary,
+    ProviderRow,
+    Speaker,
+    SummaryDocument,
+    SummaryInfo,
+    Utterance,
+)
 from meeting_scribe_review.core.result import Err, Ok, Result
 
 _INVALID = Err(ServiceError(INVALID_REPLY))
@@ -127,3 +134,77 @@ def parse_speakers(rows: Any) -> Result[list[Speaker], ServiceError]:
 def parse_transcript(rows: Any) -> Result[list[Utterance], ServiceError]:
     """``GetTranscript``: ``a(sdds)``."""
     return _parse_all(rows, _utterance)
+
+
+def _provider(row: Any) -> ProviderRow:
+    fields = _mapping(row)
+    return ProviderRow(
+        id=_text(_key(fields, "id")),
+        label=_text(_key(fields, "label")),
+        cloud=_flag(_key(fields, "cloud")),
+        model=_text(_key(fields, "model")),
+        available=_flag(_key(fields, "available")),
+        reason=_text(_key(fields, "reason")),
+        default=_flag(_key(fields, "default")),
+    )
+
+
+def _info(row: Any) -> SummaryInfo:
+    fields = _mapping(row)
+    generated_at = _text(_key(fields, "generated_at"))
+    return SummaryInfo(
+        state=_text(_key(fields, "state")),
+        stale=_flag(_key(fields, "stale")),
+        cloud=_flag(_key(fields, "cloud")),
+        provider_label=_text(_key(fields, "provider_label")),
+        generated_at=_moment(generated_at) if generated_at else None,
+        step=_count(_key(fields, "step")),
+        total_steps=_count(_key(fields, "total_steps")),
+        failure_code=_text(_key(fields, "failure_code")),
+    )
+
+
+def _document(row: Any) -> SummaryDocument:
+    fields = _mapping(row)
+    return SummaryDocument(
+        markdown=_text(_key(fields, "markdown")),
+        title=_text(_key(fields, "title")),
+        generated_at=_moment(_key(fields, "generated_at")),
+        provider_label=_text(_key(fields, "provider_label")),
+        cloud=_flag(_key(fields, "cloud")),
+        model=_text(_key(fields, "model")),
+        language=_text(_key(fields, "language")),
+        stale=_flag(_key(fields, "stale")),
+    )
+
+
+def _parse_one[T](row: Any, one: Callable[[Any], T]) -> Result[T, ServiceError]:
+    try:
+        return Ok(one(row))
+    except _InvalidReplyError:
+        return _INVALID
+
+
+def parse_providers(rows: Any) -> Result[list[ProviderRow], ServiceError]:
+    """``Providers``: ``aa{sv}``."""
+    return _parse_all(rows, _provider)
+
+
+def parse_summary_info(row: Any) -> Result[SummaryInfo, ServiceError]:
+    """``GetSummaryStatus``: ``a{sv}``."""
+    return _parse_one(row, _info)
+
+
+def parse_summary_document(row: Any) -> Result[SummaryDocument, ServiceError]:
+    """``GetSummary``: ``a{sv}``."""
+    return _parse_one(row, _document)
+
+
+def parse_started(value: Any) -> Result[str, ServiceError]:
+    """``Summarize``: ``s`` (``RUNNING``)."""
+    return _parse_one(value, _text)
+
+
+def parse_cancelled(value: Any) -> Result[bool, ServiceError]:
+    """``CancelSummary``: ``b``."""
+    return _parse_one(value, _flag)
