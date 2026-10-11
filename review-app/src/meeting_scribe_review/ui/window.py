@@ -6,6 +6,7 @@ Declarative glue only. Which meeting is open and what refreshes on a service eve
 
 from gi.repository import Adw, Gtk
 
+from meeting_scribe_review.core.errors import command_hint
 from meeting_scribe_review.core.presenters.meeting_list import MeetingListState, MeetingListStatus
 from meeting_scribe_review.core.presenters.merge import MergeState
 from meeting_scribe_review.core.presenters.playback import PlaybackState
@@ -27,10 +28,6 @@ SPEAKERS_MAX_HEIGHT = 300
 COLLAPSE_BELOW = "max-width: 600sp"
 _REVIEW = "review"
 _STATUS = "status"
-
-
-def _run_hint(hint: str) -> str:
-    return f"Run: {hint}" if hint else ""
 
 
 class ReviewWindow(Adw.ApplicationWindow):
@@ -65,7 +62,7 @@ class ReviewWindow(Adw.ApplicationWindow):
         )
         self._last_toast = ""
         self._status = StatusView(lambda: self._session.retry())
-        self._banner = Adw.Banner()
+        self._banner = Adw.Banner(use_markup=False)
         self._panes = Gtk.Stack()
         self._panes.add_named(self._review_box(), _REVIEW)
         self._panes.add_named(self._status, _STATUS)
@@ -142,7 +139,7 @@ class ReviewWindow(Adw.ApplicationWindow):
         meetings, review = self._meetings, self._review
         self._banner.set_revealed(False)
         if meetings.status is MeetingListStatus.ERROR:
-            self._message(meetings.message, _run_hint(meetings.detail), retry=True)
+            self._message(meetings.message, command_hint(meetings.detail), retry=True)
         elif meetings.status is MeetingListStatus.EMPTY:
             self._message(meetings.message, meetings.detail)
         elif review.status is ReviewStatus.READY:
@@ -152,7 +149,7 @@ class ReviewWindow(Adw.ApplicationWindow):
             self._banner.set_revealed(True)
             self._message("Review is not available for this meeting")
         elif review.status is ReviewStatus.ERROR:
-            self._message(review.message, _run_hint(review.hint), retry=True)
+            self._message(review.message, command_hint(review.hint), retry=True)
         elif review.status is ReviewStatus.LOADING:
             self._message("Loading the meeting")
         else:

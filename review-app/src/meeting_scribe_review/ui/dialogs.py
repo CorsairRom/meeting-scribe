@@ -9,6 +9,7 @@ from collections.abc import Callable
 
 from gi.repository import Adw, Gio, Gtk
 
+from meeting_scribe_review.core.errors import command_hint
 from meeting_scribe_review.core.presenters.merge import MergeState, MergeStatus
 from meeting_scribe_review.core.presenters.rename import NameConflict, RenameState, RenameStatus
 from meeting_scribe_review.core.presenters.review import ReviewState
@@ -109,12 +110,19 @@ class SpeakerDialogs:
         dialog.set_close_response(_CANCEL)
         self._present(
             dialog,
-            {_MERGE: lambda: self._session.confirm_merge(state.targets[choices.get_selected()].id)},
+            {_MERGE: lambda: self._confirm(state, choices.get_selected())},
             self._session.cancel_merge,
         )
 
+    def _confirm(self, state: MergeState, index: int) -> None:
+        """Merge into the chosen target; an empty or invalid choice cancels instead."""
+        if 0 <= index < len(state.targets):
+            self._session.confirm_merge(state.targets[index].id)
+        else:
+            self._session.cancel_merge()
+
     def _error(self, state: MergeState) -> None:
-        body = state.message if not state.hint else f"{state.message}\n\nRun: {state.hint}"
+        body = state.message if not state.hint else f"{state.message}\n\n{command_hint(state.hint)}"
         dialog = Adw.AlertDialog(heading="That did not work", body=body)
         dialog.add_response(_CANCEL, "Close")
         dialog.set_close_response(_CANCEL)

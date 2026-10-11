@@ -161,7 +161,12 @@ class DBusGateway:
                 _LOG.warning("%s failed: %s", method, failure.code)
                 done(Err(failure))
                 return
-            done(parse(unpack_reply(reply)))
+            try:
+                result = parse(unpack_reply(reply))
+            except (GLib.Error, TypeError, ValueError, IndexError):
+                _LOG.warning("%s: unreadable reply", method)
+                result = Err(ServiceError(INVALID_REPLY))
+            done(result)
 
         def send(proxy: Gio.DBusProxy | None) -> None:
             if proxy is None:

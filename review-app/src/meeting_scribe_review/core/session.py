@@ -141,5 +141,9 @@ class ReviewSession:
         if not state.selected_id:
             self._review.close()
             return
-        row = next(row for row in state.rows if row.id == state.selected_id)
+        row = next((row for row in state.rows if row.id == state.selected_id), None)
+        if row is None:
+            self._open_id = ""
+            self._review.close()
+            return
         self._review.open(row.id, row.state)

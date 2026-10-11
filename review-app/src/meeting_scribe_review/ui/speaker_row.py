@@ -90,7 +90,7 @@ class SpeakersSection(Gtk.Box):
         self._groups.append(group)
 
     def _build(self, model: SpeakerRow, *, editable: bool) -> _Built:
-        widget = Adw.ActionRow(title=model.display)
+        widget = Adw.ActionRow(title=model.display, use_markup=False)
         widget.set_title_lines(1)
         play = None
         if model.can_play:

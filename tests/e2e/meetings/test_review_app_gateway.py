@@ -8,17 +8,15 @@ folders only; names are obviously fake.
 import asyncio
 import json
 import os
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from tests.e2e.rig import ServiceRig, running
+from tests.system_python import INTERPRETER, skip_without_toolkit
 
 pytestmark = pytest.mark.dbus
 
-INTERPRETER = "/usr/bin/python3"
 APP_SRC = Path(__file__).resolve().parents[3] / "review-app" / "src"
 LINES = [("S1", 0.0, 2.0, "Fake line one."), ("S2", 2.0, 4.5, "Fake line two.")]
 WAV = b"RIFF\x00\x00\x00\x00WAVEfake"
@@ -33,11 +31,20 @@ from meeting_scribe_review.ui.dbus_gateway import DBusGateway
 loop = GLib.MainLoop()
 events, results = [], {}
 
+expect = __EXPECT__
+finished = []
+
+def maybe_quit():
+    if finished and sum(1 for e in events if e[0] == "speakers") >= expect:
+        loop.quit()
+
 class Listener:
     def on_service_available(self, available): events.append(["available", available])
     def on_processing_state_changed(self, meeting_id, state): events.append(["state", state])
     def on_processing_finished(self, meeting_id, state, count): events.append(["finished", state])
-    def on_speakers_changed(self, meeting_id): events.append(["speakers", meeting_id])
+    def on_speakers_changed(self, meeting_id):
+        events.append(["speakers", meeting_id])
+        maybe_quit()
 
 def shape(value):
     if isinstance(value, bytes):
@@ -55,7 +62,8 @@ steps = __STEPS__
 
 def run(index=0):
     if index == len(steps):
-        GLib.timeout_add(600, lambda: loop.quit())
+        finished.append(True)
+        maybe_quit()
         return
     name, call = steps[index]
     def done(result):
@@ -84,17 +92,7 @@ _REVIEW_STEPS = """[
 ]"""
 
 
-def _skip_without_gi() -> None:
-    if shutil.which(INTERPRETER) is None:
-        pytest.skip("system Python is not available")
-    probe = subprocess.run(  # noqa: S603
-        [INTERPRETER, "-I", "-c", "import gi"], capture_output=True, check=False
-    )
-    if probe.returncode:
-        pytest.skip("system Python has no gi")
-
-
-async def _client(address: str, steps: str) -> dict:
+async def _client(address: str, steps: str, expect_speakers: int = 0) -> dict:
     env = {
         "PATH": os.environ["PATH"],
         "DBUS_SESSION_BUS_ADDRESS": address,
@@ -104,7 +102,9 @@ async def _client(address: str, steps: str) -> dict:
         INTERPRETER,
         "-I",
         "-c",
-        _CLIENT.replace("__APP_SRC__", repr(str(APP_SRC))).replace("__STEPS__", steps),
+        _CLIENT.replace("__APP_SRC__", repr(str(APP_SRC)))
+        .replace("__STEPS__", steps)
+        .replace("__EXPECT__", str(expect_speakers)),
         env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -119,13 +119,13 @@ async def _client(address: str, steps: str) -> dict:
 
 
 def test_the_gateway_speaks_the_real_contract(tmp_path: Path, bus_address: str) -> None:
-    _skip_without_gi()
+    skip_without_toolkit()
     rig = ServiceRig(tmp_path)
     rig.seed_reviewable("m1", 0, LINES, {"S1": WAV})
 
     async def scenario() -> dict:
         async with running(rig, bus_address):
-            return await _client(bus_address, _REVIEW_STEPS)
+            return await _client(bus_address, _REVIEW_STEPS, expect_speakers=3)
 
     out = asyncio.run(scenario())
     results = out["results"]
@@ -144,6 +144,6 @@ def test_the_gateway_speaks_the_real_contract(tmp_path: Path, bus_address: str) 
 
 
 def test_a_missing_service_is_reported_as_not_running(bus_address: str) -> None:
-    _skip_without_gi()
+    skip_without_toolkit()
     out = asyncio.run(_client(bus_address, '[("list", lambda d: gateway.list_meetings(d))]'))
     assert out["results"] == {"list": ["err", "SERVICE_NOT_RUNNING"]}

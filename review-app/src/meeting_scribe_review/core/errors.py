@@ -77,3 +77,8 @@ def message_for(error: ServiceError, call: str = "") -> UserMessage:
     if known is not None:
         return known
     return UserMessage(f"Something went wrong ({error.code}).")
+
+
+def command_hint(hint: str) -> str:
+    """The line shown under an error that names a command to run; empty when there is none."""
+    return f"Run: {hint}" if hint else ""

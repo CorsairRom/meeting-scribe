@@ -1,7 +1,7 @@
 """The session wires the meeting list to the review pane and fans service events out (AC-13)."""
 
 from meeting_scribe_review.core.models import MeetingSummary
-from meeting_scribe_review.core.presenters.meeting_list import MeetingListStatus
+from meeting_scribe_review.core.presenters.meeting_list import MeetingListState, MeetingListStatus
 from meeting_scribe_review.core.presenters.review import ReviewStatus
 from meeting_scribe_review.core.result import Ok
 from meeting_scribe_review.core.session import ReviewSession
@@ -88,3 +88,11 @@ def test_close_empties_the_review() -> None:
     session.start()
     session.close()
     assert views.reviews[-1].status is ReviewStatus.IDLE
+
+
+def test_a_selection_that_is_not_in_the_rows_closes_the_review() -> None:
+    session, _, _ = _session(meeting("m2", day=10))
+    session.start()
+    gone = MeetingListState(MeetingListStatus.READY, (), "m9")
+    session._meetings_changed(gone)
+    assert session.review.status is ReviewStatus.IDLE
