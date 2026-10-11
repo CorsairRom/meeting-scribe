@@ -1,7 +1,7 @@
 """Token estimate and chunking on utterance boundaries (spec 4)."""
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from meeting_scribe.summaries.domain.request import SummaryLine
 
@@ -35,11 +35,18 @@ def chunk_transcript(lines: Sequence[SummaryLine], budget_tokens: int) -> tuple[
     return tuple(SEPARATOR.join(batch) for batch in pack_texts(pieces, budget_tokens))
 
 
-def pack_texts(texts: Sequence[str], budget_tokens: int) -> tuple[tuple[str, ...], ...]:
-    """Group consecutive texts while the joined group fits; an oversized text stays alone."""
+def pack_texts(
+    texts: Sequence[str],
+    budget_tokens: int,
+    render: Callable[[Sequence[str]], str] = SEPARATOR.join,
+) -> tuple[tuple[str, ...], ...]:
+    """Group consecutive texts while the group, as ``render`` shows it, fits the budget.
+
+    An oversized text stays alone. ``render`` must produce what is actually sent.
+    """
     batches: list[list[str]] = []
     for text in texts:
-        if batches and fits(SEPARATOR.join([*batches[-1], text]), budget_tokens):
+        if batches and fits(render([*batches[-1], text]), budget_tokens):
             batches[-1].append(text)
         else:
             batches.append([text])

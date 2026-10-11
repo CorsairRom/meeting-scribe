@@ -1,5 +1,6 @@
 """``GenerateSummary``: one pass or map-reduce, cancel, progress, validated output (spec 3, 4)."""
 
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -26,6 +27,7 @@ from meeting_scribe.summaries.domain.fingerprint import input_fingerprint
 from meeting_scribe.summaries.domain.headings import headings_for
 from meeting_scribe.summaries.domain.ports import (
     CancelSignal,
+    Completion,
     Message,
     ModelReleaser,
     SummaryProvider,
@@ -56,6 +58,7 @@ class _Run:
     cancel: CancelSignal
     on_progress: ProgressCallback | None
     deadline: float | None
+    stop: threading.Event = field(default_factory=threading.Event)
     prompts: PromptBuilder = field(init=False)
     step: int = 0
     total: int = 1
@@ -93,9 +96,17 @@ class GenerateSummary:
         added. ``total_timeout_seconds`` bounds the whole run (``SUMMARY_TIMEOUT``).
         """
         deadline = None if total_timeout_seconds is None else self._clock() + total_timeout_seconds
+        run = _Run(request, cancel, on_progress, deadline)
+        timer = None
+        if total_timeout_seconds is not None:
+            timer = threading.Timer(max(total_timeout_seconds, 0.0), run.stop.set)
+            timer.daemon = True
+            timer.start()
         try:
-            return self._run(_Run(request, cancel, on_progress, deadline))
+            return self._run(run)
         finally:
+            if timer is not None:
+                timer.cancel()
             self._releaser.release()
 
     def _run(self, run: _Run) -> Result[GeneratedSummary, SummaryError]:
@@ -140,8 +151,8 @@ class GenerateSummary:
             if isinstance(answer, Failure):
                 return answer
             notes.append(answer.unwrap())
-        while not fits(SEPARATOR.join(notes), usable):
-            batches = pack_texts(notes, usable)
+        while not fits(run.prompts.notes_payload(notes), usable):
+            batches = pack_texts(notes, usable, run.prompts.notes_payload)
             if len(batches) >= len(notes):
                 return Failure(_too_large("The partial notes cannot be merged within the context."))
             run.total += sum(1 for batch in batches if len(batch) > 1)
@@ -177,28 +188,55 @@ class GenerateSummary:
         return answer
 
     def _request(self, run: _Run, messages: list[Message]) -> Result[str, SummaryError]:
-        stopped = self._stopped(run)
-        if stopped is not None:
+        if (stopped := self._stopped(run)) is not None:
             return Failure(stopped)
-        completed = self._provider.complete(messages, run.request.limits, run.cancel)
+        remaining = None if run.deadline is None else run.deadline - self._clock()
+        completed = self._provider.complete(
+            messages, run.request.limits, _Either(run.cancel, run.stop), remaining
+        )
+        if (stopped := self._stopped(run)) is not None:
+            return Failure(stopped)
         if isinstance(completed, Failure):
             return completed
-        stopped = self._stopped(run)
-        if stopped is not None:
-            return Failure(stopped)
-        completion = completed.unwrap()
-        if completion.finish_reason == "length":
-            return Failure(_too_large("The model output was cut at the token limit."))
-        if not completion.text.strip():
-            return Failure(SummaryOutputInvalidError("The model returned an empty answer."))
-        return Success(completion.text)
+        return _accepted(completed.unwrap())
 
     def _stopped(self, run: _Run) -> SummaryError | None:
+        timed_out = run.stop.is_set() or (run.deadline is not None and self._clock() > run.deadline)
+        if timed_out:
+            return SummaryTimeoutError("The summary took too long. Retry or raise the timeout.")
         if run.cancel.is_set():
             return SummaryCancelledError("The summary was cancelled. Press Generate again.")
-        if run.deadline is not None and self._clock() > run.deadline:
-            return SummaryTimeoutError("The summary took too long. Retry or raise the timeout.")
         return None
+
+
+class _Either:
+    """A cancel signal that is set when the caller cancels or the total deadline passes."""
+
+    _SLICE = 0.05
+
+    def __init__(self, caller: CancelSignal, deadline: threading.Event) -> None:
+        self._caller = caller
+        self._deadline = deadline
+
+    def is_set(self) -> bool:
+        return self._caller.is_set() or self._deadline.is_set()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        end = None if timeout is None else time.monotonic() + timeout
+        while not self.is_set():
+            left = None if end is None else end - time.monotonic()
+            if left is not None and left <= 0:
+                return False
+            self._deadline.wait(self._SLICE if left is None else min(self._SLICE, left))
+        return True
+
+
+def _accepted(completion: Completion) -> Result[str, SummaryError]:
+    if completion.finish_reason == "length":
+        return Failure(_too_large("The model output was cut at the token limit."))
+    if not completion.text.strip():
+        return Failure(SummaryOutputInvalidError("The model returned an empty answer."))
+    return Success(completion.text)
 
 
 def _too_large(reason: str) -> SummaryContextTooLargeError:

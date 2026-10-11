@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from returns.result import Failure, Result, Success
 
-from meeting_scribe.summaries.domain.errors import SummaryError
+from meeting_scribe.summaries.domain.errors import SummaryCancelledError, SummaryError
 from meeting_scribe.summaries.domain.ports import CancelSignal, Completion, Message
 from meeting_scribe.summaries.domain.request import CompletionLimits
 
@@ -49,14 +49,21 @@ class FakeProvider:
         self.requests: list[list[Message]] = []
         self.limits: list[CompletionLimits] = []
         self.on_call: Callable[[int], None] | None = None
+        self.timeouts: list[float | None] = []
+        self.block_until_cancelled = False
 
     def complete(
         self,
         messages: list[Message],
         limits: CompletionLimits,
-        cancel: CancelSignal,  # noqa: ARG002
+        cancel: CancelSignal,
+        timeout_seconds: float | None = None,
     ) -> Result[Completion, SummaryError]:
         self.requests.append(messages)
+        self.timeouts.append(timeout_seconds)
+        if self.block_until_cancelled:
+            cancel.wait(5.0)
+            return Failure(SummaryCancelledError("aborted"))
         self.limits.append(limits)
         if self.on_call is not None:
             self.on_call(len(self.requests))

@@ -37,9 +37,17 @@ class CancelSignal(Protocol):
 
 class SummaryProvider(Protocol):
     def complete(
-        self, messages: list[Message], limits: CompletionLimits, cancel: CancelSignal
+        self,
+        messages: list[Message],
+        limits: CompletionLimits,
+        cancel: CancelSignal,
+        timeout_seconds: float | None = None,
     ) -> Result[Completion, SummaryError]:
-        """One chat completion. Never raises; aborts promptly when ``cancel`` is set."""
+        """One chat completion. Never raises; aborts promptly when ``cancel`` is set.
+
+        ``timeout_seconds`` is the most this call may take (the time left of the total bound);
+        ``None`` means no bound beyond the provider's own.
+        """
         ...
 
 

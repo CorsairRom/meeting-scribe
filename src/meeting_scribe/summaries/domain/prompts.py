@@ -47,10 +47,13 @@ class PromptBuilder:
             " question. Write short Markdown bullets, without a title.\n"
             f"{self._rules()}"
         )
-        return [Message(role="system", content=system), Message(role="user", content=_notes(notes))]
+        return [
+            Message(role="system", content=system),
+            Message(role="user", content=self.notes_payload(notes)),
+        ]
 
     def reduce(self, notes: Sequence[str]) -> list[Message]:
-        user = f"{self._facts()}\n{_notes(notes)}"
+        user = f"{self._facts()}\n{self.notes_payload(notes)}"
         return [
             Message(role="system", content=self._final_system()),
             Message(role="user", content=user),
@@ -66,6 +69,11 @@ class PromptBuilder:
             Message(role="system", content=self._final_system()),
             Message(role="user", content=user),
         ]
+
+    def notes_payload(self, notes: Sequence[str]) -> str:
+        """The notes exactly as they are sent: separators and markers included."""
+        joined = _NOTES_SEPARATOR.join(_clean(note, "notes") for note in notes)
+        return f"<notes>\n{joined}\n</notes>"
 
     def _facts(self) -> str:
         minutes = max(1, round(self._request.duration_seconds / 60))
@@ -95,11 +103,6 @@ class PromptBuilder:
             f"## {h.open_questions}\n- <question>\n"
             f'If a section has nothing, write "{h.none}" under its heading.'
         )
-
-
-def _notes(notes: Sequence[str]) -> str:
-    joined = _NOTES_SEPARATOR.join(_clean(note, "notes") for note in notes)
-    return f"<notes>\n{joined}\n</notes>"
 
 
 def _clean(text: str, marker: str) -> str:

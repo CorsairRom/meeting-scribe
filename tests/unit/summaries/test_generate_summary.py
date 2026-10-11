@@ -1,6 +1,8 @@
+import threading
 import time
 from collections.abc import Callable
 
+import pytest
 from returns.result import Failure, Success
 
 from meeting_scribe.summaries.application.generate_summary import GenerateSummary
@@ -264,3 +266,50 @@ def test_failures_are_results_not_exceptions() -> None:
     result = _use_case(FakeProvider()).run(request(lines=()), FakeCancel())
 
     assert isinstance(result, Failure)
+
+
+@pytest.mark.parametrize("note_length", range(200, 420, 7))
+def test_notes_are_measured_as_sent_not_as_joined_lines(note_length: int) -> None:
+    provider = FakeProvider(by_prompt_kind(notes="- " + "n" * (note_length - 2)))
+
+    result = _use_case(provider).run(_long_request(), FakeCancel())
+
+    assert isinstance(result, Success)
+    usable = CONTEXT - MAX_OUTPUT - 600
+    for messages in provider.requests:
+        user = messages[-1].content
+        if "<notes>" in user:
+            payload = user[user.index("<notes>") : user.index("</notes>") + len("</notes>")]
+            assert estimate_tokens(payload) <= usable
+
+
+def test_the_total_deadline_ends_a_stalled_call() -> None:
+    provider = FakeProvider()
+    provider.block_until_cancelled = True
+    started = time.monotonic()
+
+    result = _use_case(provider).run(request(), threading.Event(), total_timeout_seconds=0.2)
+
+    assert isinstance(result.failure(), SummaryTimeoutError)
+    assert time.monotonic() - started < 2.0
+
+
+def test_each_call_receives_the_remaining_time() -> None:
+    clock = FakeClock()
+    provider = FakeProvider()
+    provider.on_call = lambda _count: setattr(clock, "now", clock.now + 10.0)
+
+    _use_case(provider, clock=clock).run(
+        _long_request(), FakeCancel(), total_timeout_seconds=1000.0
+    ).unwrap()
+
+    assert provider.timeouts[0] == 1000.0
+    assert provider.timeouts[1] == 990.0
+
+
+def test_without_a_total_bound_no_call_timeout_is_passed() -> None:
+    provider = FakeProvider()
+
+    _use_case(provider).run(request(), FakeCancel()).unwrap()
+
+    assert provider.timeouts == [None]
