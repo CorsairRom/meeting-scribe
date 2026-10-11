@@ -14,27 +14,37 @@ from meeting_scribe.base.infrastructure.dbus.constants import BUS_NAME, OBJECT_P
 from meeting_scribe.base.infrastructure.logging import configure_logging
 from meeting_scribe.handoff import ProcessingRecordingListener
 from meeting_scribe.meetings.application.event_hub import ProcessingEventHub
+from meeting_scribe.meetings.application.gpu_lease import InMemoryGpuLease
 from meeting_scribe.meetings.application.notifications import NotifyOnFinish
 from meeting_scribe.meetings.application.processing_controller import (
     ProcessingConfig,
     ProcessingController,
 )
 from meeting_scribe.meetings.application.review_controller import ReviewController
+from meeting_scribe.meetings.application.summary_controller import (
+    ConfiguredProvider,
+    SummaryConfig,
+    SummaryController,
+)
+from meeting_scribe.meetings.application.summary_events import SummaryEventHub
 from meeting_scribe.meetings.domain.meeting import ProcessingParams
 from meeting_scribe.meetings.domain.ports import (
     AudioInspector,
     MeetingRepository,
     Notifier,
+    SummaryFiles,
     WorkerRunner,
 )
 from meeting_scribe.meetings.domain.ports import Clock as MeetingsClock
 from meeting_scribe.meetings.infrastructure.dbus.meetings_interface import MeetingsInterface
+from meeting_scribe.meetings.infrastructure.dbus.summaries_interface import SummariesInterface
 from meeting_scribe.meetings.infrastructure.filesystem_meeting_repository import (
     FilesystemMeetingRepository,
 )
 from meeting_scribe.meetings.infrastructure.filesystem_sample_reader import (
     FilesystemSampleReader,
 )
+from meeting_scribe.meetings.infrastructure.filesystem_summary_files import FilesystemSummaryFiles
 from meeting_scribe.meetings.infrastructure.freedesktop_notifier import FreedesktopNotifier
 from meeting_scribe.meetings.infrastructure.subprocess_worker_runner import SubprocessWorkerRunner
 from meeting_scribe.meetings.infrastructure.wav_chunk_inspector import WavChunkInspector
@@ -59,6 +69,18 @@ from meeting_scribe.settings import Settings, get_settings
 from meeting_scribe.speakers.application.render_transcript import RenderTranscript
 from meeting_scribe.speakers.application.review_speakers import ReviewSpeakers
 from meeting_scribe.speakers.infrastructure.json_utterances_store import JsonUtterancesStore
+from meeting_scribe.summaries.application.generate_summary import GenerateSummary
+from meeting_scribe.summaries.domain.headings import HeadingCatalog
+from meeting_scribe.summaries.domain.ports import (
+    CloudKeyStore,
+    ModelReleaser,
+    NullModelReleaser,
+    SummaryProvider,
+)
+from meeting_scribe.summaries.infrastructure.gettext_headings import GettextHeadingCatalog
+from meeting_scribe.summaries.infrastructure.ollama_releaser import OllamaModelReleaser
+from meeting_scribe.summaries.infrastructure.openai_provider import OpenAiCompatibleProvider
+from meeting_scribe.summaries.infrastructure.secret_service_store import SecretServiceKeyStore
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +116,19 @@ class ProcessingAdapters:
 
 
 @dataclass(frozen=True)
+class SummaryAdapters:
+    """The ports behind ``SummaryController``; tests inject fakes, never the real ones."""
+
+    files: SummaryFiles
+    keys: CloudKeyStore
+    local_provider: SummaryProvider
+    cloud_provider: SummaryProvider
+    local_releaser: ModelReleaser
+    cloud_releaser: ModelReleaser
+    headings: HeadingCatalog
+
+
+@dataclass(frozen=True)
 class Application:
     """Wired application. Later phases add controllers and adapters here."""
 
@@ -102,6 +137,8 @@ class Application:
     processing: ProcessingController
     review: ReviewController  # speaker review of finished meetings, under the processing lock
     events: ProcessingEventHub  # D-Bus signals and notifications subscribe here
+    summaries: SummaryController  # one summary at a time, sharing the GPU lease
+    summary_events: SummaryEventHub  # the Summaries1 signals subscribe here
 
 
 def _real_recording_adapters(settings: Settings) -> RecordingAdapters:
@@ -133,6 +170,65 @@ def _real_processing_adapters(settings: Settings) -> ProcessingAdapters:
     )
 
 
+def _real_summary_adapters(settings: Settings) -> SummaryAdapters:
+    """Construct the production adapters. Nothing is sent and no key is read until a request."""
+    summaries = settings.summaries
+    keys = SecretServiceKeyStore()
+    return SummaryAdapters(
+        files=FilesystemSummaryFiles(),
+        keys=keys,
+        local_provider=OpenAiCompatibleProvider(
+            base_url=summaries.local_base_url,
+            cloud=False,
+            max_retries=summaries.max_retries,
+            read_timeout_seconds=summaries.timeout_seconds,
+        ),
+        cloud_provider=OpenAiCompatibleProvider(
+            base_url=summaries.cloud_base_url,
+            cloud=True,
+            max_retries=summaries.max_retries,
+            read_timeout_seconds=summaries.timeout_seconds,
+            key_store=keys,
+        ),
+        local_releaser=(
+            OllamaModelReleaser(summaries.local_base_url, summaries.local_model)
+            if summaries.unload_local_model
+            else NullModelReleaser()
+        ),
+        cloud_releaser=NullModelReleaser(),
+        headings=GettextHeadingCatalog(),
+    )
+
+
+def build_summary_config(settings: Settings, ports: SummaryAdapters) -> SummaryConfig:
+    """The two providers as the user sees them; the labels come from here, never from a client."""
+    summaries = settings.summaries
+    return SummaryConfig(
+        local=ConfiguredProvider(
+            id="local",
+            label=summaries.local_label,
+            model=summaries.local_model,
+            limits=summaries.limits_for(cloud=False),
+            generate=GenerateSummary(
+                ports.local_provider, ports.local_releaser, catalog=ports.headings
+            ),
+        ),
+        cloud=ConfiguredProvider(
+            id="cloud",
+            label=summaries.cloud_label,
+            model=summaries.cloud_model,
+            limits=summaries.limits_for(cloud=True),
+            generate=GenerateSummary(
+                ports.cloud_provider, ports.cloud_releaser, catalog=ports.headings
+            ),
+        ),
+        cloud_enabled=summaries.cloud_enabled,
+        default_provider=summaries.provider,
+        language=summaries.language,
+        total_timeout_seconds=summaries.total_timeout_seconds,
+    )
+
+
 def build_processing_config(settings: Settings) -> ProcessingConfig:
     """Every value a job needs, copied from the settings (the worker reads none, spec 6.2).
 
@@ -158,6 +254,7 @@ def create_app(
     *,
     recording_adapters: RecordingAdapters | None = None,
     processing_adapters: ProcessingAdapters | None = None,
+    summary_adapters: SummaryAdapters | None = None,
 ) -> Application:
     injected = settings is not None
     settings = settings or get_settings()
@@ -170,6 +267,8 @@ def create_app(
         logger.info("config source: no .env file found, using process environment and defaults")
     adapters = recording_adapters or _real_recording_adapters(settings)
     processing_ports = processing_adapters or _real_processing_adapters(settings)
+    summary_ports = summary_adapters or _real_summary_adapters(settings)
+    lease = InMemoryGpuLease()  # one GPU rule for recording, processing and local summaries
     events = ProcessingEventHub()
     if settings.processing.notify:
         events.subscribe(NotifyOnFinish(processing_ports.notifier))
@@ -181,6 +280,7 @@ def create_app(
         meetings_dir=settings.storage.meetings_dir,
         config=build_processing_config(settings),
         events=events,
+        lease=lease,
     )
     recording = RecordingController(
         clock=adapters.clock,
@@ -197,8 +297,27 @@ def create_app(
         transcripts=RenderTranscript(JsonUtterancesStore()),
         samples=FilesystemSampleReader(),
     )
+    summary_events = SummaryEventHub()
+    summaries = SummaryController(
+        repository=processing_ports.repository,
+        lock=processing,
+        review=review,
+        files=summary_ports.files,
+        clock=processing_ports.clock,
+        lease=lease,
+        keys=summary_ports.keys,
+        config=build_summary_config(settings, summary_ports),
+        events=summary_events,
+        on_gpu_free=processing.wake,
+    )
     return Application(
-        settings=settings, recording=recording, processing=processing, review=review, events=events
+        settings=settings,
+        recording=recording,
+        processing=processing,
+        review=review,
+        events=events,
+        summaries=summaries,
+        summary_events=summary_events,
     )
 
 
@@ -237,6 +356,14 @@ async def _stop_processing(
             wait_seconds,
         )
     return not thread.is_alive()
+
+
+async def _stop_summaries(summaries: SummaryController, wait_seconds: float) -> None:
+    """Cancel a running summary and wait for its thread, bounded; nothing is persisted."""
+    try:
+        await asyncio.wait_for(asyncio.to_thread(summaries.shutdown), wait_seconds)
+    except TimeoutError:
+        logger.error("The summary job did not stop within %.0f s.", wait_seconds)
 
 
 async def _wait_for_stop_or_disconnect(stop: asyncio.Event, bus: MessageBus) -> bool:
@@ -294,12 +421,15 @@ async def serve(
         recording = RecordingInterface(app.recording, poll_interval=poll_interval)
         meetings = MeetingsInterface(app.processing, app.review)
         bus.export(OBJECT_PATH, recording)
+        summaries = SummariesInterface(app.summaries)
         bus.export(OBJECT_PATH, meetings)
+        bus.export(OBJECT_PATH, summaries)
         reply = await bus.request_name(BUS_NAME, NameFlag.DO_NOT_QUEUE)
         if reply != RequestNameReply.PRIMARY_OWNER:
             logger.error("D-Bus name %s is already owned: another instance is running.", BUS_NAME)
             return EXIT_NAME_TAKEN
         app.events.subscribe(meetings)
+        app.summary_events.subscribe(summaries)
         processing_thread: threading.Thread | None = None
         processing_stopped = True
         disconnected = False
@@ -315,6 +445,7 @@ async def serve(
                 # first: stopping the recording queues its meeting for the next start
                 outcome = await recording.shutdown()
         finally:
+            await _stop_summaries(app.summaries, shutdown_timeout)
             if processing_thread is not None:
                 processing_stopped = await _stop_processing(
                     app.processing, processing_thread, shutdown_timeout
@@ -322,6 +453,7 @@ async def serve(
             else:
                 app.processing.shutdown()
             app.events.unsubscribe(meetings)
+            app.summary_events.unsubscribe(summaries)
         code = _exit_code(disconnected, isinstance(outcome, Failure), processing_stopped)
         if code == EXIT_OK:
             logger.info("meeting-scribe stopped.")

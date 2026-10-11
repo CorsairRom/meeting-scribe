@@ -21,6 +21,7 @@ from meeting_scribe.main import (
     Application,
     ProcessingAdapters,
     RecordingAdapters,
+    SummaryAdapters,
     create_app,
     serve,
 )
@@ -33,11 +34,15 @@ from meeting_scribe.meetings.domain.meeting import (
     SpeakerEntry,
     SpeakerReview,
 )
+from meeting_scribe.meetings.infrastructure.filesystem_summary_files import FilesystemSummaryFiles
 from meeting_scribe.meetings.infrastructure.processing_settings import ProcessingSettings
 from meeting_scribe.settings import Settings, StorageSettings
+from meeting_scribe.summaries.domain.headings import EnglishHeadingCatalog
+from meeting_scribe.summaries.infrastructure.summaries_settings import SummariesSettings
 from tests.unit.meetings.fakes import (
     T0,
     FakeAudioInspector,
+    FakeKeyStore,
     FakeNotifier,
     InMemoryMeetingRepository,
     ScriptedRunner,
@@ -49,6 +54,7 @@ from tests.unit.recording.fakes import (
     FakeDeviceResolver,
     FakeRecordingStorage,
 )
+from tests.unit.summaries.fakes import FakeProvider, FakeReleaser
 
 type Proxy = Any  # dbus-fast builds proxy members at runtime
 
@@ -65,10 +71,14 @@ class ServiceRig:
         self.capture = FakeAudioCapture()
         self.repository = InMemoryMeetingRepository()
         self.runner = runner or ScriptedRunner()
+        self.local_provider = FakeProvider()  # the summaries: no model, no network, no keyring
+        self.cloud_provider = FakeProvider()
+        self.keys = FakeKeyStore()
         self.app: Application = create_app(
             Settings(
                 storage=StorageSettings(meetings_dir=self.meetings_dir),
                 processing=ProcessingSettings(notify=notify),
+                summaries=SummariesSettings(cloud_enabled=True),
             ),
             recording_adapters=RecordingAdapters(
                 clock=FakeClock(),
@@ -82,6 +92,15 @@ class ServiceRig:
                 audio=FakeAudioInspector(),
                 clock=FakeMeetingsClock(),
                 notifier=self.notifier,
+            ),
+            summary_adapters=SummaryAdapters(
+                files=FilesystemSummaryFiles(),  # real files, under tmp
+                keys=self.keys,
+                local_provider=self.local_provider,
+                cloud_provider=self.cloud_provider,
+                local_releaser=FakeReleaser(),
+                cloud_releaser=FakeReleaser(),
+                headings=EnglishHeadingCatalog(),
             ),
         )
 
