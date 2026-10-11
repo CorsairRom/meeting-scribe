@@ -23,6 +23,20 @@ DESKTOP_ENTRY_NAME="dev.meetingscribe.Review.desktop"
 DESKTOP_ENTRY_PATH="$APPLICATIONS_DIR/$DESKTOP_ENTRY_NAME"
 REVIEW_LAUNCHER_NAME="meeting-scribe-review"
 
+# Prints $1 as one Exec argument of a desktop entry: double-quoted, with `"`, a backtick, `$` and
+# `\` escaped for the quoting level, `%` doubled (field codes), and every `\` doubled again for the
+# string level of the file (Desktop Entry Specification, "The Exec key").
+desktop_exec_argument() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//\`/\\\`}"
+  value="${value//\$/\\\$}"
+  value="${value//%/%%}"
+  value="${value//\\/\\\\}"
+  printf '"%s"' "$value"
+}
+
 # Best effort: refresh the desktop entry cache when the tool and the directory exist.
 refresh_desktop_database() {
   if [[ -d "$APPLICATIONS_DIR" ]] && command -v update-desktop-database >/dev/null 2>&1; then
