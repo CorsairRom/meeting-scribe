@@ -29,3 +29,7 @@ SUMMARY_METHODS = (
     "GetSummary",
 )
 SUMMARY_SIGNALS = ("SummaryProgress", "SummaryFinished")
+
+# The keyring item the service reads (BR-005); a drift test keeps these equal to its adapter's.
+KEY_ATTRIBUTES = {"application": "meeting-scribe", "key": "opencode-api-key"}
+KEY_LABEL = "Meeting Scribe OpenCode API key"

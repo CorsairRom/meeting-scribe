@@ -52,6 +52,20 @@ speaker, renames and merges speakers, and shows the transcript. Design: [`../spe
 3. From a terminal (optional): `~/.local/share/meeting-scribe/current/bin/meeting-scribe-review [--meeting ID]`.
 4. Development only: `make run-review-app` starts the app from the working tree with system Python.
 
+## Summary tab
+
+A meeting in the `DONE` state has a **Summary** tab next to **Review** (spec [`../specs/summaries.md`](../specs/summaries.md)).
+
+- One **Generate summary** button uses the provider chosen in the settings (`SUMMARIES_PROVIDER`); its label names
+  the provider as the service words it. Nothing is generated until you press it.
+- When that provider is the cloud, the label says "cloud" and every press first asks for confirmation: the transcript
+  and the speaker names leave this computer. Cancel is the default; only **Send to cloud** sends.
+- While it runs the tab shows progress and **Cancel**. A summary older than the speakers or transcript shows an
+  "out of date" banner. **Copy** and **Save a copy...** export the text; the app never picks a path itself.
+- **Set API key...** (cloud only) stores the key in the GNOME Keyring through libsecret, with the same item
+  `secret-tool` makes (`application=meeting-scribe`, `key=opencode-api-key`). The key never goes through the service.
+  It needs the `Secret-1` typelib (Fedora: `libsecret`, normally installed with GNOME).
+
 ## Verify
 
 - `gtk-launch dev.meetingscribe.Review` or the menu item opens one window; a second launch focuses it.
@@ -66,6 +80,7 @@ speaker, renames and merges speakers, and shows the transcript. Design: [`../spe
 | The menu item shows a notification asking you to run `make install` | The desktop entry is missing: run `make install` |
 | "The Meeting Scribe service is not running" in the window | `systemctl --user start meeting-scribe.service`, then Retry |
 | "The service must be restarted to match this app version" | `systemctl --user restart meeting-scribe.service` (an older service is still running) |
+| **Set API key...** says the keyring is not reachable | Start gnome-keyring (it runs with the GNOME session); unlock the login keyring if asked |
 | The window opens but no sound | Install `gstreamer1-plugins-good`; check the default audio output |
 | The app does not start from the menu | Run the launcher from a terminal and read the traceback; never paste meeting text from it |
 

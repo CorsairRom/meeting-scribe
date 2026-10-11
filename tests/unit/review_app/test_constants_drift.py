@@ -2,6 +2,7 @@
 
 from meeting_scribe.base.infrastructure.dbus import constants as service
 from meeting_scribe.meetings.infrastructure.dbus import meetings_interface, summaries_interface
+from meeting_scribe.summaries.infrastructure import secret_service_store
 from meeting_scribe_review.core import constants as app
 
 
@@ -29,3 +30,8 @@ def test_every_summaries_member_the_app_uses_exists_on_the_service_interface() -
     members = {name for name in dir(summaries_interface.SummariesInterface) if name[0].isupper()}
     assert set(app.SUMMARY_METHODS) <= members
     assert set(app.SUMMARY_SIGNALS) <= members
+
+
+def test_the_keyring_item_is_the_one_the_service_reads() -> None:
+    assert app.KEY_ATTRIBUTES == secret_service_store.ATTRIBUTES
+    assert app.KEY_LABEL == secret_service_store.LABEL

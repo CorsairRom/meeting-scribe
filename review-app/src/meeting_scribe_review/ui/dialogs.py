@@ -21,13 +21,41 @@ _MERGE = "merge"
 _EDIT = "edit"
 
 
-class SpeakerDialogs:
-    """Presents at most one dialog at a time over ``parent``."""
+class AlertHost:
+    """Presents at most one alert dialog at a time over ``parent``."""
 
-    def __init__(self, parent: Gtk.Widget, session: ReviewSession) -> None:
+    def __init__(self, parent: Gtk.Widget) -> None:
         self._parent = parent
-        self._session = session
         self._open: Adw.AlertDialog | None = None
+
+    def _present(
+        self,
+        dialog: Adw.AlertDialog,
+        handlers: dict[str, Callable[[], None]],
+        otherwise: Callable[[], None],
+    ) -> None:
+        self._dismiss()
+        self._open = dialog
+
+        def answered(source: Adw.AlertDialog, result: Gio.AsyncResult) -> None:
+            response = source.choose_finish(result)
+            if self._open is not source:
+                return  # dismissed by a newer state; its answer is stale
+            self._open = None
+            handlers.get(response, otherwise)()
+
+        dialog.choose(self._parent, None, answered)
+
+    def _dismiss(self) -> None:
+        dialog, self._open = self._open, None
+        if dialog is not None:
+            dialog.force_close()
+
+
+class SpeakerDialogs(AlertHost):
+    def __init__(self, parent: Gtk.Widget, session: ReviewSession) -> None:
+        super().__init__(parent)
+        self._session = session
 
     def show_rename(self, state: RenameState, review: ReviewState) -> None:
         if state.status is RenameStatus.EDITING:
@@ -127,26 +155,3 @@ class SpeakerDialogs:
         dialog.add_response(_CANCEL, "Close")
         dialog.set_close_response(_CANCEL)
         self._present(dialog, {}, self._session.cancel_merge)
-
-    def _present(
-        self,
-        dialog: Adw.AlertDialog,
-        handlers: dict[str, Callable[[], None]],
-        otherwise: Callable[[], None],
-    ) -> None:
-        self._dismiss()
-        self._open = dialog
-
-        def answered(source: Adw.AlertDialog, result: Gio.AsyncResult) -> None:
-            response = source.choose_finish(result)
-            if self._open is not source:
-                return  # dismissed by a newer state; its answer is stale
-            self._open = None
-            handlers.get(response, otherwise)()
-
-        dialog.choose(self._parent, None, answered)
-
-    def _dismiss(self) -> None:
-        dialog, self._open = self._open, None
-        if dialog is not None:
-            dialog.force_close()
