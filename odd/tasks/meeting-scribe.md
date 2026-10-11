@@ -534,9 +534,18 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
       meeting language, technical terms never translated; one backup on regenerate, stale on reprocess; default
       `qwen3.5:9b`; menu opens summary.md in the default app; ONE button with SUMMARIES_PROVIDER, "(cloud)"
       label and per-request confirmation when the provider is the cloud (safety rule 3).
-- [ ] F5.1 `summaries` domain: request, ports, chunker, prompt builder, renderer, fingerprint, errors (~350)
-- [ ] F5.2 `GenerateSummary` use case: single pass / map-reduce, cancel, progress, validation (~300)
-- [ ] F5.3 settings + OpenAI-compatible provider + Ollama model release + `openai` dependency (~400)
+- [x] F5.1 `summaries` domain (#101). Review review-3fe52d6e14e847af approved.
+- [x] F5.2 `GenerateSummary` (#102) + F5.2b headings in the detected meeting language via a .po catalog (owner
+      refined OQ-4: headings and body in the meeting language), cancel precedence, clamped per-call time (#103).
+      Reviews review-b9e02e4855ae20b7, review-5fd84e9c27bc8686 approved.
+- [x] F5.3 settings, ADR-009 (owner: cloud through OpenCode Go, https://opencode.ai/zen/go/v1, deepseek-v4-pro),
+      API key in the GNOME Keyring via Secret Service (owner decision; BR-005; runbook store-cloud-api-key.md),
+      streaming provider with adapter-owned cancellable retries, truncation guard, no proxy for local traffic,
+      Ollama release. Reviews review-bcbdad1d9bcbbbf7 (4 lenses) and review-58fdfc4359a605fa approved.
+      Integrated #104-#106. GREEN 1344 python / 122 gjs / 14 contracts. Note: one test attempted a connection to
+      TEST-NET 192.0.2.1 before the guard covered connect_ex (nothing sent). Follow-ups for F5.4 first commit:
+      undecodable secret reported as unavailable (should be missing), vacuous no-secret-in-log test, stringly
+      _Outcome.kind; suggestions: max_retries dual budget comment, Retry-After docstring, releaser client close.
 - [ ] F5.4 `meetings`: SummaryInfo, SummaryController, GpuLease, backups, stale (~400)
 - [ ] F5.5 `Summaries1` D-Bus + wiring + api-contracts + e2e (~400)
 - [ ] F5.6a review app core: summaries gateway, presenters (~400)
