@@ -36,15 +36,18 @@ class ApiKeyPresenter:
         self._store = store
         self._on_change = on_change
         self._state = ApiKeyState()
+        self._attempt = 0  # a store result counts only for the attempt that asked for it
 
     @property
     def state(self) -> ApiKeyState:
         return self._state
 
     def edit(self) -> None:
+        self._attempt += 1
         self._publish(ApiKeyState(ApiKeyStatus.EDITING))
 
     def cancel(self) -> None:
+        self._attempt += 1
         self._publish(ApiKeyState())
 
     def submit(self, raw: str) -> None:
@@ -54,10 +57,14 @@ class ApiKeyPresenter:
         if not secret:
             self._publish(ApiKeyState(ApiKeyStatus.EDITING, problem=EMPTY_TEXT))
             return
+        self._attempt += 1
+        attempt = self._attempt
         self._publish(ApiKeyState(ApiKeyStatus.SAVING))
-        self._store.store(secret, self._stored)
+        self._store.store(secret, lambda result: self._stored(attempt, result))
 
-    def _stored(self, result: Result[None, ServiceError]) -> None:
+    def _stored(self, attempt: int, result: Result[None, ServiceError]) -> None:
+        if attempt != self._attempt or self._state.status is not ApiKeyStatus.SAVING:
+            return
         if isinstance(result, Err):
             problem = message_for(result.error).text
             self._publish(ApiKeyState(ApiKeyStatus.EDITING, problem=problem))

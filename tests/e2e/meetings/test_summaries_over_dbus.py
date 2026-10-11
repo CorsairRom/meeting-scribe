@@ -68,6 +68,27 @@ async def _error(call: Awaitable) -> DBusError:
     return excinfo.value
 
 
+async def _summarize_once_the_gpu_is_free(summaries: Proxy, meeting_id: str) -> str:
+    """Start a local summary, retrying only while processing still holds the GPU."""
+    started = time.monotonic()
+    attempts = 0
+    while True:
+        attempts += 1
+        try:
+            return await summaries.call_summarize(meeting_id, "local", False)
+        except DBusError as error:
+            # Only GPU contention is expected here; SUMMARY_BUSY (another summary still active)
+            # would be a real regression of the cancellation above.
+            if error.type != f"{ERROR}.SUMMARY_GPU_BUSY":
+                raise
+            waited = time.monotonic() - started
+            if waited > 10:
+                raise AssertionError(
+                    f"the GPU stayed busy for {waited:.1f} s over {attempts} attempts"
+                ) from error
+        await asyncio.sleep(0.05)
+
+
 def test_the_providers_come_from_the_service_with_the_cloud_label(
     tmp_path: Path, bus_address: str
 ) -> None:
@@ -257,7 +278,9 @@ def test_a_recording_cancels_a_local_summary_and_holds_off_a_new_one(
         busy = await _error(summaries.call_summarize("m1", "local", False))
         assert busy.type == f"{ERROR}.SUMMARY_GPU_BUSY"
         await session.recording.call_stop()
-        assert await summaries.call_summarize("m1", "local", False) == "RUNNING"
+        # Stop queues the new recording for processing, and processing may take the GPU before
+        # this call does; a local summary is then refused until processing is done.
+        assert await _summarize_once_the_gpu_is_free(summaries, "m1") == "RUNNING"
         await summaries.call_cancel_summary("m1")
 
     _run(rig, bus_address, scenario)

@@ -8,7 +8,7 @@ from meeting_scribe_review.core.presenters.api_key import (
     ApiKeyState,
     ApiKeyStatus,
 )
-from meeting_scribe_review.core.result import Err
+from meeting_scribe_review.core.result import Err, Ok
 from tests.unit.review_app.fakes import FakeApiKeyStore
 
 FAKE_KEY = "fake-key-0123"
@@ -77,3 +77,33 @@ def test_the_key_is_never_kept_in_a_state_or_on_the_presenter() -> None:
         assert FAKE_KEY not in repr(state)
     kept = {name: value for name, value in vars(presenter).items() if name != "_store"}
     assert FAKE_KEY not in repr(kept)
+
+
+class _SlowStore:
+    def __init__(self) -> None:
+        self.pending: list[object] = []
+
+    def store(self, secret: str, done: object) -> None:  # noqa: ARG002
+        self.pending.append(done)
+
+
+def test_a_late_store_result_after_cancel_is_ignored() -> None:
+    store = _SlowStore()
+    states: list[ApiKeyState] = []
+    presenter = ApiKeyPresenter(store, states.append)  # type: ignore[arg-type]
+    presenter.edit()
+    presenter.submit(FAKE_KEY)
+    presenter.cancel()
+    store.pending[0](Ok(None))  # type: ignore[operator]
+    assert presenter.state.status is ApiKeyStatus.IDLE
+
+
+def test_a_late_store_result_of_an_earlier_attempt_is_ignored() -> None:
+    store = _SlowStore()
+    presenter = ApiKeyPresenter(store, lambda _state: None)  # type: ignore[arg-type]
+    presenter.edit()
+    presenter.submit(FAKE_KEY)
+    presenter.cancel()
+    presenter.edit()
+    store.pending[0](Err(ServiceError(KEYRING_UNAVAILABLE)))  # type: ignore[operator]
+    assert presenter.state == ApiKeyState(ApiKeyStatus.EDITING)

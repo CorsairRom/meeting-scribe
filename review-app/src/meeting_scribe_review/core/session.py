@@ -180,7 +180,7 @@ class ReviewSession:
         self._playback.forget(meeting_id)
         self._meetings.on_processing_finished(meeting_id, state, speaker_count)
         self._review.on_processing_finished(meeting_id, state, speaker_count)
-        self._summary.on_processing_state_changed(meeting_id, state)
+        self._summary.on_processing_finished(meeting_id, state)
 
     def on_speakers_changed(self, meeting_id: str) -> None:
         self._meetings.on_speakers_changed(meeting_id)

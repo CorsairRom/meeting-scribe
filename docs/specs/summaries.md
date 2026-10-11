@@ -945,3 +945,9 @@ The owner answered all eight questions on 2026-10-11.
   `SUMMARIES_MAX_OUTPUT_TOKENS` plus 600.
 - **F5.3**: a connect or first-byte wait cannot be interrupted by a cancel (no stream exists yet); it is bounded by
   the connect timeout (5 s) and the read timeout capped by the time left.
+- **F5.6 (2026-10-11)**: the button label is `Generate summary: <provider label>` with the label exactly as `Providers`
+  words it (the cloud label already says "cloud"); the colon avoids nested parentheses with `Local (<model>)`. The
+  "Set API key" field of section 8a is built in the app (`ApiKeyPresenter` in `core`, `SecretKeyStore` on libsecret in
+  `ui`): it is offered only when the configured provider is the cloud and available, stores the item that `secret-tool`
+  makes, and the key is never kept in a state nor sent to the service. The summary text is shown as plain selectable
+  text (no Markdown rendering); a `FAILED` run with a previous `summary.md` shows the failure and keeps the old text.

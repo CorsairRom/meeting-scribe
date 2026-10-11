@@ -330,3 +330,70 @@ def test_the_set_key_action_is_offered_only_for_an_available_cloud_provider() ->
     )
     presenter.open("m1", "DONE")
     assert not presenter.state.can_set_key
+
+
+def test_a_service_restart_mid_run_does_not_leave_the_tab_running() -> None:
+    presenter, _gateway, _states, _asked = _wire()
+    presenter.open("m1", "DONE")
+    presenter.request()
+    presenter.on_summary_progress("m1", 1, 3)
+    presenter.on_service_available(False)
+    presenter.on_service_available(True)
+    state = presenter.state
+    assert state.phase is SummaryPhase.NONE
+    assert state.can_generate
+    assert state.progress_text == ""
+
+
+def test_a_service_restart_while_cancelling_does_not_leave_cancelling() -> None:
+    presenter, _gateway, _states, _asked = _wire()
+    presenter.open("m1", "DONE")
+    presenter.request()
+    presenter.cancel()
+    presenter.on_service_available(False)
+    presenter.on_service_available(True)
+    assert presenter.state.phase is SummaryPhase.NONE
+    assert presenter.state.progress_text == ""
+
+
+def test_a_run_still_going_after_a_reload_is_running_because_the_service_says_so() -> None:
+    gateway = FakeSummariesGateway()
+    gateway.replies["get_summary_status"] = Ok(summary_info("RUNNING", step=1, total_steps=2))
+    presenter, _, _states, _asked = _wire(gateway)
+    presenter.open("m1", "DONE")
+    presenter.on_service_available(True)
+    assert presenter.state.phase is SummaryPhase.RUNNING
+    assert presenter.state.progress_text == "Step 1 of 2"
+
+
+def _cloud_gateway(*ids: str) -> FakeSummariesGateway:
+    gateway = FakeSummariesGateway()
+    gateway.replies["providers"] = Ok(
+        [provider(i, cloud=True, default=n == 0) for n, i in enumerate(ids)]
+    )
+    return gateway
+
+
+def test_a_confirmation_for_a_provider_that_is_no_longer_the_default_asks_again() -> None:
+    gateway = _cloud_gateway("cloud")
+    presenter, _, _states, asked = _wire(gateway)
+    presenter.open("m1", "DONE")
+    presenter.request()
+    old = asked[0]
+    gateway.replies["providers"] = Ok([provider("cloud2", cloud=True)])
+    presenter.on_service_available(True)
+    presenter.send(old)
+    assert gateway.args_of("summarize") == []
+    assert [request.provider_id for request in asked] == ["cloud", "cloud2"]
+
+
+def test_a_confirmation_is_dropped_when_the_default_is_no_longer_the_cloud() -> None:
+    gateway = _cloud_gateway("cloud")
+    presenter, _, _states, asked = _wire(gateway)
+    presenter.open("m1", "DONE")
+    presenter.request()
+    gateway.replies["providers"] = Ok([provider("local")])
+    presenter.on_service_available(True)
+    presenter.send(asked[0])
+    assert gateway.args_of("summarize") == []
+    assert len(asked) == 1
