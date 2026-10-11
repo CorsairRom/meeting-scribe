@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup lint format imports test test-extension check run install uninstall extension-pack extension-install
+.PHONY: help setup lint format imports test test-extension check run run-review-app install uninstall extension-pack extension-install
 
 EXTENSION_UUID := meeting-scribe@meetingscribe.dev
 PACK_DIR ?= dist
@@ -30,6 +30,9 @@ check: lint test test-extension ## lint + test + test-extension
 
 run: ## Start the service in the foreground (development)
 	uv run meeting-scribe
+
+run-review-app: ## Open the review app from the working tree (development; opens a window, ask the user first)
+	PYTHONPATH=review-app/src /usr/bin/python3 -m meeting_scribe_review
 
 install: ## Install everything: service, systemd unit, D-Bus activation, GNOME extension
 	scripts/install.sh

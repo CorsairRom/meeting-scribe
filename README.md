@@ -43,6 +43,11 @@ as NOT active and exits non-zero. A failing extension step is reported in the su
    fail the install: the summary says `models: NOT downloaded` and `make install` again fixes it.
 4. Packs, installs and enables the GNOME extension. On Wayland a brand-new extension is discovered only after you
    log out and back in once; the installer tells you when that is needed.
+5. Installs the review app (F4) into the same version directory (`app/` and the `bin/meeting-scribe-review` launcher, which
+   runs on the system Python) and a desktop entry, `dev.meetingscribe.Review.desktop`, in
+   `${XDG_DATA_HOME:-~/.local/share}/applications/`. The summary says `review app: ready` or names the missing system
+   packages (`python3-gobject`, `gtk4`, `libadwaita`); a missing package never fails the install. See
+   [`review-app.md`](docs/runbooks/review-app.md). `make uninstall` removes the desktop entry and the version tree.
 
 Upgrading from an install made before versioned installs (the service ran from `~/.local/bin/meeting-scribe`): the first
 `make install` rewrites the unit to the `current/` path and, only after the service is active on it, runs
@@ -81,6 +86,7 @@ stops the recording first.
 | [`AGENTS.md`](AGENTS.md) | Conventions and workflow for AI agents and contributors (`CLAUDE.md` links to it) |
 | [`docs/runbooks/record-via-gdbus.md`](docs/runbooks/record-via-gdbus.md) | Record and stop a meeting by hand over D-Bus (records real audio) |
 | [`docs/runbooks/processing.md`](docs/runbooks/processing.md) | Hugging Face login, models downloaded by `make install`, first run, troubleshooting by error code |
+| [`docs/runbooks/review-app.md`](docs/runbooks/review-app.md) | Install, open and troubleshoot the review app (system GTK 4 and libadwaita) |
 | [`docs/runbooks/gnome-extension.md`](docs/runbooks/gnome-extension.md) | Try the panel indicator in a nested shell and install it in your session |
 | [`docs/`](docs/README.md) | Taxonomy: project scope and rules, architecture, ADRs, specs, runbooks, ideas |
 

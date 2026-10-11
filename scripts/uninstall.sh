@@ -19,7 +19,11 @@ echo "==> Removing the GNOME extension"
 gnome-extensions disable "$EXTENSION_UUID" || true
 gnome-extensions uninstall "$EXTENSION_UUID" || true
 
-echo "==> Removing the installed versions"
+echo "==> Removing the review app desktop entry"
+rm -f "$DESKTOP_ENTRY_PATH"
+refresh_desktop_database
+
+echo "==> Removing the installed versions (the review app and its launcher are inside)"
 # Remove only what install.sh created; anything else under $INSTALL_ROOT (e.g. caches) stays.
 rm -f "$CURRENT_LINK"
 rm -rf "$VERSIONS_DIR"

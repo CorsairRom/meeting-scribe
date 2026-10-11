@@ -1,7 +1,7 @@
 ---
 type: index
 status: living
-last_updated: 2026-10-09
+last_updated: 2026-10-11
 ---
 
 # Runbooks
@@ -20,5 +20,6 @@ A runbook gives exact commands, preconditions and what to verify afterwards.
 | [Record and stop a meeting via gdbus](record-via-gdbus.md) | F1 | active |
 | [Try and install the GNOME extension](gnome-extension.md) | F2 | active |
 | [Set up and troubleshoot processing](processing.md) | F3 | active |
+| [Install, open and troubleshoot the review app](review-app.md) | F4 | active |
 
 Planned: install troubleshooting (F6).
