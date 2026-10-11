@@ -553,7 +553,12 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
       GREEN 1417 python / 122 gjs. Follow-ups for F5.5 first commit: older backup lost if the backup replace
       fails; _start_job called under the slot lock (inline starter would deadlock); _finish_slot release
       unguarded; untested _stopping branch.
-- [ ] F5.5 `Summaries1` D-Bus + wiring + api-contracts + e2e (~400)
+- [x] F5.5 `Summaries1` D-Bus (api-contracts first), event hub + throttle, one shared GpuLease wired in
+      create_app, bounded summary shutdown (exit 4, GO-057). Reviews review-c1445be86c187082,
+      review-e3e801d311e2ba33, review-35dffd1a4f599fd6 approved. A racy shutdown test (job not yet inside the
+      provider call) failed in the clean publish worktree; fixed `c9c5cd3` (15/15 green). Integrated #109-#110.
+      GREEN 1452 python / 122 gjs. Follow-up: assert the summary job thread is a daemon (it is,
+      summary_controller.py:155); e2e exit-4 test should assert the summary-specific log.
 - [ ] F5.6a review app core: summaries gateway, presenters (~400)
 - [ ] F5.6b review app ui: summary view, button, confirmation, progress (~350)
 - [ ] F5.7 extension "Open last summary (date)" (~250)
