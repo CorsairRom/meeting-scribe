@@ -188,12 +188,12 @@ def test_unmerge_restores_the_speaker() -> None:
 
 
 def test_unmerge_after_the_target_was_merged_further_keeps_the_other_children() -> None:
-    state = merge(_team(), "S3", "S1").unwrap()
-    state = merge(state, "S1", "S2").unwrap()
+    state = merge(_team(), "S2", "S1").unwrap()
+    state = merge(state, "S1", "S3").unwrap()  # S2 now points at S3 as well
 
-    restored = unmerge(state, "S3").unwrap()
+    restored = unmerge(state, "S2").unwrap()
 
-    assert restored.merged_into == {"S1": "S2"}
+    assert restored.merged_into == {"S1": "S3"}
 
 
 def test_effective_utterances_show_merged_speakers_as_their_target() -> None:
@@ -211,3 +211,61 @@ def test_effective_utterances_show_merged_speakers_as_their_target() -> None:
         (u.start, u.end, u.text) for u in utterances
     ]
     assert utterances[0].speaker == "S3"  # the stored utterances are never changed
+
+
+def test_unmerge_reverts_the_name_the_target_adopted() -> None:
+    merged = merge(_team(), "S3", "S1").unwrap()
+    assert merged.find("S1").name == "Carol"  # type: ignore[union-attr]
+
+    restored = unmerge(merged, "S3").unwrap()
+
+    assert restored == _team()  # exactly the state before the merge, adoption record included
+
+
+def test_unmerge_keeps_a_target_name_the_user_set_after_the_merge() -> None:
+    merged = merge(_team(), "S3", "S1").unwrap()
+    renamed = rename(merged, "S1", "Alex").unwrap()
+
+    restored = unmerge(renamed, "S3").unwrap()
+
+    assert restored.find("S1").name == "Alex"  # type: ignore[union-attr]
+    assert restored.find("S3").name == "Carol"  # type: ignore[union-attr]
+
+
+def test_renaming_the_target_to_the_adopted_name_counts_as_the_users_choice() -> None:
+    merged = merge(_team(), "S3", "S1").unwrap()
+    renamed = rename(merged, "S1", "Dave").unwrap()
+    again = rename(renamed, "S1", "Carol").unwrap()
+
+    # the name is the user's now, so it is kept and the source's identical name clashes with it
+    assert type(_failure(unmerge(again, "S3"))) is SpeakerNameTakenError
+
+
+def test_unmerge_does_not_revert_a_name_adopted_from_another_source() -> None:
+    state = merge(_team(), "S3", "S1").unwrap()  # S1 adopts "Carol" from S3
+    state = merge(state, "S2", "S1").unwrap()  # S1 already has a name: nothing adopted
+
+    restored = unmerge(state, "S2").unwrap()
+
+    assert restored.find("S1").name == "Carol"  # type: ignore[union-attr]
+
+
+def test_unmerge_that_would_clash_with_an_active_name_is_rejected_and_changes_nothing() -> None:
+    state = merge(_team(), "S3", "S1").unwrap()
+    state = rename(state, "S1", "Alex").unwrap()
+    state = rename(state, "S2", " carol ").unwrap()  # allowed: S3 is merged away
+
+    failure = _failure(unmerge(state, "S3"))
+
+    assert type(failure) is SpeakerNameTakenError
+    assert "Carol" not in str(failure)
+    assert state.merged_into == {"S3": "S1"}
+
+
+def test_rename_of_a_merged_away_speaker_is_rejected() -> None:
+    state = merge(_team(), "S3", "S1").unwrap()
+
+    failure = _failure(rename(state, "S3", "Dave"))
+
+    assert type(failure) is SpeakerMergeInvalidError
+    assert state.find("S3").name == "Carol"  # type: ignore[union-attr]

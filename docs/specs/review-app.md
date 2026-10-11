@@ -312,7 +312,9 @@ THEN the app, launcher and desktop entry are removed and meetings are untouched
 | Name that is another speaker's default label ("Speaker 2") | `SPEAKER_NAME_TAKEN` (it would be ambiguous in the transcript) |
 | Name containing markdown characters (`*`, `_`, `[`) | Stored as typed; escaped when `transcript.md` is rendered, shown verbatim in the app |
 | Name with Unicode (accents, non-Latin) | Accepted; normalised to NFC; length counted in code points |
-| Merge a speaker that has a name into one without | Target takes the name (AC-5); the source keeps its own name for Unmerge |
+| Merge a speaker that has a name into one without | Target takes the name (AC-5); the source keeps its own name; Unmerge gives the name back (section 9) |
+| Rename a speaker that is merged away | Fails with `SPEAKER_MERGE_INVALID`; unmerge it first |
+| Unmerge when the restored name clashes with an active speaker | Fails with `SPEAKER_NAME_TAKEN`; nothing changes |
 | Unmerge when its old target was since merged into a third speaker | Source becomes active again on its own; the third speaker keeps the other merged children |
 | `meeting.json` from a newer schema | Listed `UNSUPPORTED`; edits fail with `MEETING_NOT_PROCESSED`; the file is never rewritten |
 | Service restarted by `make install` while the app is open | The proxy reports the name vanishing; the app shows the "not running" state and reconnects when the name returns |
@@ -384,6 +386,7 @@ of truth and a second thing to keep atomic with `meeting.json` (ADR-004 rejected
 ```json
 "speaker_review": {
   "merged_into": {"S3": "S1"},
+  "name_adopted_from": {"S1": "S3"},
   "transcript_stale": false
 }
 ```
@@ -493,11 +496,14 @@ the effective rows.
 | `EntityNotFoundError(detail_code="TRANSCRIPT")` | `ENTITY_NOT_FOUND_TRANSCRIPT` | speakers | DONE meeting with no `utterances.json` (processed by a build that did not write it) |
 | `MeetingNotProcessedError` (subclass of `InvalidStateTransitionError`) | `MEETING_NOT_PROCESSED` | meetings | Review members need state `DONE` |
 | `SpeakerNameTakenError` (subclass of `InvalidValueError`) | `SPEAKER_NAME_TAKEN` | speakers | Name equals another active speaker's display name or label |
-| `SpeakerMergeInvalidError` (subclass of `InvalidValueError`) | `SPEAKER_MERGE_INVALID` | speakers | Self merge, merged-away source or target, "Me" as source |
+| `SpeakerMergeInvalidError` (subclass of `InvalidValueError`) | `SPEAKER_MERGE_INVALID` | speakers | Self merge, merged-away source or target, "Me" as source, rename of a merged-away speaker |
 
 Names that are empty, too long or contain control characters use the existing `INVALID_VALUE`. A damaged
 `utterances.json` or `meeting.json` uses the existing `MEETING_CORRUPT`. No error message ever quotes a name or a
 transcript line: messages carry the meeting id and the speaker id only (ids are not private; names are).
+
+The `speakers` package also raises `TRANSCRIPT_CORRUPT` (damaged `utterances.json`) and `TRANSCRIPT_STORAGE_FAILED`
+(`transcript.md` not written); `meetings` maps them to `MEETING_CORRUPT` and `MEETING_STORAGE_FAILED` in F4.2.
 
 ### 6. Runtime, packaging layout and import contracts
 
@@ -631,10 +637,11 @@ go, because it opens a window and the service it talks to may hold private meeti
 | Transcript | Utterances of the source are shown as the target; adjacent utterances of the same effective speaker are **not** coalesced in v1 (the transcript stays lossless and timestamps are unchanged) |
 | Totals | `talk_seconds` and `utterance_count` of the target include the merged speakers |
 | Samples | Kept for every speaker; a merged speaker's sample stays reachable in the "Merged" section so the user can verify a merge and undo it |
-| Names | The target's name wins; if the target has none and the source has one, the target takes it; the source keeps its own name for Unmerge |
+| Names | The target's name wins; if the target has none and the source has one, the target takes it and `name_adopted_from[target] = source` records it; the source keeps its own name |
 | "Me" | Can be a target, cannot be a source (OQ-2); renaming is allowed |
 | "Unknown" | A normal source; it can be merged into "Me" or a numbered speaker |
-| Undo | `UnmergeSpeaker` restores one speaker exactly (section 2); there is no undo stack for renames, a rename is its own undo |
+| Undo | `UnmergeSpeaker` restores the state before the merge: the source is active again with its own record, and the target gives back the name it adopted from this source (its name is cleared) unless the user renamed the target since (any rename of the target forgets the adoption, so its current name is kept). If the source's own name now clashes with another active speaker (same rule as rename), the call fails with `SPEAKER_NAME_TAKEN` and nothing changes. No-op success when the speaker is not merged. There is no undo stack for renames, a rename is its own undo |
+| Rename of a merged speaker | Only active speakers can be renamed: a merged-away speaker fails with `SPEAKER_MERGE_INVALID` until it is unmerged |
 | Reprocess | Clears everything (OQ-1) |
 
 **Name validation** (service authoritative, mirrored client-side for instant feedback):

@@ -8,7 +8,7 @@ exact. Error messages carry speaker ids only, never a name (names are private).
 import unicodedata
 from collections.abc import Mapping, Sequence
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from returns.result import Failure, Result, Success
 
 from meeting_scribe.base.domain.errors import EntityNotFoundError, InvalidValueError
@@ -46,6 +46,8 @@ class ReviewState(BaseModel):
 
     speakers: tuple[SpeakerRecord, ...]
     merged_into: dict[str, str]
+    name_adopted_from: dict[str, str] = Field(default_factory=dict)
+    """``target id -> source id`` while the target shows the name it took from that source."""
 
     def find(self, speaker_id: str) -> SpeakerRecord | None:
         return next((s for s in self.speakers if s.id == speaker_id), None)
@@ -73,13 +75,21 @@ def rename(
     target = state.find(speaker_id)
     if target is None:
         return Failure(_unknown_speaker(speaker_id))
+    if not state.is_active(speaker_id):
+        return Failure(
+            SpeakerMergeInvalidError(f"Speaker {speaker_id} is merged; unmerge it to rename it.")
+        )
     validated = validate_name(raw_name)
     if isinstance(validated, Failure):
         return validated
     name = validated.unwrap()
     if name and _is_taken(state, speaker_id, name):
         return Failure(SpeakerNameTakenError(f"That name is already used (speaker {speaker_id})."))
-    return Success(_replace(state, target.model_copy(update={"name": name})))
+    if name == target.name:
+        return Success(state)
+    adopted_from = {k: v for k, v in state.name_adopted_from.items() if k != speaker_id}
+    renamed = _replace(state, target.model_copy(update={"name": name}))
+    return Success(renamed.model_copy(update={"name_adopted_from": adopted_from}))
 
 
 def merge(
@@ -103,20 +113,44 @@ def merge(
         for child, parent in state.merged_into.items()
     }
     merged_into[source_id] = target_id
-    adopted = (
-        target
-        if target.name or not source.name
-        else target.model_copy(update={"name": source.name})
-    )
-    return Success(_replace(state.model_copy(update={"merged_into": merged_into}), adopted))
+    adopts = not target.name and bool(source.name)
+    adopted_from = dict(state.name_adopted_from)
+    merged = state.model_copy(update={"merged_into": merged_into})
+    if adopts:
+        adopted_from[target_id] = source_id
+        merged = _replace(merged, target.model_copy(update={"name": source.name}))
+    return Success(merged.model_copy(update={"name_adopted_from": adopted_from}))
 
 
-def unmerge(state: ReviewState, speaker_id: str) -> Result[ReviewState, EntityNotFoundError]:
-    """Make a merged speaker active again with its own record; a no-op when it is not merged."""
-    if state.find(speaker_id) is None:
+def unmerge(
+    state: ReviewState, speaker_id: str
+) -> Result[ReviewState, SpeakerNameTakenError | EntityNotFoundError]:
+    """Restore the state before the merge; a no-op when the speaker is not merged.
+
+    The target gives back the name it adopted from this source, unless the user renamed it since.
+    A source whose own name now clashes with an active speaker stays merged (SPEAKER_NAME_TAKEN).
+    """
+    source = state.find(speaker_id)
+    if source is None:
         return Failure(_unknown_speaker(speaker_id))
-    merged_into = {k: v for k, v in state.merged_into.items() if k != speaker_id}
-    return Success(state.model_copy(update={"merged_into": merged_into}))
+    target_id = state.merged_into.get(speaker_id)
+    if target_id is None:
+        return Success(state)
+    restored = state.model_copy(
+        update={
+            "merged_into": {k: v for k, v in state.merged_into.items() if k != speaker_id},
+            "name_adopted_from": {
+                k: v for k, v in state.name_adopted_from.items() if speaker_id not in (k, v)
+            },
+        }
+    )
+    target = restored.find(target_id)
+    adopted = state.name_adopted_from.get(target_id) == speaker_id
+    if adopted and target is not None and target.name == source.name:
+        restored = _replace(restored, target.model_copy(update={"name": ""}))
+    if source.name and _is_taken(restored, speaker_id, source.name):
+        return Failure(SpeakerNameTakenError(f"That name is already used (speaker {speaker_id})."))
+    return Success(restored)
 
 
 class EffectiveSpeaker(BaseModel):
