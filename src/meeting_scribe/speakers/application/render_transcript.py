@@ -10,6 +10,8 @@ from meeting_scribe.speakers.domain.review import ReviewState, effective_utteran
 from meeting_scribe.speakers.domain.transcript import render_transcript
 from meeting_scribe.speakers.domain.turns import SpeakerLabel, Utterance
 
+__all__ = ["RenderTranscript", "Utterance"]
+
 
 class RenderTranscript:
     def __init__(self, store: UtterancesStore) -> None:

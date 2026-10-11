@@ -1,7 +1,8 @@
 """In-memory fakes for the meetings ports (CR-009): no files, no processes, no models."""
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -31,6 +32,7 @@ from meeting_scribe.meetings.domain.worker import (
     StartedEvent,
     WorkerJob,
 )
+from meeting_scribe.speakers.application.render_transcript import Utterance
 
 T0 = datetime(2026, 10, 9, 10, 0, tzinfo=timezone(timedelta(hours=2)))
 ROOT = Path("/meetings")
@@ -49,6 +51,9 @@ class InMemoryMeetingRepository:
         self.saves: list[tuple[str, str]] = []
         self.fail_saves = False
         self.fail_saves_for: set[str] = set()
+        self.fail_on_save_number: int | None = None  # 1-based, counted over successful saves
+        self.lock: FakeMeetingLock | None = None
+        self.lock_held_on_save: list[bool] = []
         self.get_failures: dict[str, MeetingStorageError | MeetingSchemaUnsupportedError] = {}
 
     def get(
@@ -63,6 +68,10 @@ class InMemoryMeetingRepository:
     ) -> Result[Meeting, MeetingStorageError | MeetingSchemaUnsupportedError]:
         if self.fail_saves or meeting.id in self.fail_saves_for:
             return Failure(MeetingStorageError("disk full"))
+        if self.fail_on_save_number == len(self.saves) + 1:
+            return Failure(MeetingStorageError("disk full"))
+        if self.lock is not None:
+            self.lock_held_on_save.append(self.lock.held)
         self.meetings[meeting.id] = meeting
         self.saves.append((meeting.id, meeting.processing.state))
         return Success(meeting)
@@ -201,3 +210,48 @@ class FakeNotifier:
     def notify(self, notification: Notification) -> Result[None, NotificationError]:
         self.sent.append(notification)
         return Failure(self.error) if self.error else Success(None)
+
+
+class FakeMeetingLock:
+    """Records whether the lock is held, so tests can prove work happens inside it."""
+
+    def __init__(self) -> None:
+        self.held = False
+        self.holds = 0
+
+    @contextmanager
+    def hold(self) -> Iterator[None]:
+        self.holds += 1
+        self.held = True
+        try:
+            yield
+        finally:
+            self.held = False
+
+
+class FakeUtterancesStore:
+    """In-memory ``UtterancesStore``; notes meeting.json and the lock at each transcript write."""
+
+    def __init__(self, repository: InMemoryMeetingRepository, lock: FakeMeetingLock) -> None:
+        self._repository = repository
+        self._lock = lock
+        self.utterances: tuple[Utterance, ...] = ()
+        self.load_failure: MeetingScribeError | None = None
+        self.write_failure: MeetingScribeError | None = None
+        self.transcripts: list[str] = []
+        self.stale_when_written: list[bool] = []
+        self.lock_held_when_written: list[bool] = []
+
+    def load(self, meeting_dir: Path) -> Result[tuple[Utterance, ...], MeetingScribeError]:
+        if self.load_failure is not None:
+            return Failure(self.load_failure)
+        return Success(self.utterances)
+
+    def write_transcript(self, meeting_dir: Path, text: str) -> Result[str, MeetingScribeError]:
+        if self.write_failure is not None:
+            return Failure(self.write_failure)
+        saved = self._repository.meetings[meeting_dir.name]
+        self.stale_when_written.append(saved.speaker_review.transcript_stale)
+        self.lock_held_when_written.append(self._lock.held)
+        self.transcripts.append(text)
+        return Success("transcript.md")
