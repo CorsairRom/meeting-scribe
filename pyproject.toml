@@ -42,7 +42,7 @@ module-name = "meeting_scribe"
 module-root = "src"
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "review-app/src"]
 testpaths = ["tests"]
 python_files = ["*test*.py"]
 addopts = "-q -m 'not gpu'"
@@ -53,11 +53,11 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["meeting_scribe"]
+source = ["meeting_scribe", "meeting_scribe_review"]
 branch = true
 
 [tool.importlinter]
-root_package = "meeting_scribe"
+root_packages = ["meeting_scribe", "meeting_scribe_review"]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
@@ -158,3 +158,26 @@ forbidden_modules = [
     "meeting_scribe.transcription.infrastructure.faster_whisper_backend",
     "meeting_scribe.speakers.infrastructure.pyannote_backend",
 ]
+
+[[tool.importlinter.contracts]]
+name = "The app core never imports gi"
+type = "forbidden"
+source_modules = ["meeting_scribe_review.core"]
+forbidden_modules = ["gi"]
+
+[[tool.importlinter.contracts]]
+name = "The app and the service are independent"
+type = "independence"
+modules = ["meeting_scribe", "meeting_scribe_review"]
+
+[[tool.importlinter.contracts]]
+name = "The app has no service-side dependencies"
+type = "forbidden"
+source_modules = ["meeting_scribe_review"]
+forbidden_modules = ["pydantic", "pydantic_settings", "returns", "dbus_fast", "numpy"]
+
+[[tool.importlinter.contracts]]
+name = "App layers: ui over core"
+type = "layers"
+layers = ["ui", "core"]
+containers = ["meeting_scribe_review"]

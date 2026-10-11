@@ -135,8 +135,8 @@ package imports `settings` or `main` (settings are injected from the composition
 
 ### Enforced contracts
 
-Defined in `pyproject.toml` under `[tool.importlinter]` (`root_package = "meeting_scribe"`,
-`include_external_packages = true`) and checked by `make imports` (part of `make lint` and `make check`):
+Defined in `pyproject.toml` under `[tool.importlinter]` (`root_packages = ["meeting_scribe", "meeting_scribe_review"]`,
+`include_external_packages = true`; `make imports` puts `review-app/src` on `PYTHONPATH` so the app package resolves) and checked by `make imports` (part of `make lint` and `make check`):
 
 | # | Name | Type | Rule |
 |---|---|---|---|
@@ -148,6 +148,10 @@ Defined in `pyproject.toml` under `[tool.importlinter]` (`root_package = "meetin
 | 6 | Domain packages do not import settings or the composition root | forbidden | `base` and all domain packages may not import `meeting_scribe.main` or `meeting_scribe.settings` |
 | 7 | The service never imports ML libraries (only the two backends do, in the worker) | forbidden | no module of `meeting_scribe` may import `faster_whisper`, `ctranslate2`, `torch`, `torchaudio` or `pyannote`, except the faster-whisper backend (`faster_whisper`, `ctranslate2`) and the pyannote backend (`torch`, `pyannote`), both loaded only in the worker |
 | 8 | The service entry point never reaches the worker or its ML backends | forbidden | `meeting_scribe.main` may not import `meeting_scribe.worker` or the faster-whisper backend, directly or indirectly |
+| 9 | The app core never imports gi | forbidden | `meeting_scribe_review.core` may not import `gi` (only `ui` does, F4.5) |
+| 10 | The app and the service are independent | independence | `meeting_scribe` and `meeting_scribe_review` never import each other; the app reaches the service over D-Bus only |
+| 11 | The app has no service-side dependencies | forbidden | `meeting_scribe_review` may not import `pydantic`, `pydantic_settings`, `returns`, `dbus_fast` or `numpy` (it runs on system Python) |
+| 12 | App layers: ui over core | layers | `meeting_scribe_review.ui` may import `core`, never the reverse |
 
 ---
 
