@@ -31,6 +31,7 @@ from meeting_scribe.summaries.domain.headings import (
 )
 from meeting_scribe.summaries.domain.ports import (
     CancelSignal,
+    CloudKeyStore,
     Completion,
     Message,
     ModelReleaser,
@@ -38,7 +39,20 @@ from meeting_scribe.summaries.domain.ports import (
 )
 from meeting_scribe.summaries.domain.prompts import PROMPT_VERSION, PromptBuilder
 from meeting_scribe.summaries.domain.renderer import SummaryText, parse_body, render_summary
-from meeting_scribe.summaries.domain.request import SummaryRequest
+from meeting_scribe.summaries.domain.request import CompletionLimits, SummaryLine, SummaryRequest
+
+__all__ = [
+    "CloudKeyStore",
+    "CompletionLimits",
+    "GenerateSummary",
+    "GeneratedSummary",
+    "SummaryCancelledError",
+    "SummaryError",
+    "SummaryLine",
+    "SummaryNoSpeechError",
+    "SummaryRequest",
+    "input_fingerprint",
+]
 
 MIN_CALL_SECONDS = 0.01
 """Smallest time a provider call is given; with less left, the run times out without calling."""

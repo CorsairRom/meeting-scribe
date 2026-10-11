@@ -65,3 +65,14 @@ def test_a_failing_revoke_callback_does_not_break_the_recording() -> None:
     lease.acquire("summary", on_revoke=broken)
 
     assert lease.acquire("recording")
+
+
+def test_on_revoke_runs_once_even_if_a_recording_acquires_again() -> None:
+    lease = InMemoryGpuLease()
+    revoked: list[str] = []
+    lease.acquire("summary", on_revoke=lambda: revoked.append("summary"))
+
+    lease.acquire("recording")
+    lease.acquire("recording")
+
+    assert revoked == ["summary"]

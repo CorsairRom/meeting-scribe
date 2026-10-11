@@ -84,3 +84,36 @@ def test_read_of_an_unreadable_file_is_a_storage_failure(tmp_path: Path) -> None
 
     assert isinstance(result, Failure)
     assert result.failure().error_code == "SUMMARY_STORAGE_FAILED"
+
+
+def test_exists_follows_the_file(tmp_path: Path) -> None:
+    files = FilesystemSummaryFiles()
+    assert files.exists(tmp_path) is False
+
+    files.save(tmp_path, OLD).unwrap()
+
+    assert files.exists(tmp_path) is True
+
+
+def test_a_failed_save_keeps_both_the_current_file_and_the_older_backup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files = FilesystemSummaryFiles()
+    files.save(tmp_path, "# Synthetic summary zero\n").unwrap()
+    files.save(tmp_path, OLD).unwrap()  # summary.md = OLD, previous = zero
+    real_replace = os.replace
+
+    def failing(src: str | Path, dst: str | Path) -> None:
+        if Path(dst).name == "summary.md":
+            raise OSError(28, "No space left on device")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", failing)
+
+    assert isinstance(files.save(tmp_path, NEW), Failure)
+
+    assert (tmp_path / "summary.md").read_text(encoding="utf-8") == OLD
+    assert (tmp_path / "summary.previous.md").read_text(encoding="utf-8") == (
+        "# Synthetic summary zero\n"
+    )
+    assert _names(tmp_path) == ["summary.md", "summary.previous.md"]
