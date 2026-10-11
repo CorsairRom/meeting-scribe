@@ -7,6 +7,7 @@ never to the real ``org.freedesktop.Notifications`` of the user's session.
 
 import asyncio
 import contextlib
+import json
 import time
 from collections.abc import AsyncIterator, Callable
 from datetime import timedelta
@@ -30,6 +31,7 @@ from meeting_scribe.meetings.domain.meeting import (
     ProcessingParams,
     RecordingInfo,
     SpeakerEntry,
+    SpeakerReview,
 )
 from meeting_scribe.meetings.infrastructure.processing_settings import ProcessingSettings
 from meeting_scribe.settings import Settings, StorageSettings
@@ -113,6 +115,42 @@ class ServiceRig:
             SpeakerEntry(id=f"S{n}", label=f"Speaker {n}") for n in range(1, speakers + 1)
         )
         meeting = meeting.complete(T0, entries, {"transcript": "transcript.md"}, "es").unwrap()
+        self.repository.save(meeting).unwrap()
+        return meeting
+
+    def seed_reviewable(
+        self,
+        meeting_id: str,
+        minutes: int,
+        utterances: list[tuple[str, float, float, str]],
+        samples: dict[str, bytes] | None = None,
+        review: SpeakerReview | None = None,
+    ) -> Meeting:
+        """A ``DONE`` meeting whose folder under tmp holds synthetic utterances and samples.
+
+        Speakers ``S1``, ``S2``, ``S3``; only the ids in ``samples`` list a sample file.
+        """
+        folder = self.meetings_dir / meeting_id
+        (folder / "samples").mkdir(parents=True, exist_ok=True)
+        rows = [
+            {"speaker": who, "start": a, "end": b, "text": text} for who, a, b, text in utterances
+        ]
+        (folder / "utterances.json").write_text(json.dumps(rows), encoding="utf-8")
+        listed = samples or {}
+        for speaker_id, content in listed.items():
+            (folder / "samples" / f"{speaker_id}.wav").write_bytes(content)
+        entries = tuple(
+            SpeakerEntry(
+                id=f"S{n}",
+                label=f"Speaker {n}",
+                talk_seconds=float(40 - n * 10),
+                utterance_count=n,
+                sample=f"samples/S{n}.wav" if f"S{n}" in listed else "",
+            )
+            for n in (1, 2, 3)
+        )
+        done = self.seed_done(meeting_id, minutes, speakers=3)
+        meeting = done.with_speaker_review(entries, review or SpeakerReview())
         self.repository.save(meeting).unwrap()
         return meeting
 
