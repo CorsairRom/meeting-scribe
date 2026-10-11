@@ -53,6 +53,29 @@ class MeetingLock(Protocol):
         ...
 
 
+type GpuHolder = Literal["recording", "processing", "summary"]
+
+
+class GpuLease(Protocol):
+    """Who may use the single GPU (ADR-003, ADR-007). Thread-safe; never blocks.
+
+    A ``recording`` is always granted and revokes every other holder (their ``on_revoke`` is
+    called); a ``processing`` worker or a local ``summary`` is granted only when nobody holds it.
+    """
+
+    def available(self, holder: GpuHolder) -> bool:
+        """Whether ``acquire`` would succeed now (the answer can change at once)."""
+        ...
+
+    def acquire(self, holder: GpuHolder, on_revoke: Callable[[], None] | None = None) -> bool:
+        """Take the lease; ``on_revoke`` runs, once, if a recording starts while it is held."""
+        ...
+
+    def release(self, holder: GpuHolder) -> None:
+        """Give it back; a holder that does not hold it is ignored."""
+        ...
+
+
 class SampleReader(Protocol):
     """Reads a speaker's voice sample so clients get bytes, never a path."""
 
