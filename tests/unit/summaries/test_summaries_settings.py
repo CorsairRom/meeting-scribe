@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from pydantic import SecretStr, ValidationError
+from pydantic import ValidationError
 
 from meeting_scribe.settings import Settings
 from meeting_scribe.summaries.infrastructure.summaries_settings import SummariesSettings
@@ -17,7 +17,6 @@ _VARS = (
     "SUMMARIES_CLOUD_BASE_URL",
     "SUMMARIES_CLOUD_MODEL",
     "SUMMARIES_CLOUD_CONTEXT_TOKENS",
-    "SUMMARIES_CLOUD_API_KEY",
     "SUMMARIES_LANGUAGE",
     "SUMMARIES_MAX_OUTPUT_TOKENS",
     "SUMMARIES_TEMPERATURE",
@@ -49,7 +48,6 @@ def test_defaults_follow_the_spec() -> None:
     assert settings.cloud_base_url == "https://opencode.ai/zen/go/v1"
     assert settings.cloud_model == "deepseek-v4-pro"
     assert settings.cloud_context_tokens == 100000
-    assert settings.cloud_api_key is None
     assert settings.language == "auto"
     assert settings.max_output_tokens == 2048
     assert settings.temperature == 0.2
@@ -117,13 +115,13 @@ def test_a_cloud_url_without_https_fails_naming_the_variable(url: str) -> None:
         SummariesSettings(cloud_base_url=url)
 
 
-def test_key_is_masked(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_api_key_is_not_a_setting(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SUMMARIES_CLOUD_API_KEY", FAKE_KEY)
 
     settings = SummariesSettings()
 
-    assert isinstance(settings.cloud_api_key, SecretStr)
-    assert settings.cloud_api_key.get_secret_value() == FAKE_KEY
+    assert "cloud_api_key" not in SummariesSettings.model_fields
+    assert not hasattr(settings, "cloud_api_key")
     for rendered in (repr(settings), str(settings), repr(Settings()), settings.model_dump_json()):
         assert FAKE_KEY not in rendered
 
