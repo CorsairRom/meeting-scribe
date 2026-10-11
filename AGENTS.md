@@ -4,7 +4,7 @@
 
 **meeting-scribe** — a local, GPU-accelerated meeting assistant for GNOME (Fedora, Wayland). A Python service
 (`systemd --user`, D-Bus session bus API) records meetings, transcribes (faster-whisper) and diarizes (pyannote)
-after stop, and summarizes through an OpenAI-compatible LLM (Ollama local / DeepSeek cloud opt-in). A thin GNOME
+after stop, and summarizes through an OpenAI-compatible LLM (Ollama local / OpenCode Go cloud opt-in). A thin GNOME
 Shell extension is the recording trigger, and a native GTK4/libadwaita app (opened from the extension menu) lets the
 user name/merge speakers. Both are thin D-Bus clients. Python 3.12, `uv`, strict layered domains enforced by
 import-linter, errors as `returns.Result`.
@@ -45,7 +45,7 @@ import-linter, errors as `returns.Result`.
 | Know what is in/out of scope         | `docs/project/mvp-scope.md`                                    |
 | See what work remains                | `docs/project/backlog.md` and `odd/tasks/meeting-scribe.md`    |
 | Check rules, gotchas, anti-patterns  | `docs/project/rules-registry.md`                               |
-| Know why something was decided       | `docs/decisions/` (ADR 001-008)                                |
+| Know why something was decided       | `docs/decisions/` (ADR 001-009)                                |
 | Change the D-Bus API                 | `docs/architecture/api-contracts.md` + ADR-001        |
 | Add an error code                    | `docs/architecture/error-codes-catalog.md` + `src/meeting_scribe/base/domain/errors.py` |
 | Add a setting                        | `src/meeting_scribe/settings.py` + `.env.example` + `ARCHITECTURE.md` section 7 |

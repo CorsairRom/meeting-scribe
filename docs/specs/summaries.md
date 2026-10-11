@@ -6,6 +6,7 @@ mvp: true
 prd_ref: FR-6, NFR-1, NFR-2, NFR-3, NFR-6, safety requirements 1-3
 depends_on:
   - decisions/006-summary-provider-openai-compatible.md (SummaryProvider port, one OpenAI-compatible adapter, privacy rules, reference structure)
+  - decisions/009-cloud-summaries-through-opencode-go.md (the cloud gateway is OpenCode Go; replaces ADR-006's DeepSeek preset)
   - decisions/008-summary-sections.md (the summary has a Decisions section)
   - decisions/001-thin-gnome-extension-dbus-service.md (thin clients over the D-Bus session bus, no HTTP)
   - decisions/003-process-after-stop-single-gpu-worker.md (no GPU work during recording, 8 GB budget)
@@ -412,7 +413,7 @@ AND no Spanish text exists in code or tests: only in the Spanish catalog file
 - Not automatic summaries (product decision 2: manual only) and not a notification when a summary ends.
 - Not editing the summary in the app: the file is plain Markdown and the user edits it in any editor.
 - Not rich Markdown rendering in the app: the Summary view is a read-only text view with light heading styling.
-- Not more than one cloud provider in this phase: DeepSeek is the preset; another OpenAI-compatible endpoint is only a settings change (ADR-006).
+- Not more than one cloud provider in this phase: the cloud is an OpenAI-compatible gateway, default OpenCode Go (ADR-009); another gateway is only a settings change. Models served only on `/responses` (Grok, GPT) or `/messages` (MiniMax) are not supported.
 - Not vendor-specific features (structured output, tools, thinking modes): ADR-006 trigger to revisit.
 - Not a summary history: one current file and one backup (product decision 5).
 - Not installing, starting, updating or pulling models for Ollama: that stays with the user.
@@ -471,7 +472,7 @@ flowchart LR
     PORT --> AD["OpenAI-compatible adapter<br/>(openai client, streaming)"]
   end
   AD -- "loopback" --> OLL["Ollama (local, default)"]
-  AD -- "https, explicit and confirmed" --> DS["DeepSeek (cloud, opt-in)"]
+  AD -- "https, explicit and confirmed" --> DS["OpenAI-compatible cloud gateway<br/>(default OpenCode Go, opt-in)"]
   SC --> FS[("meeting folder<br/>summary.md, summary.previous.md,<br/>meeting.json summary section")]
 ```
 
@@ -506,7 +507,7 @@ Layout under `src/meeting_scribe/summaries/`:
 |---|---|
 | `domain/` | `SummaryRequest` (plain input: header facts, participants, utterance lines, language, budget), `SummaryText`, `SummaryProvider` port, `ModelReleaser` port, `TranscriptChunker`, `PromptBuilder`, the `Headings` value with its English texts (the message ids) and the `HeadingCatalog` port, `SummaryRenderer` (header computed locally plus the model body), `InputFingerprint`, errors (section 9) |
 | `application/` | `GenerateSummary` use case: one pass or map-reduce, cancel and progress callbacks, output validation with one repair request, release of the model |
-| `infrastructure/` | `SummariesSettings` (`SUMMARIES_` prefix, section 8), `OpenAiCompatibleProvider` (one class for Ollama and DeepSeek), `OllamaModelReleaser`, `FilesystemSummaryFiles` (atomic write, backup rotation, read), `GettextHeadingCatalog` (reads the `locale/` catalogs, see section 11) |
+| `infrastructure/` | `SummariesSettings` (`SUMMARIES_` prefix, section 8), `OpenAiCompatibleProvider` (one class for Ollama and the cloud gateway), `OllamaModelReleaser`, `FilesystemSummaryFiles` (atomic write, backup rotation, read), `GettextHeadingCatalog` (reads the `locale/` catalogs, see section 11) |
 
 **Port** (shape, not code to copy):
 
@@ -552,7 +553,7 @@ The real context window is the weak point of the local path, so the design assum
 - Quality note: a 1-hour meeting at 4096 tokens is roughly 9 chunk requests plus the reduce. It is slow but correct;
   raising the context (8192 fits an 8 GB card, assumption A-3) cuts the steps.
 
-### 5. The provider adapter (Ollama default, DeepSeek opt-in)
+### 5. The provider adapter (Ollama default, cloud gateway opt-in)
 
 One class, `OpenAiCompatibleProvider`, configured by `base_url`, `model`, `api_key` and a `cloud` flag (ADR-006).
 It uses the official `openai` Python client (new dependency, assumption A-5):
@@ -560,7 +561,7 @@ It uses the official `openai` Python client (new dependency, assumption A-5):
 - **Endpoint**: `chat.completions.create(model=..., messages=..., temperature=..., max_tokens=..., stream=True)`.
   Ollama's `/v1/chat/completions` supports `messages`, `temperature`, `max_tokens`, `stream`, `seed` and
   `response_format`; the Ollama API key is required but ignored, so the local provider sends a fixed placeholder
-  (verified in the Ollama docs). DeepSeek uses `base_url="https://api.deepseek.com"` and a bearer key.
+  (verified in the Ollama docs). The cloud gateway (default OpenCode Go, ADR-009) uses `base_url="https://opencode.ai/zen/go/v1"`, `POST /chat/completions` and a Bearer key; only models served on `/chat/completions` work (DeepSeek, GLM, Kimi, MiMo, LongCat), not those on `/responses` or `/messages`.
 - **Streaming** is used for both: it lets cancellation abort the HTTP request between deltas (closing the stream),
   and makes the read timeout mean "no data for N seconds" instead of "the whole generation took N seconds", which
   matters for a slow local model.
@@ -655,8 +656,8 @@ New rows are added to `.env.example` and `ARCHITECTURE.md` section 7 in the same
 | `SUMMARIES_LOCAL_CONTEXT_TOKENS` | `4096` | The window the service plans against; raise it together with Ollama's context (section 4) |
 | `SUMMARIES_UNLOAD_LOCAL_MODEL` | `true` | Ask Ollama to unload the model after a local summary (AC-12) |
 | `SUMMARIES_CLOUD_ENABLED` | `false` | The cloud provider is off until this is true (ADR-006) |
-| `SUMMARIES_CLOUD_BASE_URL` | `https://api.deepseek.com` | Cloud endpoint; must be https |
-| `SUMMARIES_CLOUD_MODEL` | `deepseek-flash` | Cloud model name (assumption A-1: names changed recently; confirm before release) |
+| `SUMMARIES_CLOUD_BASE_URL` | `https://opencode.ai/zen/go/v1` | OpenAI-compatible cloud gateway (default OpenCode Go, ADR-009); must be https |
+| `SUMMARIES_CLOUD_MODEL` | `deepseek-v4-pro` | Any model the gateway serves on `/chat/completions`; not those on `/responses` or `/messages` (assumption A-1) |
 | `SUMMARIES_CLOUD_CONTEXT_TOKENS` | `100000` | Conservative budget (the published figures disagree, A-2) |
 | `SUMMARIES_CLOUD_API_KEY` | unset | Secret; only in the environment or `.env`; masked everywhere |
 | `SUMMARIES_LANGUAGE` | `auto` | `auto` follows the meeting language (product decision 4), or an ISO code |
@@ -707,7 +708,7 @@ first, in the same commit as the code (it replaces the "planned" row for `Summar
 
 | Member | Kind | Signature | Description | Errors |
 |---|---|---|---|---|
-| `Providers` | method | `() -> aa{sv}` | One row per configured provider: `id` (s, `local` or `cloud`), `label` (s, e.g. `Local (<model>)`, `DeepSeek (cloud)`), `cloud` (b), `model` (s), `available` (b), `reason` (s, empty or an error code such as `SUMMARY_CLOUD_DISABLED`), `default` (b, true for the one row chosen by `SUMMARIES_PROVIDER`; the app's single button uses it). Local availability is not probed (no network call); it is learned when a request runs. The cloud URL and the key are never returned | none |
+| `Providers` | method | `() -> aa{sv}` | One row per configured provider: `id` (s, `local` or `cloud`), `label` (s, e.g. `Local (<model>)`, `cloud: OpenCode Go, deepseek-v4-pro`; always contains the word "cloud"), `cloud` (b), `model` (s), `available` (b), `reason` (s, empty or an error code such as `SUMMARY_CLOUD_DISABLED`), `default` (b, true for the one row chosen by `SUMMARIES_PROVIDER`; the app's single button uses it). Local availability is not probed (no network call); it is learned when a request runs. The cloud URL and the key are never returned | none |
 | `Summarize` | method | `(ssb) -> s` | `(meeting_id, provider_id, cloud_confirmed)`: start a summary and return `RUNNING` at once. Replaces an existing summary only on success | `MEETING_NOT_PROCESSED`; `SUMMARY_NO_SPEECH`; `SUMMARY_CLOUD_DISABLED`; `SUMMARY_CLOUD_KEY_MISSING`; `SUMMARY_CLOUD_NOT_CONFIRMED`; `SUMMARY_GPU_BUSY`; `SUMMARY_ALREADY_RUNNING`; `SUMMARY_BUSY`; `INVALID_VALUE`; the lookup errors |
 | `CancelSummary` | method | `(s) -> b` | Cancel the running summary of the meeting; `true` if one was running, `false` otherwise (not an error) | `ENTITY_NOT_FOUND_MEETING` |
 | `GetSummaryStatus` | method | `(s) -> a{sv}` | No content. `state` (s: `NONE`, `RUNNING`, `DONE`, `FAILED`), `stale` (b), `cloud` (b), `provider_label` (s), `generated_at` (s), `step` (i), `total_steps` (i), `failure_code` (s, last failure, empty when none). `FAILED` means the last attempt failed; a previous `summary.md` may still exist (`generated_at` non-empty) | the lookup errors |
@@ -826,14 +827,14 @@ No test sends a request to Ollama or a cloud provider, plays audio or reads `~/D
 | The OpenAI-compatible API has no way to set the context size; use a Modelfile `PARAMETER num_ctx` with `ollama create`, or `OLLAMA_CONTEXT_LENGTH` for the server; `num_ctx` is an option of the native API | `/ollama/ollama` (`openai-compatibility.mdx`, `faq.mdx`, `context-length.mdx`) | Verified in docs |
 | Default context is 4k under 24 GiB VRAM, 32k at 24-48 GiB, 256k from 48 GiB; `ollama ps` shows the allocated context and the GPU/CPU split | `/ollama/ollama` (`context-length.mdx`) | Verified in docs (the installed version is unknown, A-4) |
 | `keep_alive: 0` on `/api/generate` unloads a model immediately; `OLLAMA_KEEP_ALIVE` sets the server default | `/ollama/ollama` (`faq.mdx`) | Verified in docs; behavior not exercised (A-6) |
-| DeepSeek is OpenAI-compatible: `base_url` `https://api.deepseek.com`, `POST /chat/completions`, bearer key; the current model ids in the docs are `deepseek-flash` and `deepseek-v4-pro` (older names are not listed) | `/websites/api-docs_deepseek` | Verified in docs; older names not checked (A-1) |
+| OpenCode Go is an OpenAI-compatible gateway: `https://opencode.ai/zen/go/v1/chat/completions` with a Bearer key serves DeepSeek, GLM, Kimi, MiMo and LongCat; Grok and GPT use `/responses`, MiniMax uses `/messages` | <https://opencode.ai/docs/go>, <https://opencode.ai/docs/zen> (owner decision, ADR-009) | Taken from the provider docs; not exercised (A-1) |
 | `openai` client: `base_url`, `api_key`, `timeout` (float or granular timeout object, default 10 minutes), `max_retries` (default 2; connection errors, 408, 409, 429, 5xx), `with_options` per request, exception classes `APIConnectionError`, `APITimeoutError`, `RateLimitError`, `APIStatusError` with `status_code`, custom `http_client` | `/openai/openai-python` (README) | Verified in docs; the package is not yet a dependency (A-5) |
 | `ollama` is installed at `/usr/local/bin/ollama` and `systemctl is-active ollama` reports `active` (system unit; the user unit is inactive; no `ollama` rpm) | Local read-only checks | Verified on this machine; no request was sent to it |
 
 **Not verified** (no network call to a provider was allowed): which models are pulled in Ollama; the installed
 Ollama version and its actual default context; that closing a stream stops generation; that `keep_alive: 0` frees
-VRAM; DeepSeek's retirement date for older model names, its 402 and 429 behavior, its privacy and retention terms,
-and which of the two published context figures (128k or about 1M tokens) applies to `deepseek-flash`.
+VRAM; the gateway's 402 and 429 behavior, its privacy and retention terms, and the real context window of the
+chosen cloud model.
 
 ---
 
@@ -841,8 +842,8 @@ and which of the two published context figures (128k or about 1M tokens) applies
 
 | ID | Assumption | Confirm in |
 |---|---|---|
-| A-1 | The cloud model id `deepseek-flash` is current and accepts a plain chat request without the optional thinking parameters; older ids (`deepseek-chat`, `deepseek-reasoner`) may be retired. The model name stays a setting | F5.9, one cloud run on an explicit go; check the provider's model list before release |
-| A-2 | The cloud context budget of 100000 tokens is safe (published figures are 128k and about 1M) | F5.9 |
+| A-1 | The cloud model id `deepseek-v4-pro` is served by OpenCode Go on `/chat/completions` and accepts a plain chat request without the optional thinking parameters. The model name stays a setting | F5.9, one cloud run on an explicit go; check the provider's model list before release |
+| A-2 | The cloud context budget of 100000 tokens is safe for the chosen model (published figures vary by model) | F5.9 |
 | A-3 | An 8B-class model at Q4 plus an 8192-token context fits in about 6 GB of the 8 GB card shared with the desktop (the default model `qwen3.5:9b` is 6.6 GB on disk on the owner's machine, so a short context is the safe choice and the default stays 4096; rough arithmetic for a typical 8B model: about 5 GB of weights plus about 1 GB of key-value cache for a typical 8B model with grouped-query attention at 8k, which is an estimate, not a measurement) | F5.9 with `ollama ps` on a synthetic transcript, on the user's go; if it does not fit, keep 4096 or pick a smaller model |
 | A-4 | The installed Ollama defaults to 4096 tokens on this GPU (documented default under 24 GiB) | F5.9 (`ollama ps`, CONTEXT column) |
 | A-5 | `openai` installs on Python 3.12 without heavy dependencies and without conflicting with the lock; otherwise use `httpx2` directly | F5.3 (`uv add openai`, `make check`) |

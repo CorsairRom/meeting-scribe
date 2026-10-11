@@ -32,7 +32,7 @@ flowchart LR
   GPU["GPU models<br/>faster-whisper, pyannote"]
   FS[("Meetings dir<br/>one folder per meeting")]
   LLM_L["Ollama (local)"]
-  LLM_C["DeepSeek (cloud, opt-in)"]
+  LLM_C["OpenCode Go (cloud, opt-in)"]
 
   EXT -- "methods, signals" --> BUS
   REVIEW -- "methods, signals" --> BUS
@@ -67,7 +67,7 @@ Source root: `src/meeting_scribe/`. Each package has `domain/`, `application/`, 
 | `recording/` | Start/stop capture, recording session state, PipeWire/ffmpeg adapter |
 | `transcription/` | Audio to words with timestamps (faster-whisper adapter) |
 | `speakers/` | Diarization (pyannote adapter), voice samples, rename, merge, "Me" labelling |
-| `summaries/` | `SummaryProvider` port and OpenAI-compatible adapter (Ollama / DeepSeek) |
+| `summaries/` | `SummaryProvider` port and OpenAI-compatible adapter (Ollama / OpenCode Go) |
 | `meetings/` | Meeting catalog, `MeetingRepository`, post-recording pipeline orchestration and job queue, worker protocol and subprocess runner, WAV readers |
 | `settings.py` | Root `Settings` composed of per-domain settings classes |
 | `main.py` | Composition root: `create_app(settings)`, `run()` |
