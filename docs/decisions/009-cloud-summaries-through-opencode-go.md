@@ -50,9 +50,27 @@ the gateway adds a third party between the service and the model vendor.
 
 The cloud provider is an OpenAI-compatible gateway, default OpenCode Go. Defaults:
 `SUMMARIES_CLOUD_BASE_URL=https://opencode.ai/zen/go/v1`, `SUMMARIES_CLOUD_MODEL=deepseek-v4-pro`,
-`SUMMARIES_CLOUD_API_KEY` (a `SecretStr`, local configuration only). The owner may select any model the gateway
+the API key is **not a setting**: it lives in the GNOME Keyring (see below). The owner may select any model the gateway
 serves on `/chat/completions`. The "cloud" label is provider plus model, for example
 "cloud: OpenCode Go, deepseek-v4-pro", and every cloud request still needs confirmation.
+
+### Where the API key lives (owner decision, 2026-10-11)
+
+The key is stored in the GNOME Keyring (freedesktop Secret Service, `org.freedesktop.secrets`), not in `.env` or any
+settings file. The service reads it on demand over the session bus with `dbus-fast` (no new dependency), only when a
+confirmed cloud summary starts, behind a `CloudKeyStore` port, and holds it in memory (`SecretStr`) for that request
+only. Lookup attributes: `application=meeting-scribe`, `key=opencode-api-key`; label "Meeting Scribe OpenCode API key".
+The "plain" Secret Service session is used: the transfer is a local Unix socket of the user's own session bus, so
+there is no network exposure, and the "dh-ietf1024" algorithm would add a weak 1024-bit exchange and a cipher
+dependency for no gain on a local socket. A locked keyring or a missing key fails with `SUMMARY_CLOUD_KEY_LOCKED` or
+`SUMMARY_CLOUD_KEY_MISSING`; the service never prompts and never calls `Unlock`.
+
+Invariants: the key is never logged, never in an error message, `meeting.json`, a D-Bus reply, a command line or a
+worker environment; it is sent only over HTTPS to the configured base URL; it is held in memory only for the request.
+Honest limitation: while the session is unlocked, any process running as the user can query the keyring (there is no
+per-application ACL outside Flatpak). The key is stored with
+`secret-tool store --label="Meeting Scribe OpenCode API key" application meeting-scribe key opencode-api-key`
+(secret on stdin); see `docs/runbooks/store-cloud-api-key.md`. A "Set API key" field in the review app is F5.6 scope.
 
 ---
 
@@ -79,7 +97,7 @@ serves on `/chat/completions`. The "cloud" label is provider plus model, for exa
 ## Implementation notes
 
 - Affected: `SummariesSettings`, `.env.example`, `ARCHITECTURE.md` section 7, `docs/specs/summaries.md`.
-- The key is sent only in the `Authorization` header and is never logged or stored in meeting files.
+- The key is sent only in the `Authorization` header and is never logged or stored in meeting files or settings files.
 
 ---
 
