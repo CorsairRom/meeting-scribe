@@ -4,6 +4,7 @@ Nothing here touches D-Bus, GTK or an audio device (BR-001).
 """
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from meeting_scribe_review.core.errors import ServiceError
@@ -118,3 +119,15 @@ class FakePlayer:
     @property
     def played(self) -> list[bytes]:
         return [data for kind, data in self.events if kind == "play" and data is not None]
+
+
+def meeting(
+    meeting_id: str, state: str = "DONE", *, day: int = 9, speakers: int = 2
+) -> MeetingSummary:
+    return MeetingSummary(
+        id=meeting_id,
+        started_at=datetime(2026, 10, day, 10, 15, tzinfo=UTC),
+        duration_seconds=754.0,
+        state=state,
+        active_speaker_count=speakers,
+    )
