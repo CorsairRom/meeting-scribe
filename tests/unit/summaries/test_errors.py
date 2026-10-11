@@ -16,6 +16,7 @@ CODES = {
     errors.SummaryCancelledError: "SUMMARY_CANCELLED",
     errors.SummaryCloudKeyMissingError: "SUMMARY_CLOUD_KEY_MISSING",
     errors.SummaryCloudKeyLockedError: "SUMMARY_CLOUD_KEY_LOCKED",
+    errors.SummaryCloudKeyUnavailableError: "SUMMARY_CLOUD_KEY_UNAVAILABLE",
 }
 
 

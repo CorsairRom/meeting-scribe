@@ -107,3 +107,41 @@ def test_a_rejected_heading_value_falls_back_to_english(
     )
 
     assert GettextHeadingCatalog(_locale(tmp_path, "zz")).headings_for("zz") == ENGLISH
+
+
+def test_a_broken_catalog_logs_a_warning_with_the_language_and_path_only(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    root = _locale(tmp_path, "zz", 'msgid "Topics"\nmsgstr oops\n')
+
+    GettextHeadingCatalog(root).headings_for("zz")
+
+    assert "zz" in caplog.text
+    assert "meeting_scribe.po" in caplog.text
+    assert "oops" not in caplog.text
+    assert "English" in caplog.text
+
+
+def test_a_rejected_heading_value_logs_a_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class Rejecting:
+        def __init__(self, **values: str) -> None:  # noqa: ARG002
+            Headings.model_validate({"topics": 1})
+
+    monkeypatch.setattr(
+        "meeting_scribe.summaries.infrastructure.gettext_headings.Headings", Rejecting
+    )
+
+    GettextHeadingCatalog(_locale(tmp_path, "zz")).headings_for("zz")
+
+    assert "zz" in caplog.text
+    assert "English" in caplog.text
+
+
+def test_a_missing_catalog_is_normal_and_logs_nothing(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    GettextHeadingCatalog(tmp_path / "missing").headings_for("zz")
+
+    assert caplog.text == ""

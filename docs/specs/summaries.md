@@ -701,7 +701,8 @@ New classes derive from `MeetingScribeError`; each is registered in `error-codes
 |---|---|---|
 | `SUMMARY_NO_SPEECH` | The meeting has no utterances | Nothing to summarize |
 | `SUMMARY_CLOUD_DISABLED` | Cloud requested while `SUMMARIES_CLOUD_ENABLED` is false | Enable it in the settings |
-| `SUMMARY_CLOUD_KEY_MISSING` | Cloud enabled, no key in the keyring (or the keyring is unreachable) | Store the key with `secret-tool` (runbook `store-cloud-api-key.md`) |
+| `SUMMARY_CLOUD_KEY_UNAVAILABLE` | The Secret Service is not reachable (no service, D-Bus error or timeout); the cause is logged by exception type only | Check that gnome-keyring is running |
+| `SUMMARY_CLOUD_KEY_MISSING` | Cloud enabled, no key in the keyring | Store the key with `secret-tool` (runbook `store-cloud-api-key.md`) |
 | `SUMMARY_CLOUD_KEY_LOCKED` | The keyring holds the key but is locked | Unlock the login keyring and try again; the service never prompts |
 | `SUMMARY_CLOUD_NOT_CONFIRMED` | Cloud requested without `cloud_confirmed` | Confirm in the app |
 | `SUMMARY_ALREADY_RUNNING` / `SUMMARY_BUSY` | A summary is running for this meeting / another meeting | Wait or cancel |
@@ -930,3 +931,17 @@ The owner answered all eight questions on 2026-10-11.
 ## Decisions taken during implementation
 
 > If unresolved forks appear, record them here AND open an ADR if the decision is structural.
+
+- **F5.3 (2026-10-11)**: the `openai` client (3.x) is built on `httpx2`, not `httpx`; tests pass an
+  `httpx2.MockTransport` through `http_client`, and `httpx2` is declared as a direct dependency because the adapter
+  and the releaser import it. The import-linter contract confines `openai` and `httpx2` to
+  `summaries.infrastructure` (contract 14).
+- **F5.3**: an empty answer is returned by the adapter as an empty `Completion` and judged by `GenerateSummary`
+  (`SUMMARY_OUTPUT_INVALID`), so the rule lives in one place. A stream that ends without a `finish_reason` is a
+  retryable provider failure. The truncation guard applies to the local provider only; `finish_reason` `length`
+  applies to both.
+- **F5.3**: `SUMMARIES_CLOUD_PROVIDER_NAME` (default `OpenCode Go`) is a setting so the service builds the label
+  `cloud: <name>, <model>`. `SUMMARIES_LOCAL_CONTEXT_TOKENS` and `SUMMARIES_CLOUD_CONTEXT_TOKENS` must exceed
+  `SUMMARIES_MAX_OUTPUT_TOKENS` plus 600.
+- **F5.3**: a connect or first-byte wait cannot be interrupted by a cancel (no stream exists yet); it is bounded by
+  the connect timeout (5 s) and the read timeout capped by the time left.

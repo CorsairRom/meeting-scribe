@@ -167,3 +167,13 @@ def test_labels_and_limits_come_from_the_settings() -> None:
     assert (cloud.model, cloud.context_tokens) == ("glm-test", 100000)
     assert cloud.temperature == 0.2
     assert cloud.max_output_tokens == 2048
+
+
+def test_the_loopback_error_names_the_variable_and_the_accepted_hosts() -> None:
+    with pytest.raises(ValidationError) as error:
+        SummariesSettings(local_base_url="http://example.com/v1")
+
+    message = str(error.value)
+    assert "SUMMARIES_LOCAL_BASE_URL" in message
+    assert "http or https" in message
+    assert "127.0.0.1" in message

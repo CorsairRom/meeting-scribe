@@ -65,7 +65,7 @@ ai_instructions:
 - **Context**: The cloud key is a paid credential; settings and `.env` files get copied, backed up and read by tools.
 - **Rule**: The OpenCode Go key is read on demand from the freedesktop Secret Service (attributes `application=meeting-scribe`, `key=opencode-api-key`) when a confirmed cloud summary starts, and held in memory as a `SecretStr` for that request only. It is never logged, never in an error message, `meeting.json`, a D-Bus reply, a command line or a worker environment, and it goes only over HTTPS to the configured base URL. A locked keyring or a missing key fails with `SUMMARY_CLOUD_KEY_LOCKED` or `SUMMARY_CLOUD_KEY_MISSING`; the service never prompts. Honest limitation: while the session is unlocked any process running as the user can query the keyring.
 - **Source**: ADR-009; spec `summaries.md` section 8a
-- **Verifiable in**: `tests/unit/summaries/test_secret_service_store.py`, `tests/e2e/summaries/`
+- **Verifiable in**: `tests/e2e/summaries/test_secret_service_store.py`, `tests/unit/summaries/test_secret_service_message.py`, `tests/unit/summaries/test_openai_adapter.py::test_key_only_in_the_header`
 
 ---
 

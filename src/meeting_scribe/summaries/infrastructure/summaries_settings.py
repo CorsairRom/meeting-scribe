@@ -13,6 +13,7 @@ from pydantic_settings import SettingsConfigDict
 from meeting_scribe.base.infrastructure.settings import MeetingScribeSettings
 from meeting_scribe.summaries.domain.request import MARGIN_TOKENS, CompletionLimits
 
+# The only hosts a local transcript may be sent to (AC-8); "localhost" is checked by name, not DNS.
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 _LANGUAGE = re.compile(r"auto|[a-z]{2,3}")
 
@@ -46,10 +47,12 @@ class SummariesSettings(MeetingScribeSettings):
             scheme, host = parsed.scheme, parsed.hostname
         except ValueError:
             pass
+        # No "@": credentials in the URL are never needed for Ollama and obscure the real host.
         if scheme in {"http", "https"} and host in _LOOPBACK_HOSTS and "@" not in value:
             return value
         raise ValueError(
-            "SUMMARIES_LOCAL_BASE_URL must be an http URL on 127.0.0.1, ::1 or localhost"
+            "SUMMARIES_LOCAL_BASE_URL must be an http or https URL whose host is "
+            "127.0.0.1, ::1 or localhost"
         )
 
     @field_validator("cloud_base_url")

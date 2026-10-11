@@ -58,3 +58,7 @@ class SummaryCloudKeyMissingError(SummaryError):
 
 class SummaryCloudKeyLockedError(SummaryError):
     error_code = "SUMMARY_CLOUD_KEY_LOCKED"
+
+
+class SummaryCloudKeyUnavailableError(SummaryError):
+    error_code = "SUMMARY_CLOUD_KEY_UNAVAILABLE"
