@@ -33,8 +33,8 @@ and generate a summary — all running locally on the developer's machine.
 | F1 Recording | `recording` domain, D-Bus `Recording1` interface (`Start`/`Stop`, `State`), systemd user service (ADR-001) | record via `gdbus call` | done |
 | F2 GNOME extension | Panel button with a drop-down menu to start/stop, timer, status | start/stop from the top-bar menu | done |
 | F3 Processing | Queued transcription + diarization on stop, per-speaker voice samples, "Me" auto-label, desktop notification | get "Done: N speakers" | done |
-| F4 Review app | Native GTK4 + libadwaita app opened from the extension menu: listen per speaker, rename, merge, view transcript (ADR-005) | do speaker review in a native window | in progress |
-| F5 Summaries | "Generate summary" button, Ollama/DeepSeek choice, export `.md` | complete the end-to-end flow | pending |
+| F4 Review app | Native GTK4 + libadwaita app opened from the extension menu: listen per speaker, rename, merge, view transcript (ADR-005) | do speaker review in a native window | done |
+| F5 Summaries | "Generate summary" button, Ollama/DeepSeek choice, export `.md` | complete the end-to-end flow | in progress |
 | F2.5 Install | `make install` / `make uninstall`: service as a `uv` tool, systemd user unit, D-Bus activation, extension enabled; idempotent | install everything with one command, never start the service by hand | done |
 | F6 Hardening | Install runbook (update, troubleshoot), resilience checks | use it daily | pending |
 
@@ -90,3 +90,4 @@ and generate a summary — all running locally on the developer's machine.
 | 2026-10-09 | Initial draft from the F0 handoff brief. |
 | 2026-10-09 | Phase status brought in line with the code: F0, F1, F2, F2.5 done, F3 in progress; traceability filled for FR-1 to FR-4. |
 | 2026-10-09 | F3 done (tracker #52 merged); F4 in progress. |
+| 2026-10-11 | F4 done (tracker #82 merged); F5 in progress. |

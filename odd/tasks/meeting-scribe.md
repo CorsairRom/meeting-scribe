@@ -473,7 +473,7 @@ own meeting, without reading its content into the repo or logs.
 - [x] F3 docs gate: read-only audit (no P1/P2 left after #80), `make check` green, language scan clean
       (no voseo in code, docs or commits; only neutral Spanish fixture words for non-ASCII tests).
       Review review-9c4fa0825fe1a866 approved. Tracker #52 marked ready for the owner.
-### F4 Review app — in progress (integration `feat/review-app`, tracker #82)
+### F4 Review app — done (tracker #82 merged 2026-10-11)
 Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv run pytest` / `make check`
 (source: AGENTS.md). Route: delegated direct (one writer per task, 2+ non-trivial files each).
 - [x] F4.0a Language scan added to the "Integration PR docs gate" (#81; user rule: Spanish only in chat).
@@ -526,7 +526,10 @@ Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv 
       ready, Meetings1 review methods confirmed by introspection); the owner opened the app from the menu and
       reported it works. Docs gate: read-only audit (5 P1, 5 P2 doc drifts, no code issue) fixed in `6718079`;
       language scan clean; `make check` green (1123 python / 122 gjs, 12 contracts). Tracker #82 marked ready.
-### F5 Summaries — pending
+### F5 Summaries — in progress (integration `feat/summaries`)
+TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: delegated direct.
+- [x] F5.0a Phase start: F4 done, F5 in progress (mvp-scope, AGENTS, backlog, README, spec statuses).
+- [ ] F5.0b Design spec `docs/specs/summaries.md` and the owner's product decisions (one question at a time).
 ### F6 Install — pending
 
 ## Route log

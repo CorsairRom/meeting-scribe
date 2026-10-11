@@ -18,14 +18,6 @@ Fine-grained task tracking lives in [`odd/tasks/meeting-scribe.md`](../../odd/ta
 
 ## To do
 
-### [EPIC] F5 Summaries — ADR-006
-
-- [ ] `summaries` domain: `SummaryProvider` port
-- [ ] OpenAI-compatible adapter (Ollama default, DeepSeek opt-in)
-- [ ] Cloud opt-in setting, "cloud" label, per-request confirmation
-- [ ] Export `.md` in the reference structure
-- [ ] Extension menu action that opens the last meeting's summary (decided 2026-10-09: the menu opens the summary, not the transcript, so it waits for F5); show the meeting date and time in a readable form instead of the folder id
-
 ### [EPIC] Later improvements (not scheduled)
 
 Raised after the first real recording (2026-10-09); recorded so nothing is lost, not planned into a phase yet.
@@ -47,15 +39,13 @@ Raised after the first real recording (2026-10-09); recorded so nothing is lost,
 
 ## In progress
 
-### [EPIC] F4 Review app — ADR-005
+### [EPIC] F5 Summaries — ADR-006
 
-- [x] GTK4 + libadwaita app on system python, thin D-Bus client; presenters in pure Python (no `gi`) tested with pytest (validated by the owner on 2026-10-11)
-- [x] Audio sample playback with `Gtk.MediaFile` (validated by the owner on 2026-10-11)
-- [x] Rename and merge speakers (validated by the owner on 2026-10-11)
-- [x] Launch from the extension menu "Review last meeting" (validated by the owner on 2026-10-11)
-
-The epic stays in progress until the owner merges the tracker.
-
+- [ ] `summaries` domain: `SummaryProvider` port
+- [ ] OpenAI-compatible adapter (Ollama default, DeepSeek opt-in)
+- [ ] Cloud opt-in setting, "cloud" label, per-request confirmation
+- [ ] Export `.md` in the reference structure
+- [ ] Extension menu action that opens the last meeting's summary (decided 2026-10-09: the menu opens the summary, not the transcript, so it waits for F5); show the meeting date and time in a readable form instead of the folder id
 ---
 
 ## Completed
@@ -69,5 +59,6 @@ The epic stays in progress until the owner merges the tracker.
 | 2026-10-09 | F0.3-F0.6 Docs, ADRs 001-006 and the F0 review approved | F0 |
 | 2026-10-09 | F1 Recording: `recording` domain, ffmpeg capture adapter, D-Bus `Recording1`, e2e on a private bus, systemd unit and activation file, runbook | PRs #16-#21 |
 | 2026-10-09 | F2 GNOME extension: panel indicator, D-Bus client, controller, packaging, runbook | PRs #33-#48 |
+| 2026-10-11 | F4 Review app: GTK4 + libadwaita app from the menu (listen per speaker, rename, merge, unmerge, transcript), Meetings1 review members, non-destructive review in meeting.json, install with the service | tracker #82 (PRs #81-#97) |
 | 2026-10-09 | F3 Processing: queued transcription and diarization after Stop, "Me" label, voice samples, D-Bus `Meetings1`, menu processing state, ML install with model prefetch, real GPU validation | tracker #52 (PRs #50-#80) |
 | 2026-10-09 | F2.5 `make install` / `make uninstall`: versioned uv tool, systemd user unit, D-Bus activation, extension enabled, idempotent, no restart while recording | F2.5 |
