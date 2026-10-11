@@ -488,7 +488,11 @@ Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv 
       review-0200f4479043c15b approved with 2 warnings (chained adoption, inconsistent persisted state) fixed
       in `57ba9b4`, review review-11be7b875a8e831a approved. Integrated #84-#86. GREEN 853 python / 108 gjs.
       Follow-up (suggestion): validate_state does not reject a self-adoption record (unreachable by commands).
-- [ ] F4.2 `meetings`: review section in meeting.json, reset on reprocess, lock, ReviewController (~350)
+- [x] F4.2 `meetings`: review section in meeting.json, reset on reprocess, lock, ReviewController.
+      Delegated writer; ~860 authored lines (~70% tests). RED observed (repository round trip is
+      characterization). Spec gaps accepted: GetSpeakers also requires DONE + lock; repair_stale logs id+code
+      and continues. Review review-7ca4c6939d1df53d approved (1 warning: unmapped error on the repair path,
+      fixed in `3e6a51e`), review-514d18b1ad9860ed approved. Integrated #87. GREEN 894 python / 108 gjs.
 - [ ] F4.3 `Meetings1` review members + `SpeakersChanged`, api-contracts, error catalog, e2e (~400)
 - [ ] F4.4a `review-app/` scaffold, core models/ports, import-linter roots and contracts (~350)
 - [ ] F4.4b core presenters (list, review, rename, merge, playback) (~400)
