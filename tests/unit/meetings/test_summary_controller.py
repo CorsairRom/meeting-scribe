@@ -801,10 +801,17 @@ def test_a_shutdown_bound_returns_false_when_the_job_ignores_the_cancel() -> Non
     rig = Rig(threaded=True)
     rig.add()
     release = threading.Event()
-    rig.local_provider.on_call = lambda _n: (release.wait(5), None)[
-        1
-    ]  # does not look at the cancel
+    entered = threading.Event()
+
+    def ignore_the_cancel(_n: int) -> None:
+        entered.set()
+        release.wait(5)
+
+    rig.local_provider.on_call = ignore_the_cancel
     rig.controller.summarize("m1", "local", False).unwrap()
+    # Shut down only once the job is inside the provider call; earlier, the job would see
+    # the cancel before calling the provider and end in time.
+    assert entered.wait(5)
 
     try:
         stopped = rig.controller.shutdown(0.05)
