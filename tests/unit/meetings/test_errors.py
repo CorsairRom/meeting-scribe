@@ -5,6 +5,7 @@ from meeting_scribe.meetings.domain.errors import (
     MeetingAudioMissingError,
     MeetingAudioUnsupportedError,
     MeetingCorruptError,
+    MeetingNotProcessedError,
     MeetingProcessingActiveError,
     MeetingSchemaUnsupportedError,
     MeetingStorageError,
@@ -21,6 +22,7 @@ from meeting_scribe.meetings.domain.errors import (
         (MeetingCorruptError, "MEETING_CORRUPT"),
         (MeetingSchemaUnsupportedError, "MEETING_SCHEMA_UNSUPPORTED"),
         (MeetingProcessingActiveError, "MEETING_PROCESSING_ACTIVE"),
+        (MeetingNotProcessedError, "MEETING_NOT_PROCESSED"),
         (MeetingAudioMissingError, "MEETING_AUDIO_MISSING"),
         (MeetingAudioUnsupportedError, "MEETING_AUDIO_UNSUPPORTED"),
         (WorkerCrashedError, "WORKER_CRASHED"),
@@ -35,3 +37,7 @@ def test_meetings_error_codes_are_stable(error: type[MeetingScribeError], code: 
 
 def test_processing_active_is_an_invalid_state_transition() -> None:
     assert issubclass(MeetingProcessingActiveError, InvalidStateTransitionError)
+
+
+def test_not_processed_is_an_invalid_state_transition() -> None:
+    assert issubclass(MeetingNotProcessedError, InvalidStateTransitionError)
