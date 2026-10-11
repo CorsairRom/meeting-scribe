@@ -199,11 +199,19 @@ GIVEN the provider sends nothing for SUMMARIES_TIMEOUT_SECONDS
 THEN the step fails with SUMMARY_TIMEOUT
 GIVEN the whole summary exceeds SUMMARIES_TOTAL_TIMEOUT_SECONDS
 THEN it fails with SUMMARY_TIMEOUT
+GIVEN a user cancel and an expired total deadline hold at the same time
+THEN the user's cancel wins (SUMMARY_CANCELLED)
+GIVEN no time is left of the total bound
+THEN the run fails with SUMMARY_TIMEOUT without calling the provider
+AND every provider call receives a positive time left, never below a small minimum
 GIVEN the service shuts down during a summary
 THEN the request is aborted and nothing is persisted (a summary is never resumed)
 ```
 
-**Test**: `tests/unit/summaries/test_generate_summary.py::test_cancel_between_and_during_requests`, `tests/unit/meetings/test_summary_controller.py::test_shutdown_aborts`
+**Time sources**: the injected clock (monotonic by default) decides the deadline and the time left per call; a
+real-time timer only wakes a stalled provider call, since only real time can interrupt a blocked call.
+
+**Test**: `tests/unit/summaries/test_generate_summary.py::test_cancel_between_and_during_requests`, `test_a_user_cancel_wins_over_an_expired_deadline`, `test_an_exhausted_budget_times_out_before_calling_the_provider`, `test_the_per_call_time_is_never_below_the_minimum`, `tests/unit/meetings/test_summary_controller.py::test_shutdown_aborts`
 
 ### AC-11: One summary at a time
 

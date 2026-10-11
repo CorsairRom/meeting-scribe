@@ -36,6 +36,9 @@ from meeting_scribe.summaries.domain.prompts import PROMPT_VERSION, PromptBuilde
 from meeting_scribe.summaries.domain.renderer import SummaryText, parse_body, render_summary
 from meeting_scribe.summaries.domain.request import SummaryRequest
 
+MIN_CALL_SECONDS = 0.01
+"""Smallest time a provider call is given; with less left, the run times out without calling."""
+
 ProgressCallback = Callable[[int, int], None]
 
 
@@ -94,6 +97,11 @@ class GenerateSummary:
 
         ``on_progress(step, total)`` follows each step; ``total`` may grow while merge levels are
         added. ``total_timeout_seconds`` bounds the whole run (``SUMMARY_TIMEOUT``).
+
+        Two time sources, on purpose: the injected clock (monotonic by default) is the authority
+        for the deadline and the per-call time left; a real-time ``threading.Timer`` only wakes a
+        provider call that is stalled, because only real time can interrupt a blocked call. With
+        a fake clock the timer never fires in a test, so the clock alone decides.
         """
         deadline = None if total_timeout_seconds is None else self._clock() + total_timeout_seconds
         run = _Run(request, cancel, on_progress, deadline)
@@ -190,7 +198,12 @@ class GenerateSummary:
     def _request(self, run: _Run, messages: list[Message]) -> Result[str, SummaryError]:
         if (stopped := self._stopped(run)) is not None:
             return Failure(stopped)
-        remaining = None if run.deadline is None else run.deadline - self._clock()
+        remaining = None
+        if run.deadline is not None:
+            remaining = run.deadline - self._clock()
+            if remaining <= 0:
+                return Failure(_timeout())
+            remaining = max(remaining, MIN_CALL_SECONDS)
         completed = self._provider.complete(
             messages, run.request.limits, _Either(run.cancel, run.stop), remaining
         )
@@ -201,11 +214,11 @@ class GenerateSummary:
         return _accepted(completed.unwrap())
 
     def _stopped(self, run: _Run) -> SummaryError | None:
-        timed_out = run.stop.is_set() or (run.deadline is not None and self._clock() > run.deadline)
-        if timed_out:
-            return SummaryTimeoutError("The summary took too long. Retry or raise the timeout.")
+        """The reason to stop now. A user cancel wins over an expired deadline."""
         if run.cancel.is_set():
             return SummaryCancelledError("The summary was cancelled. Press Generate again.")
+        if run.stop.is_set() or (run.deadline is not None and self._clock() >= run.deadline):
+            return _timeout()
         return None
 
 
@@ -237,6 +250,10 @@ def _accepted(completion: Completion) -> Result[str, SummaryError]:
     if not completion.text.strip():
         return Failure(SummaryOutputInvalidError("The model returned an empty answer."))
     return Success(completion.text)
+
+
+def _timeout() -> SummaryTimeoutError:
+    return SummaryTimeoutError("The summary took too long. Retry or raise the timeout.")
 
 
 def _too_large(reason: str) -> SummaryContextTooLargeError:

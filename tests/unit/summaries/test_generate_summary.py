@@ -5,7 +5,10 @@ from collections.abc import Callable
 import pytest
 from returns.result import Failure, Success
 
-from meeting_scribe.summaries.application.generate_summary import GenerateSummary
+from meeting_scribe.summaries.application.generate_summary import (
+    MIN_CALL_SECONDS,
+    GenerateSummary,
+)
 from meeting_scribe.summaries.domain.chunker import estimate_tokens, format_line
 from meeting_scribe.summaries.domain.errors import (
     SummaryCancelledError,
@@ -313,3 +316,42 @@ def test_without_a_total_bound_no_call_timeout_is_passed() -> None:
     _use_case(provider).run(request(), FakeCancel()).unwrap()
 
     assert provider.timeouts == [None]
+
+
+def test_a_user_cancel_wins_over_an_expired_deadline() -> None:
+    clock = FakeClock()
+    cancel = FakeCancel()
+    provider = FakeProvider()
+
+    def both(_count: int) -> None:
+        cancel.set()
+        clock.now += 100.0
+
+    provider.on_call = both
+
+    result = _use_case(provider, clock=clock).run(request(), cancel, total_timeout_seconds=10.0)
+
+    assert isinstance(result.failure(), SummaryCancelledError)
+
+
+def test_an_exhausted_budget_times_out_before_calling_the_provider() -> None:
+    provider = FakeProvider()
+
+    result = _use_case(provider, clock=FakeClock()).run(
+        request(), FakeCancel(), total_timeout_seconds=0.0
+    )
+
+    assert isinstance(result.failure(), SummaryTimeoutError)
+    assert provider.requests == []
+
+
+def test_the_per_call_time_is_never_below_the_minimum() -> None:
+    clock = FakeClock()
+    provider = FakeProvider()
+    provider.on_call = lambda _count: setattr(clock, "now", clock.now + 9.9995)
+
+    _use_case(provider, clock=clock).run(_long_request(), FakeCancel(), total_timeout_seconds=10.0)
+
+    assert len(provider.timeouts) == 2
+    assert provider.timeouts[1] is not None
+    assert provider.timeouts[1] >= MIN_CALL_SECONDS
