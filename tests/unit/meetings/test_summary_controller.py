@@ -1,9 +1,11 @@
 import logging
+import threading
 from datetime import timedelta
 
 import pytest
 from returns.result import Failure
 
+from meeting_scribe.base.domain.errors import MeetingScribeError
 from meeting_scribe.meetings.application.gpu_lease import InMemoryGpuLease
 from meeting_scribe.meetings.application.review_controller import ReviewController
 from meeting_scribe.meetings.application.summary_controller import (
@@ -641,3 +643,63 @@ def test_no_secret_in_logs(rig: Rig, caplog: pytest.LogCaptureFixture) -> None:
     info = [r for r in caplog.records if r.levelno == logging.INFO]
     assert any("m1" in r.getMessage() and "cloud" in r.getMessage() for r in info)
     assert all(FakeKeyStore.FAKE_KEY not in str(r.__dict__) for r in caplog.records)
+
+
+# -- the slot and the lease are always freed --
+
+
+def test_the_slot_and_lease_are_freed_even_if_recording_the_failure_raises(rig: Rig) -> None:
+    rig.local_provider.responder = lambda _m: SummaryProviderUnavailableError("down")
+    rig.controller.summarize("m1", "local", False).unwrap()
+    rig.repository.fail_saves = False
+
+    def broken(_meeting):
+        raise RuntimeError("boom")
+
+    rig.repository.save = broken  # type: ignore[method-assign]
+
+    rig.starter.run_next()
+
+    assert rig.controller.active_meeting_id == ""
+    assert rig.lease.available("processing")
+    assert rig.gpu_free_calls == 1
+    assert rig.events.finishes() == [("finished", "m1", "FAILED", "SUMMARY_PROVIDER_UNAVAILABLE")]
+
+
+def test_a_starter_that_raises_frees_the_slot_and_lease_with_a_typed_failure(rig: Rig) -> None:
+    def failing(_job):
+        raise RuntimeError("no threads")
+
+    rig.controller._start_job = failing
+
+    result = rig.controller.summarize("m1", "local", False)
+
+    assert isinstance(result, Failure)
+    assert isinstance(result.failure(), MeetingScribeError)
+    assert rig.controller.active_meeting_id == ""
+    assert rig.lease.available("processing")
+    assert rig.gpu_free_calls == 1
+
+
+def test_shutdown_waits_for_a_claimed_job_to_be_spawned_and_then_cancels_it(rig: Rig) -> None:
+    racing: list[threading.Thread] = []
+    blocked: list[bool] = []
+
+    def start_with_a_racing_shutdown(job):
+        thread = threading.Thread(target=rig.controller.shutdown)
+        thread.start()
+        thread.join(0.2)
+        blocked.append(thread.is_alive())  # claim and spawn are atomic w.r.t. shutdown
+        racing.append(thread)
+        rig.starter(job)
+
+    rig.controller._start_job = start_with_a_racing_shutdown
+
+    assert rig.controller.summarize("m1", "local", False).unwrap() == "RUNNING"
+    racing[0].join(5)
+    rig.starter.run_next()
+
+    assert blocked == [True]
+    assert rig.events.finishes() == [("finished", "m1", "CANCELLED", "SUMMARY_CANCELLED")]
+    assert rig.controller.active_meeting_id == ""
+    assert rig.lease.available("processing")

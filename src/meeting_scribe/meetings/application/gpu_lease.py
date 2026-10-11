@@ -31,6 +31,9 @@ class InMemoryGpuLease:
                     for other, callback in self._holders.items()
                     if other != "recording" and callback is not None
                 ]
+                for other in self._holders:  # a holder is revoked once
+                    if other != "recording":
+                        self._holders[other] = None
                 self._holders.setdefault("recording", on_revoke)
             elif self._holders:
                 return False

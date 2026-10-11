@@ -227,8 +227,10 @@ class SummaryController:
             job.option.model,
         )
         self._events.active_changed()
-        self._spawn(job)
-        return Success("RUNNING")
+        started = self._spawn(job)
+        if isinstance(started, Failure):
+            self._events.active_changed()  # the slot was freed again
+        return started.map(lambda _: "RUNNING")
 
     def cancel(self, meeting_id: str) -> Result[bool, MeetingScribeError]:
         """Cancel the running summary of this meeting; ``False`` when none is running."""
@@ -263,26 +265,52 @@ class SummaryController:
 
     # -- the job thread --
 
-    def _spawn(self, job: _Job) -> None:
-        thread = self._start_job(lambda: self._run(job))
+    def _spawn(self, job: _Job) -> Result[None, MeetingScribeError]:
+        """Start the job thread; atomic with ``shutdown`` (both hold the slot lock)."""
+        failure: MeetingScribeError | None = None
         with self._slot:
-            self._thread = thread
+            if self._stopping:
+                failure = SummaryBusyError("The service is shutting down.")
+            else:
+                try:
+                    self._thread = self._start_job(lambda: self._run(job))
+                except Exception:
+                    logger.exception("Could not start the summary job for %s.", job.meeting_id)
+                    failure = MeetingScribeError("The summary could not be started.")
+            if failure is not None:
+                self._release_locked(job)
+        if failure is None:
+            return Success(None)
+        self._gpu_freed(job)
+        return Failure(failure)
 
     def _run(self, job: _Job) -> None:
+        settled: tuple[SummaryOutcome, str] = ("FAILED", MeetingScribeError.error_code)
         try:
-            result = job.option.generate.run(
-                job.request,
-                job.cancel,
-                lambda step, total: self._progress(job, step, total),
-                self._config.total_timeout_seconds,
-            )
-            settled = self._settle(job, result)
-        except Exception:  # the thread must always end the job
-            logger.exception("The summary of meeting %s stopped unexpectedly.", job.meeting_id)
-            settled = self._record_failure(job, MeetingScribeError("The summary stopped."))
-        self._finish_slot(job)
-        self._events.finished(job.meeting_id, *settled)
-        self._events.active_changed()
+            try:
+                result = job.option.generate.run(
+                    job.request,
+                    job.cancel,
+                    lambda step, total: self._progress(job, step, total),
+                    self._config.total_timeout_seconds,
+                )
+                settled = self._settle(job, result)
+            except Exception:  # the thread must always end the job
+                logger.exception("The summary of meeting %s stopped unexpectedly.", job.meeting_id)
+                settled = self._record_failure(job, MeetingScribeError("The summary stopped."))
+        except Exception:
+            logger.exception("The failure of summary %s could not be recorded.", job.meeting_id)
+        finally:
+            self._finish_slot(job)  # never leaks the slot or the GPU lease
+        self._emit(lambda: self._events.finished(job.meeting_id, *settled))
+        self._emit(self._events.active_changed)
+
+    @staticmethod
+    def _emit(call: Callable[[], None]) -> None:
+        try:
+            call()
+        except Exception:
+            logger.exception("A summary observer failed.")
 
     def _progress(self, job: _Job, step: int, total: int) -> None:
         with self._slot:
@@ -330,13 +358,16 @@ class SummaryController:
     def _record_failure(self, job: _Job, error: MeetingScribeError) -> tuple[SummaryOutcome, str]:
         """Remember the failed attempt (code and time) unless the meeting is being processed."""
         code = error.error_code
-        with self._lock.hold():
-            current = self._done(job.meeting_id)
-            if isinstance(current, Success):
-                marked = current.unwrap().with_summary_failure(code, self._clock.now())
-                saved = self._repository.save(marked)
-                if isinstance(saved, Failure):
-                    logger.warning("Could not record the summary failure: %s", code)
+        try:
+            with self._lock.hold():
+                current = self._done(job.meeting_id)
+                if isinstance(current, Success):
+                    marked = current.unwrap().with_summary_failure(code, self._clock.now())
+                    saved = self._repository.save(marked)
+                    if isinstance(saved, Failure):
+                        logger.warning("Could not record the summary failure: %s", code)
+        except Exception:  # log the id and the code only: never the error text
+            logger.error("Could not record the failure %s of summary %s.", code, job.meeting_id)
         logger.warning("Summary of meeting %s failed: %s", job.meeting_id, code)
         return "FAILED", code
 
@@ -363,15 +394,22 @@ class SummaryController:
             self._job = job
             return Success(None)
 
+    def _release_locked(self, job: _Job) -> None:
+        """Caller holds the slot lock: free the slot and the lease."""
+        if self._job is job:
+            self._job = None
+        if not job.option.cloud:
+            self._lease.release("summary")
+
     def _finish_slot(self, job: _Job) -> None:
         """Free the slot and the GPU (the model is already released), then wake the queue."""
         with self._slot:
-            if self._job is job:
-                self._job = None
-            if not job.option.cloud:
-                self._lease.release("summary")
+            self._release_locked(job)
+        self._gpu_freed(job)
+
+    def _gpu_freed(self, job: _Job) -> None:
         if not job.option.cloud and self._on_gpu_free is not None:
-            self._on_gpu_free()
+            self._emit(self._on_gpu_free)
 
     # -- snapshot and reads (called with the lock held) --
 

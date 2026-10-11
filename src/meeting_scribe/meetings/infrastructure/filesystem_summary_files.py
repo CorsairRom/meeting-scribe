@@ -24,8 +24,10 @@ _PREFIX = ".summary."
 
 class FilesystemSummaryFiles:
     def save(self, meeting_dir: Path, markdown: str) -> Result[str, SummaryStorageError]:
-        """Back the current file up (copy), then replace it; a failure leaves it untouched."""
+        """Write a temp file, back the current one up, then replace; a failure restores both."""
         temps: list[str] = []
+        previous = meeting_dir / PREVIOUS_FILE
+        held: str | None = None
         try:
             new_temp = self._temp(meeting_dir)
             temps.append(new_temp)
@@ -38,8 +40,18 @@ class FilesystemSummaryFiles:
                 backup_temp = self._temp(meeting_dir)
                 temps.append(backup_temp)
                 shutil.copyfile(current, backup_temp)
-                Path(backup_temp).replace(meeting_dir / PREVIOUS_FILE)
-            Path(new_temp).replace(current)
+                if previous.is_file():  # keep the older backup until the new file is in place
+                    held = self._temp(meeting_dir)
+                    temps.append(held)
+                    previous.replace(held)
+                Path(backup_temp).replace(previous)
+            try:
+                Path(new_temp).replace(current)
+            except OSError:
+                if held is not None:
+                    Path(held).replace(previous)
+                    held = None
+                raise
         except OSError as error:
             logger.warning("Cannot write the summary: %s", error.strerror or type(error).__name__)
             return Failure(
