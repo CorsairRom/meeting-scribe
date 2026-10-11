@@ -12,6 +12,7 @@ from gi.repository import Adw, Gio, GLib
 
 from meeting_scribe_review.core.launch import MEETING_OPTION, meeting_id_from_options
 from meeting_scribe_review.ui.dbus_gateway import DBusGateway
+from meeting_scribe_review.ui.media_player import MediaPlayer
 from meeting_scribe_review.ui.window import ReviewWindow
 
 APP_ID = "dev.meetingscribe.Review"
@@ -33,7 +34,7 @@ class ReviewApplication(Adw.Application):
     def do_command_line(self, command_line: Gio.ApplicationCommandLine) -> int:
         meeting_id = meeting_id_from_options(command_line.get_options_dict().end().unpack())
         if self._window is None:
-            self._window = ReviewWindow(self, DBusGateway(), meeting_id)
+            self._window = ReviewWindow(self, DBusGateway(), MediaPlayer(), meeting_id)
             self._window.connect("destroy", self._forget_window)
         else:
             self._window.open_meeting(meeting_id)

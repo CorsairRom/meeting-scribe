@@ -713,8 +713,8 @@ its tests and docs.
 
 | Fact | Needed by | Status |
 |---|---|---|
-| `Gtk.MediaFile.new_for_input_stream` accepts a `Gio.MemoryInputStream` and plays WAV through the GStreamer backend | F4.5b | Not verified (A-3) |
-| `Adw.NavigationSplitView`, `Adw.Application`, `Adw.AlertDialog` (1.9) API names and signals | F4.5a, F4.5b | Not verified |
+| `Gtk.MediaFile.new_for_input_stream` accepts a `Gio.MemoryInputStream` and plays WAV through the GStreamer backend | F4.5b | Signature and a seekable in-memory stream verified (F4.5b); playing not verified, needs consent (A-3) |
+| `Adw.NavigationSplitView`, `Adw.Application`, `Adw.AlertDialog` (1.9) API names and signals | F4.5a, F4.5b | Verified on the installed typelibs and in the libadwaita docs (F4.5a, F4.5b, GO-051); not run on a display |
 | `Gio.DBusProxy.new_for_bus` / `call` with `a{sv}` and `ay` reply unpacking in PyGObject | F4.5a | Verified (F4.5a, GO-051; `ay` needs `get_data_as_bytes`) |
 | import-linter `root_packages` with two roots and the `independence` contract across them | F4.4a | Not verified (A-6) |
 | GNOME Shell activates the app named by a notification's `desktop-entry` hint on click | Not needed in F4 (OQ-6: menu only) | Not verified (A-5) |
@@ -773,4 +773,8 @@ All six questions were answered by the owner (OQ-1 on 2026-10-09, OQ-2 to OQ-6 o
 
 > If unresolved forks appear, record them here AND open an ADR if the decision is structural.
 
-None yet.
+- **F4.5 (2026-10-11)**: `core/session.py` (`ReviewSession`) wires the presenters and fans service events out, so
+  the window only implements `show_*`; `AvailabilityFilter` treats the first report of the bus name as a
+  baseline; `dispatch_signal` and `meeting_id_from_options` live in core. The "service not running" status
+  page with Retry and the read-only banner shipped in F4.5a (the window needs them to be usable at all); F4.5b
+  added speakers, dialogs, unmerge and the player. `ui` is excluded from pyrefly (GO-050).

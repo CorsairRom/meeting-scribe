@@ -5,6 +5,7 @@ by the codec and parsed by the core parsers. No bus, no window, no audio device 
 """
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -34,7 +35,11 @@ def _run(body: str) -> dict:
     if probe.returncode != 0:
         pytest.skip("system Python has no gi")
     done = subprocess.run(  # noqa: S603
-        [INTERPRETER, "-I", "-c", _PRELUDE + body], capture_output=True, text=True, check=False
+        [INTERPRETER, "-I", "-c", _PRELUDE + body],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PATH": os.environ["PATH"]},  # no display variable: nothing can open a window
     )
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout)
@@ -119,3 +124,17 @@ print(json.dumps({
         "old": "SERVICE_OUTDATED",
         "local": "UNKNOWN_ERROR",
     }
+
+
+def test_a_sample_becomes_a_seekable_in_memory_stream_without_touching_the_toolkit_player() -> None:
+    out = _run(
+        """
+from meeting_scribe_review.ui import media_player
+stream = media_player.sample_stream(b"RIFF\\x00\\x01tail")
+print(json.dumps({
+    "seekable": stream.can_seek(),
+    "head": stream.read_bytes(4, None).get_data().decode(),
+}))
+"""
+    )
+    assert out == {"seekable": True, "head": "RIFF"}
