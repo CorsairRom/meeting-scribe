@@ -5,7 +5,7 @@ import GLib from 'gi://GLib';
 
 import {registerCleanup} from './harness.js';
 import {INTERFACE_XML} from '../meeting-scribe@meetingscribe.dev/lib/recordingClient.js';
-import {INTERFACE_XML as MEETINGS_XML} from '../meeting-scribe@meetingscribe.dev/lib/meetingsClient.js';
+import {INTERFACE_XML as MEETINGS_XML, SUMMARIES_XML} from '../meeting-scribe@meetingscribe.dev/lib/meetingsClient.js';
 
 Gio._promisify(Gio.DataInputStream.prototype, 'read_line_async', 'read_line_finish_utf8');
 Gio._promisify(Gio.DBusConnection, 'new_for_address', 'new_for_address_finish');
@@ -224,12 +224,20 @@ export class FakeMeetingsService {
         this.QueuedCount = 0;
         this.reprocessed = [];
         this.unknown = new Set(['gone']);
+        this.lastSummary = null; // {meeting_id, started_at, generated_at, path}
+        this.withSummaries = true; // false: an older service without Summaries1
+        this.summaryCalls = 0;
+        this._summaries = null;
     }
 
     /** Export the object and own the name; rejects when the name is taken or never acquired. */
     async appear() {
         this._impl = Gio.DBusExportedObject.wrapJSObject(MEETINGS_XML, this);
         this._impl.export(this._connection, this._objectPath);
+        if (this.withSummaries) {
+            this._summaries = Gio.DBusExportedObject.wrapJSObject(SUMMARIES_XML, this);
+            this._summaries.export(this._connection, this._objectPath);
+        }
         const acquired = new Promise((resolve, reject) => {
             this._ownerId = Gio.bus_own_name_on_connection(
                 this._connection, this._busName, Gio.BusNameOwnerFlags.DO_NOT_QUEUE,
@@ -250,6 +258,26 @@ export class FakeMeetingsService {
         this._ownerId = 0;
         this._impl?.unexport();
         this._impl = null;
+        this._summaries?.unexport();
+        this._summaries = null;
+    }
+
+    LastSummaryAsync(_params, invocation) {
+        this.summaryCalls++;
+        if (this.lastSummary === null) {
+            invocation.return_dbus_error(`${ERROR_PREFIX}ENTITY_NOT_FOUND_SUMMARY`, 'none');
+            return;
+        }
+        const entries = {};
+        for (const [key, value] of Object.entries(this.lastSummary))
+            entries[key] = new GLib.Variant('s', value);
+        invocation.return_value(new GLib.Variant('(a{sv})', [entries]));
+    }
+
+    /** Emit SummaryFinished, like the service. */
+    finishSummary(meetingId, state, errorCode = '') {
+        this._summaries.emit_signal('SummaryFinished',
+            new GLib.Variant('(sss)', [meetingId, state, errorCode]));
     }
 
     ReprocessAsync([meetingId], invocation) {

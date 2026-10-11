@@ -131,3 +131,19 @@ test('the desktop entry id in extension.js is the one packaging installs', () =>
     const template = GLib.build_filenamev([EXTENSION_DIR, '..', '..', 'packaging', 'applications', `${id}.in`]);
     assertEqual(GLib.file_test(template, GLib.FileTest.EXISTS), true, `no template for ${id}: `);
 });
+
+test('extension.js opens the summary with the default handler through a non-blocking Gio call', () => {
+    const source = read('extension.js');
+    assertEqual(source.includes('Gio.AppInfo.launch_default_for_uri_async'), true);
+    assertEqual(source.includes('.get_uri()'), true, 'the URI comes from the returned path: ');
+    assertEqual(/launch_default_for_uri\(/.test(source), false, 'no blocking launch: ');
+    assertEqual(/\bopenSummary,/.test(source), true, 'the controller gets openSummary: ');
+});
+
+test('the extension never reads the content of a summary or builds its path', () => {
+    for (const file of [...GLUE_FILES, 'lib/meetingsClient.js']) {
+        const source = read(file);
+        for (const forbidden of ['load_contents', 'file_get_contents', 'read_bytes', 'summary.md'])
+            assertEqual(source.includes(forbidden), false, `${file} uses ${forbidden}: `);
+    }
+});
