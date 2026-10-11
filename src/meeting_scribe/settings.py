@@ -16,6 +16,7 @@ from meeting_scribe.base.infrastructure.settings import (
 from meeting_scribe.meetings.infrastructure.processing_settings import ProcessingSettings
 from meeting_scribe.recording.infrastructure.recording_settings import RecordingSettings
 from meeting_scribe.speakers.infrastructure.speakers_settings import SpeakersSettings
+from meeting_scribe.summaries.infrastructure.summaries_settings import SummariesSettings
 from meeting_scribe.transcription.infrastructure.transcription_settings import (
     TranscriptionSettings,
 )
@@ -52,6 +53,7 @@ class Settings(MeetingScribeSettings):
     processing: ProcessingSettings = Field(default_factory=ProcessingSettings)
     transcription: TranscriptionSettings = Field(default_factory=TranscriptionSettings)
     speakers: SpeakersSettings = Field(default_factory=SpeakersSettings)
+    summaries: SummariesSettings = Field(default_factory=SummariesSettings)
 
     # Env files resolved when ``load`` ran; empty for settings built any other way.
     _env_files: tuple[Path, ...] = PrivateAttr(default=())
