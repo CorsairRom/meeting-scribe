@@ -35,6 +35,8 @@ Raised after the first real recording (2026-10-09); recorded so nothing is lost,
 - [ ] Audio retention: setting to keep or drop the audio after review or after N days; optional Opus compression (about 230 MB/h today, about 20 MB/h as Opus)
 - [ ] A database (SQLite) only if search or long meeting lists need it; behind the `MeetingRepository` port
 - [ ] Recognise the same speaker across meetings (voice embeddings), out of the MVP
+- [ ] Suggest speaker names already used in earlier meetings while naming (F4 OQ-5: typed by hand for now); design together with cross-meeting voice recognition
+- [ ] Open the review app from the "Meeting processed" notification (F4 OQ-6: menu only for now); a `desktop-entry` hint needs a manual check in GNOME Shell
 - [ ] Import recordings made before F3 (no `meeting.json`) so they can be processed
 
 ### [EPIC] F6 Hardening

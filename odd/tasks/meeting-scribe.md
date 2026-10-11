@@ -473,10 +473,24 @@ own meeting, without reading its content into the repo or logs.
 - [x] F3 docs gate: read-only audit (no P1/P2 left after #80), `make check` green, language scan clean
       (no voseo in code, docs or commits; only neutral Spanish fixture words for non-ASCII tests).
       Review review-9c4fa0825fe1a866 approved. Tracker #52 marked ready for the owner.
-### F4 Review UI — pending
-- [ ] F4.0 Add the language scan to the "Integration PR docs gate" in
-      `docs/project/doc-sync-protocol.md` (user rule 2026-10-09: voseo and Spanish only in chat, never in
-      code, comments, UI strings, docs, commits or PR text; fixtures for non-ASCII text allowed).
+### F4 Review app — in progress (integration `feat/review-app`, tracker #82)
+Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv run pytest` / `make check`
+(source: AGENTS.md). Route: delegated direct (one writer per task, 2+ non-trivial files each).
+- [x] F4.0a Language scan added to the "Integration PR docs gate" (#81; user rule: Spanish only in chat).
+- [x] F4.0b Design spec (delegated writer, `d6c1b72`); product decisions OQ-1..OQ-6 answered by the owner one
+      at a time: reset on reprocess; "Me" target-only, "Unknown" mergeable; duplicate names rejected with
+      merge-or-rename; unmerge included; no name suggestions; menu-only entry (notification action and name
+      suggestions moved to backlog "Later improvements").
+- [ ] F4.1 `speakers`: speaker records, name rules, merge/unmerge, effective speakers, transcript rendering (~400)
+- [ ] F4.2 `meetings`: review section in meeting.json, reset on reprocess, lock, ReviewController (~350)
+- [ ] F4.3 `Meetings1` review members + `SpeakersChanged`, api-contracts, error catalog, e2e (~400)
+- [ ] F4.4a `review-app/` scaffold, core models/ports, import-linter roots and contracts (~350)
+- [ ] F4.4b core presenters (list, review, rename, merge, playback) (~400)
+- [ ] F4.5a GTK ui: application, window, sidebar, transcript, D-Bus gateway (~400)
+- [ ] F4.5b GTK ui: speaker rows, dialogs, unmerge, media player, banners (~400)
+- [ ] F4.6 packaging: launcher, desktop entry, install/uninstall, runbook (~300)
+- [ ] F4.7 extension "Review last meeting" item (~200)
+- [ ] F4.8 validation with consent, docs closure, docs gate (~150)
 ### F5 Summaries — pending
 ### F6 Install — pending
 
