@@ -1,4 +1,4 @@
-project-includes = ["src/**/*.py", "tests/**/*.py"]
+project-includes = ["src/**/*.py", "tests/**/*.py", "review-app/src/**/*.py"]
 project-excludes = [
     "**/node_modules",
     "**/__pycache__",
@@ -6,7 +6,7 @@ project-excludes = [
     "**/.[!/.]*/**",
 ]
 use-ignore-files = true
-search-path = ["src", "."]
+search-path = ["src", "review-app/src", "."]
 disable-search-path-heuristics = false
 site-package-path = []
 

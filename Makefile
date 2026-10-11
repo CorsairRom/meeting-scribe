@@ -14,11 +14,11 @@ lint: ## ruff, pyrefly and import-linter
 	scripts/run-linter.sh
 
 format: ## Auto-format and fix lint issues
-	uv run --extra quality-assurance ruff format src tests
-	uv run --extra quality-assurance ruff check --fix src tests
+	uv run --extra quality-assurance ruff format src tests review-app
+	uv run --extra quality-assurance ruff check --fix src tests review-app
 
 imports: ## Check architecture contracts only
-	uv run --extra quality-assurance lint-imports
+	PYTHONPATH=review-app/src uv run --extra quality-assurance lint-imports
 
 test: ## Run the test suite
 	scripts/run-tests.sh
