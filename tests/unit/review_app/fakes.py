@@ -15,6 +15,11 @@ from meeting_scribe_review.core.gateway import (
     PlayerListener,
 )
 from meeting_scribe_review.core.models import MeetingSummary, Speaker, Utterance
+from meeting_scribe_review.core.presenters.meeting_list import MeetingListState
+from meeting_scribe_review.core.presenters.merge import MergeState
+from meeting_scribe_review.core.presenters.playback import PlaybackState
+from meeting_scribe_review.core.presenters.rename import RenameState
+from meeting_scribe_review.core.presenters.review import ReviewState
 from meeting_scribe_review.core.result import Err, Ok
 
 
@@ -142,3 +147,29 @@ def meeting(
         state=state,
         active_speaker_count=speakers,
     )
+
+
+@dataclass
+class FakeViews:
+    """Records every state the session shows."""
+
+    meetings: list[MeetingListState] = field(default_factory=list)
+    reviews: list[ReviewState] = field(default_factory=list)
+    renames: list[RenameState] = field(default_factory=list)
+    merges: list[MergeState] = field(default_factory=list)
+    playbacks: list[PlaybackState] = field(default_factory=list)
+
+    def show_meetings(self, state: MeetingListState) -> None:
+        self.meetings.append(state)
+
+    def show_review(self, state: ReviewState) -> None:
+        self.reviews.append(state)
+
+    def show_rename(self, state: RenameState) -> None:
+        self.renames.append(state)
+
+    def show_merge(self, state: MergeState) -> None:
+        self.merges.append(state)
+
+    def show_playback(self, state: PlaybackState) -> None:
+        self.playbacks.append(state)

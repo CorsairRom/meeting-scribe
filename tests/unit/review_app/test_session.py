@@ -2,30 +2,18 @@
 
 from meeting_scribe_review.core.models import MeetingSummary
 from meeting_scribe_review.core.presenters.meeting_list import MeetingListState, MeetingListStatus
-from meeting_scribe_review.core.presenters.review import ReviewState, ReviewStatus
+from meeting_scribe_review.core.presenters.review import ReviewStatus
 from meeting_scribe_review.core.result import Ok
 from meeting_scribe_review.core.session import ReviewSession
-from tests.unit.review_app.fakes import FakeGateway, meeting, speaker
+from tests.unit.review_app.fakes import FakeGateway, FakePlayer, FakeViews, meeting, speaker
 
 
-class _Views:
-    def __init__(self) -> None:
-        self.meetings: list[MeetingListState] = []
-        self.reviews: list[ReviewState] = []
-
-    def show_meetings(self, state: MeetingListState) -> None:
-        self.meetings.append(state)
-
-    def show_review(self, state: ReviewState) -> None:
-        self.reviews.append(state)
-
-
-def _session(*meetings: MeetingSummary) -> tuple[ReviewSession, FakeGateway, _Views]:
+def _session(*meetings: MeetingSummary) -> tuple[ReviewSession, FakeGateway, FakeViews]:
     gateway = FakeGateway()
     gateway.replies["list_meetings"] = Ok(list(meetings))
     gateway.replies["get_speakers"] = Ok([speaker("S1"), speaker("S2")])
-    views = _Views()
-    return ReviewSession(gateway, views), gateway, views
+    views = FakeViews()
+    return ReviewSession(gateway, FakePlayer(), views), gateway, views
 
 
 def test_start_opens_the_newest_done_meeting() -> None:
@@ -100,3 +88,11 @@ def test_close_empties_the_review() -> None:
     session.start()
     session.close()
     assert views.reviews[-1].status is ReviewStatus.IDLE
+
+
+def test_a_selection_that_is_not_in_the_rows_closes_the_review() -> None:
+    session, _, _ = _session(meeting("m2", day=10))
+    session.start()
+    gone = MeetingListState(MeetingListStatus.READY, (), "m9")
+    session._meetings_changed(gone)
+    assert session.review.status is ReviewStatus.IDLE

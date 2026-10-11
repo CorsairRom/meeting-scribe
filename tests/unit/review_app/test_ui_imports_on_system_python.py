@@ -6,15 +6,15 @@ Skipped without ``gi``.
 
 import ast
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from tests.system_python import INTERPRETER, skip_without_toolkit
+
 APP_SRC = Path(__file__).resolve().parents[3] / "review-app" / "src"
 UI = APP_SRC / "meeting_scribe_review" / "ui"
-INTERPRETER = "/usr/bin/python3"
 
 
 def _modules() -> list[str]:
@@ -24,18 +24,8 @@ def _modules() -> list[str]:
     )
 
 
-def _gi_available() -> bool:
-    if shutil.which(INTERPRETER) is None:
-        return False
-    probe = subprocess.run(  # noqa: S603
-        [INTERPRETER, "-I", "-c", "import gi"], capture_output=True, check=False
-    )
-    return probe.returncode == 0
-
-
 def test_every_ui_module_imports_without_opening_a_display() -> None:
-    if not _gi_available():
-        pytest.skip("system Python with gi is not available")
+    skip_without_toolkit()
     script = (
         "import importlib, sys\n"
         f"sys.path.insert(0, {str(APP_SRC)!r})\n"

@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 
 class StatusView(Gtk.Box):
@@ -25,6 +25,6 @@ class StatusView(Gtk.Box):
         self, title: str, description: str = "", icon: str = "", *, retry: bool = False
     ) -> None:
         self._page.set_title(title)
-        self._page.set_description(description)
+        self._page.set_description(GLib.markup_escape_text(description))  # description is markup
         self._page.set_icon_name(icon or None)
         self._retry.set_visible(retry)

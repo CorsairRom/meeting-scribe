@@ -12,14 +12,17 @@ from meeting_scribe_review.core.presenters.meeting_list import (
 )
 from meeting_scribe_review.ui.status_view import StatusView
 
+UNKNOWN_DATE = "Unknown date"
 _LIST = "list"
 _STATUS = "status"
 
 
 def _when(row: MeetingRow) -> str:
-    """The start time in the user's locale and time zone."""
+    """The start time in the user's locale and time zone; never fails on an odd value."""
     moment = GLib.DateTime.new_from_unix_utc(int(row.started_at.timestamp()))
-    return moment.to_local().format("%x %R") if moment else ""
+    local = moment.to_local() if moment else None
+    text = local.format("%x %R") if local else None
+    return text or UNKNOWN_DATE
 
 
 def _subtitle(row: MeetingRow) -> str:
@@ -68,7 +71,7 @@ class MeetingSidebar(Gtk.Stack):
             self._list.remove_all()
             self._ids = [row.id for row in state.rows]
             for row in state.rows:
-                widget = Adw.ActionRow(title=_when(row), subtitle=_subtitle(row))
+                widget = Adw.ActionRow(title=_when(row), subtitle=_subtitle(row), use_markup=False)
                 if not row.reviewable:
                     widget.add_css_class("dim-label")
                 self._list.append(widget)
