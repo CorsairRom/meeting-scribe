@@ -78,24 +78,38 @@ Starting a recording opens the microphone and the system audio monitor: only cal
 
 ### `dev.meetingscribe.Meetings1`
 
-Lists meetings, reports what the processing pipeline is doing and retries a failed job. Same bus name and object
-path as `Recording1`. Processing starts by itself when a recording stops; nothing here starts it.
+Lists meetings, reports what the processing pipeline is doing, retries a failed job and serves the speaker review
+of a finished meeting (speakers, transcript, voice samples, rename, merge, unmerge). Same bus name and object path
+as `Recording1`. Processing starts by itself when a recording stops; nothing here starts it.
 
 | Member | Kind | Signature | Description | Errors |
 |---|---|---|---|---|
-| `List` | method | `() -> a(ssdsi)` | One row per meeting that has a readable `meeting.json`, newest first: `(id, started_at, duration_seconds, processing_state, speaker_count)`. `duration_seconds` is the audio length once known, else the recorded time, else `0.0`. A `meeting.json` from a newer schema is listed with state `UNSUPPORTED` | `MEETING_STORAGE_FAILED` |
-| `Get` | method | `(s) -> a{sv}` | Details of one meeting. Keys: `id` (s), `started_at` (s), `duration_seconds` (d), `directory` (s), `processing_state` (s), `failure_code` (s), `failure_reason` (s), `speaker_count` (i), `transcript_path` (s, absolute). Absent values are empty strings | `ENTITY_NOT_FOUND_MEETING` for an unknown id; `MEETING_SCHEMA_UNSUPPORTED`; `MEETING_CORRUPT`; `MEETING_STORAGE_FAILED` |
+| `List` | method | `() -> a(ssdsi)` | One row per meeting that has a readable `meeting.json`, newest first: `(id, started_at, duration_seconds, processing_state, speaker_count)` (`speaker_count` counts active speakers, merged-away ones excluded). `duration_seconds` is the audio length once known, else the recorded time, else `0.0`. A `meeting.json` from a newer schema is listed with state `UNSUPPORTED` | `MEETING_STORAGE_FAILED` |
+| `Get` | method | `(s) -> a{sv}` | Details of one meeting. Keys: `id` (s), `started_at` (s), `duration_seconds` (d), `directory` (s), `processing_state` (s), `failure_code` (s), `failure_reason` (s), `speaker_count` (i, active speakers: merged-away ones are not counted), `transcript_path` (s, absolute). Absent values are empty strings | `ENTITY_NOT_FOUND_MEETING` for an unknown id; `MEETING_SCHEMA_UNSUPPORTED`; `MEETING_CORRUPT`; `MEETING_STORAGE_FAILED` |
 | `Reprocess` | method | `(s) -> s` | Queue a `DONE` or `FAILED` meeting again and return its new state (`QUEUED`). Caches that are still valid are reused, so a failed diarization does not repeat the transcription | `ENTITY_NOT_FOUND_MEETING`; `MEETING_PROCESSING_ACTIVE` when it is queued or running; `MEETING_STORAGE_FAILED` |
+| `GetSpeakers` | method | `(s) -> aa{sv}` | `(meeting_id)`: one row per speaker, active speakers first ("Me", then by talk time), merged-away ones after. Keys: `id` (s), `label` (s), `name` (s, empty when unset), `display` (s, the name or else the label), `is_me` (b), `talk_seconds` (d, includes merged speakers), `utterance_count` (i, same folding), `has_sample` (b), `merged_into` (s, target id or empty) | `ENTITY_NOT_FOUND_MEETING`; `MEETING_NOT_PROCESSED` unless the state is `DONE`; `MEETING_SCHEMA_UNSUPPORTED`; `MEETING_CORRUPT`; `MEETING_STORAGE_FAILED` |
+| `GetTranscript` | method | `(s) -> a(sdds)` | `(meeting_id)`: `(speaker_id, start_seconds, end_seconds, text)` in time order, with merges applied (`speaker_id` is the effective id); plain text, no markdown; empty list for a meeting without speech. Repairs a stale `transcript.md` first. Clients never read files | same as `GetSpeakers`, plus `ENTITY_NOT_FOUND_TRANSCRIPT` |
+| `GetSpeakerSample` | method | `(ss) -> ay` | `(meeting_id, speaker_id)`: the WAV file of the speaker's voice sample as bytes (mono, 16 kHz, 16-bit, at most about 0.5 MB). No path is returned; the speaker id is checked against `meeting.json` before any file is opened | `ENTITY_NOT_FOUND_MEETING`; `ENTITY_NOT_FOUND_SPEAKER`; `ENTITY_NOT_FOUND_SPEAKER_SAMPLE` (none listed, or the file is gone or unreadable); `MEETING_NOT_PROCESSED`; `MEETING_CORRUPT`; `MEETING_STORAGE_FAILED` |
+| `RenameSpeaker` | method | `(sss) -> aa{sv}` | `(meeting_id, speaker_id, name)`: sets the name (trimmed; an empty name clears it) and returns the refreshed `GetSpeakers` rows. `meeting.json` and `transcript.md` are saved before the call returns | `INVALID_VALUE` (over 64 characters or a control character); `SPEAKER_NAME_TAKEN`; `SPEAKER_MERGE_INVALID` (merged-away speaker); `ENTITY_NOT_FOUND_SPEAKER`; `MEETING_NOT_PROCESSED`; the lookup errors; `MEETING_STORAGE_FAILED` |
+| `MergeSpeakers` | method | `(sss) -> aa{sv}` | `(meeting_id, source_id, target_id)`: shows the source as the target everywhere; non-destructive. Returns the refreshed rows | `SPEAKER_MERGE_INVALID`; `ENTITY_NOT_FOUND_SPEAKER`; `MEETING_NOT_PROCESSED`; the lookup errors; `MEETING_STORAGE_FAILED` |
+| `UnmergeSpeaker` | method | `(ss) -> aa{sv}` | `(meeting_id, speaker_id)`: undoes a merge and returns the refreshed rows; a success with no change when the speaker is not merged | `SPEAKER_NAME_TAKEN` (the source's own name now clashes); `ENTITY_NOT_FOUND_SPEAKER`; `MEETING_NOT_PROCESSED`; the lookup errors; `MEETING_STORAGE_FAILED` |
 | `ActiveMeetingId` | property | `s` (read) | The meeting being processed; empty when idle | n/a |
 | `ActiveState` | property | `s` (read) | `IDLE`, or the active job's state: `TRANSCRIBING`, `DIARIZING` or `EXTRACTING_SAMPLES` | n/a |
 | `QueuedCount` | property | `u` (read) | Jobs waiting (not counting the active one) | n/a |
 | `ProcessingStateChanged` | signal | `(ss)` | `(meeting_id, state)` on every state change, after the new state is saved in `meeting.json` | n/a |
-| `ProcessingFinished` | signal | `(ssi)` | `(meeting_id, state, speaker_count)` when a job ends, with `state` `DONE` or `FAILED` (count `0` when `FAILED`) | n/a |
+| `ProcessingFinished` | signal | `(ssi)` | `(meeting_id, state, speaker_count)` when a job ends, with `state` `DONE` or `FAILED` (count `0` when `FAILED`); the count is what the run detected, before any merge | n/a |
+| `SpeakersChanged` | signal | `(s)` | `(meeting_id)` after a rename, merge or unmerge that changed something, and when a job ends `DONE` (a reprocess clears names and merges); clients refresh with `GetSpeakers`. Not emitted for a no-op | n/a |
 
 `PropertiesChanged` is emitted with `ActiveMeetingId`, `ActiveState` and `QueuedCount` when any of them changes.
 The processing states are `QUEUED`, `TRANSCRIBING`, `DIARIZING`, `EXTRACTING_SAMPLES`, `DONE`, `FAILED` (and
 `UNSUPPORTED` in `List` only). A recording that starts while a job runs stops its worker; the job goes back to the
 queue head in the state it had, `ActiveState` returns to `IDLE` and no worker starts until the recording ends.
+
+**Speaker review.** The review members work only on a `DONE` meeting (`MEETING_NOT_PROCESSED` otherwise) and run
+under the same lock as the processing loop, so an edit never overwrites a state change. Edits are last-write-wins
+per call: each call returns the fresh rows and emits `SpeakersChanged`, so every client refreshes. Error messages
+carry ids, never a speaker name or transcript text. Names and merges are cleared when the meeting is reprocessed.
+The review app (F4) is the client; it never opens a meeting file.
 
 **Desktop notification.** When a job ends the service calls `org.freedesktop.Notifications.Notify` on the session
 bus (app name "Meeting Scribe"): summary `Meeting processed: N speakers` (`no speech detected` for 0, plus `(CPU)`
