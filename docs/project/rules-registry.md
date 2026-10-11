@@ -421,11 +421,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 46 | 0 | 0 |
+| GO | 53 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-046 — 2026-10-09
-**Next available IDs**: BR-005, CR-014, GO-047, AP-005
+**Last rule added**: GO-053 — 2026-10-11
+**Next available IDs**: BR-005, CR-014, GO-054, AP-005
 
 ---
 
@@ -472,7 +472,7 @@ with `Supersedes: <ID>`. Never delete rules.
 ### GO-052 — The review app installs next to the service version, on system Python, with a desktop entry
 - **Date**: 2026-10-11
 - **Status**: active
-- **Detail**: (1) `install.sh` copies the app and renders the launcher inside `versions/<id>/` before `current` moves, so a rollback restores service and app together; the launcher pins the interpreter (`REVIEW_APP_PYTHON`, default `/usr/bin/python3`) because a venv or `uv` Python has no PyGObject. `REVIEW_APP_PYTHON` exists only so tests can substitute a fake. (2) The desktop entry is rendered by bash splitting on the first `@EXEC@`, so the template must contain that token exactly once (a mention in a comment would be rendered instead of the `Exec` line); its `Exec` uses the stable `current/` path, so it needs no rewrite on upgrade, and it is written only after the switch (a rollback removes it when the restored version has no `bin/meeting-scribe-review`, so a pre-F4 version never leaves a dangling entry); the single `Exec` argument is always double-quoted and escaped per the Desktop Entry specification (`"`, backtick, `$` and `\` escaped, `%` doubled, backslashes doubled again at file level), so data directories with spaces or reserved characters work. (3) The toolkit check is three read-only imports and only warns; the summary line is `review app: ready` or `review app: NOT usable (missing: ...)`. (4) `uninstall.sh` removes only the desktop entry itself; the launcher and the app go with `versions/`. (5) Tests substitute `python3` and `update-desktop-database` fakes; no test starts the app.
+- **Detail**: (1) `install.sh` copies the app and renders the launcher inside `versions/<id>/` before `current` moves, so a rollback restores service and app together; the launcher pins the interpreter (`REVIEW_APP_PYTHON`, default `/usr/bin/python3`) because a venv or `uv` Python has no PyGObject. `REVIEW_APP_PYTHON` is an interpreter override: tests substitute a fake, and `make run-review-app` uses it too. (2) The desktop entry is rendered by bash splitting on the first `@EXEC@`, so the template must contain that token exactly once (a mention in a comment would be rendered instead of the `Exec` line); its `Exec` uses the stable `current/` path, so it needs no rewrite on upgrade, and it is written only after the switch (a rollback removes it when the restored version has no `bin/meeting-scribe-review`, so a pre-F4 version never leaves a dangling entry); the single `Exec` argument is always double-quoted and escaped per the Desktop Entry specification (`"`, backtick, `$` and `\` escaped, `%` doubled, backslashes doubled again at file level), so data directories with spaces or reserved characters work. (3) The toolkit check is three read-only imports and only warns; the summary line is `review app: ready` or `review app: NOT usable (missing: ...)`. (4) `uninstall.sh` removes only the desktop entry itself; the launcher and the app go with `versions/`. (5) Tests substitute `python3` and `update-desktop-database` fakes; no test starts the app.
 - **Source**: [review app spec](../specs/review-app.md) section 8, F4.6
 - **Verifiable in**: `scripts/install.sh`, `scripts/uninstall.sh`, `packaging/applications/dev.meetingscribe.Review.desktop.in`, `tests/unit/test_install_scripts.py`
 

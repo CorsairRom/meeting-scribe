@@ -49,10 +49,13 @@ Raised after the first real recording (2026-10-09); recorded so nothing is lost,
 
 ### [EPIC] F4 Review app — ADR-005
 
-- [ ] GTK4 + libadwaita app on system python, thin D-Bus client; presenters in pure Python (no `gi`) tested with pytest
-- [ ] Audio sample playback with `Gtk.MediaFile`
-- [ ] Rename and merge speakers
-- [ ] Launch from the extension menu "Review last meeting"
+- [x] GTK4 + libadwaita app on system python, thin D-Bus client; presenters in pure Python (no `gi`) tested with pytest (validated by the owner on 2026-10-11)
+- [x] Audio sample playback with `Gtk.MediaFile` (validated by the owner on 2026-10-11)
+- [x] Rename and merge speakers (validated by the owner on 2026-10-11)
+- [x] Launch from the extension menu "Review last meeting" (validated by the owner on 2026-10-11)
+
+The epic stays in progress until the owner merges the tracker.
+
 ---
 
 ## Completed

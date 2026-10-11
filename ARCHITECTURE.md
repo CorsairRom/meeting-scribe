@@ -51,7 +51,7 @@ flowchart LR
 | Capture | ffmpeg on PipeWire, 2-channel 30 s chunks | adapter built (F1.3) and wired in `main.py` (F1.4), [ADR-002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) |
 | Transcription | faster-whisper `large-v3-turbo`, float16, CUDA, in a short-lived worker process | built (F3.2) and wired into the service (F3.4a); [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
 | Diarization | pyannote `speaker-diarization-community-1` on the system channel (the microphone in person), in a short-lived worker process; then "Me", assignment, `transcript.md` and per-speaker voice samples | worker stage implemented (F3.3b; the real model run is pending the user's consent) and wired into the service (F3.4a), [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
-| Review UI | Native GTK4 + libadwaita app on system python, thin D-Bus client | planned (F4), [ADR-005](docs/decisions/005-review-ui-native-gtk-app.md) |
+| Review UI | Native GTK4 + libadwaita app on system python, thin D-Bus client | built (F4), [ADR-005](docs/decisions/005-review-ui-native-gtk-app.md) |
 | Summaries | `SummaryProvider` port, OpenAI-compatible adapter | planned (F5), [ADR-006](docs/decisions/006-summary-provider-openai-compatible.md) |
 | Storage | folder per meeting + versioned `meeting.json` | built (F3.1) and wired into the service (F3.4a), [ADR-004](docs/decisions/004-folder-per-meeting-json-storage.md) |
 
@@ -105,7 +105,7 @@ on its own, `AudioCapture.exit_detail()` gives the exit code plus the `ffmpeg.lo
 as the session `failure_reason` (generic text only when empty). Opening `ffmpeg.log` and spawning ffmpeg fail with
 distinct messages. Wired in `main.py`.
 
-The GNOME extension lives in `gnome-extension/` (F2, done) and the GTK review app in a separate top-level directory (planned, F4), both outside the Python package. Packaging files (systemd `--user` unit template and D-Bus activation file, installed by `make install`) live in `packaging/`.
+The GNOME extension lives in `gnome-extension/` (F2, done) and the GTK review app in a separate top-level directory `review-app/` (F4), both outside the Python package. Packaging files (systemd `--user` unit template and D-Bus activation file, installed by `make install`) live in `packaging/`.
 
 Extension layout (`gnome-extension/`): the extension itself is `meeting-scribe@meetingscribe.dev/`. Presentation logic (view model, elapsed formatting, D-Bus error to message mapping) lives in pure ES modules under `lib/` with no `gi://` or `resource:///org/gnome/shell/` imports, translated through an injected `_` function, and is unit-tested with `gjs -m` (`make test-extension`, tests in `gnome-extension/tests/`). Code that touches the Shell (`extension.js`, `lib/panelIndicator.js`, `lib/glibScheduler.js`) stays thin and only wires those modules.
 
