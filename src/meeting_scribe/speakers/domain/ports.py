@@ -7,9 +7,13 @@ from typing import Protocol
 from returns.result import Result
 
 from meeting_scribe.base.domain.audio import Samples
-from meeting_scribe.base.domain.errors import MeetingScribeError
+from meeting_scribe.base.domain.errors import EntityNotFoundError, MeetingScribeError
 from meeting_scribe.speakers.domain.diarization import Device, DiarizationResult
-from meeting_scribe.speakers.domain.errors import DiarizationError
+from meeting_scribe.speakers.domain.errors import (
+    DiarizationError,
+    TranscriptCorruptError,
+    TranscriptStorageError,
+)
 from meeting_scribe.speakers.domain.params import DiarizationParams
 from meeting_scribe.speakers.domain.samples import Clip
 from meeting_scribe.speakers.domain.turns import SpeakerLabel, Utterance
@@ -83,4 +87,22 @@ class TranscriptFiles(Protocol):
 
     def discard(self, meeting_dir: Path) -> None:
         """Drop the staging area, keeping the previous run. Never fails."""
+        ...
+
+
+class UtterancesStore(Protocol):
+    """Reads the stored utterances and rewrites the derived ``transcript.md`` (review edits)."""
+
+    def load(
+        self, meeting_dir: Path
+    ) -> Result[tuple[Utterance, ...], EntityNotFoundError | TranscriptCorruptError]:
+        """The utterances in time order, each under its stable speaker id.
+
+        ``ENTITY_NOT_FOUND_TRANSCRIPT`` when the file is absent, ``TRANSCRIPT_CORRUPT`` when it is
+        damaged. Never raises and never quotes the content in an error.
+        """
+        ...
+
+    def write_transcript(self, meeting_dir: Path, text: str) -> Result[str, TranscriptStorageError]:
+        """Replace ``transcript.md`` atomically; the file name."""
         ...

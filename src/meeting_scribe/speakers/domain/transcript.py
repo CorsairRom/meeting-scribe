@@ -5,6 +5,8 @@ from collections.abc import Mapping, Sequence
 from meeting_scribe.speakers.domain.turns import SpeakerLabel, Utterance, unnumbered_label
 
 NO_SPEECH_TEXT = "(no speech detected)"
+UTTERANCES_FILE = "utterances.json"
+TRANSCRIPT_FILE = "transcript.md"
 
 
 def format_timestamp(seconds: float) -> str:
