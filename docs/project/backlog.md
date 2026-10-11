@@ -42,7 +42,7 @@ Raised after the first real recording (2026-10-09); recorded so nothing is lost,
 ### [EPIC] F5 Summaries — ADR-006
 
 - [ ] `summaries` domain: `SummaryProvider` port
-- [ ] OpenAI-compatible adapter (Ollama default, DeepSeek opt-in)
+- [ ] OpenAI-compatible adapter (Ollama default, OpenCode Go opt-in)
 - [ ] Cloud opt-in setting, "cloud" label, per-request confirmation
 - [ ] Export `.md` in the reference structure
 - [ ] Extension menu action that opens the last meeting's summary (decided 2026-10-09: the menu opens the summary, not the transcript, so it waits for F5); show the meeting date and time in a readable form instead of the folder id

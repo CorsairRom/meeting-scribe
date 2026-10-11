@@ -32,7 +32,7 @@ flowchart LR
   GPU["GPU models<br/>faster-whisper, pyannote"]
   FS[("Meetings dir<br/>one folder per meeting")]
   LLM_L["Ollama (local)"]
-  LLM_C["DeepSeek (cloud, opt-in)"]
+  LLM_C["OpenCode Go (cloud, opt-in)"]
 
   EXT -- "methods, signals" --> BUS
   REVIEW -- "methods, signals" --> BUS
@@ -67,7 +67,7 @@ Source root: `src/meeting_scribe/`. Each package has `domain/`, `application/`, 
 | `recording/` | Start/stop capture, recording session state, PipeWire/ffmpeg adapter |
 | `transcription/` | Audio to words with timestamps (faster-whisper adapter) |
 | `speakers/` | Diarization (pyannote adapter), voice samples, rename, merge, "Me" labelling |
-| `summaries/` | `SummaryProvider` port and OpenAI-compatible adapter (Ollama / DeepSeek) |
+| `summaries/` | `SummaryProvider` port and OpenAI-compatible adapter (Ollama / OpenCode Go) |
 | `meetings/` | Meeting catalog, `MeetingRepository`, post-recording pipeline orchestration and job queue, worker protocol and subprocess runner, WAV readers |
 | `settings.py` | Root `Settings` composed of per-domain settings classes |
 | `main.py` | Composition root: `create_app(settings)`, `run()` |
@@ -269,8 +269,25 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | `SPEAKERS_SAMPLE_MAX_CLIPS` | `SpeakersSettings.sample_max_clips` | `3` | Clips per speaker sample (>= 1) |
 | `SPEAKERS_SAMPLE_TARGET_SECONDS` | `SpeakersSettings.sample_target_seconds` | `15.0` | Target total sample length (> 0) |
 | `SPEAKERS_SAMPLE_MIN_CLIP_SECONDS` / `SPEAKERS_SAMPLE_MAX_CLIP_SECONDS` | `SpeakersSettings.sample_min_clip_seconds` / `sample_max_clip_seconds` | `1.5` / `6.0` | Clip length bounds (min must not exceed max) |
+| `SUMMARIES_PROVIDER` | `SummariesSettings.provider` | `local` | Provider the "Generate summary" button uses, `local` or `cloud` (cloud also needs `SUMMARIES_CLOUD_ENABLED` and a key) |
+| `SUMMARIES_LOCAL_BASE_URL` | `SummariesSettings.local_base_url` | `http://127.0.0.1:11434/v1` | Ollama OpenAI-compatible endpoint; the host must be `127.0.0.1`, `::1` or `localhost` |
+| `SUMMARIES_LOCAL_MODEL` | `SummariesSettings.local_model` | `qwen3.5:9b` | Ollama model name |
+| `SUMMARIES_LOCAL_CONTEXT_TOKENS` | `SummariesSettings.local_context_tokens` | `4096` | Window the service plans against; raise it together with Ollama's context (must exceed output limit + 600) |
+| `SUMMARIES_UNLOAD_LOCAL_MODEL` | `SummariesSettings.unload_local_model` | `true` | Ask Ollama to unload the model after a local summary |
+| `SUMMARIES_CLOUD_ENABLED` | `SummariesSettings.cloud_enabled` | `false` | The cloud provider is off until this is true |
+| `SUMMARIES_CLOUD_PROVIDER_NAME` | `SummariesSettings.cloud_provider_name` | `OpenCode Go` | Name shown in the "cloud" label (for example `cloud: OpenCode Go, deepseek-v4-pro`) |
+| `SUMMARIES_CLOUD_BASE_URL` | `SummariesSettings.cloud_base_url` | `https://opencode.ai/zen/go/v1` | OpenAI-compatible cloud gateway; must be https ([ADR-009](docs/decisions/009-cloud-summaries-through-opencode-go.md)) |
+| `SUMMARIES_CLOUD_MODEL` | `SummariesSettings.cloud_model` | `deepseek-v4-pro` | Any model the gateway serves on `/chat/completions`; models on `/responses` or `/messages` are not supported |
+| `SUMMARIES_CLOUD_CONTEXT_TOKENS` | `SummariesSettings.cloud_context_tokens` | `100000` | Cloud budget the service plans against |
+| `SUMMARIES_CLOUD_API_KEY` | `SummariesSettings.cloud_api_key` | unset | Secret (`SecretStr`); only in the environment or `.env`; masked everywhere, sent only in the `Authorization` header |
+| `SUMMARIES_LANGUAGE` | `SummariesSettings.language` | `auto` | `auto` follows the meeting language, or an ISO code |
+| `SUMMARIES_MAX_OUTPUT_TOKENS` | `SummariesSettings.max_output_tokens` | `2048` | Output limit per request (>= 256) |
+| `SUMMARIES_TEMPERATURE` | `SummariesSettings.temperature` | `0.2` | Sampling temperature (0 to 1) |
+| `SUMMARIES_TIMEOUT_SECONDS` | `SummariesSettings.timeout_seconds` | `300` | Seconds without data before a step times out (> 0) |
+| `SUMMARIES_TOTAL_TIMEOUT_SECONDS` | `SummariesSettings.total_timeout_seconds` | `3600` | Bound for one whole summary (> 0) |
+| `SUMMARIES_MAX_RETRIES` | `SummariesSettings.max_retries` | `2` | Retries for transient provider failures (>= 0) |
 
-`RecordingSettings` lives in `recording/infrastructure/recording_settings.py`, `ProcessingSettings` in `meetings/infrastructure/processing_settings.py`, `TranscriptionSettings` in `transcription/infrastructure/transcription_settings.py`, `SpeakersSettings` in `speakers/infrastructure/speakers_settings.py` (it builds the domain's `MeParams` and `SampleParams`; the worker reads the same values from the job spec as `DiarizationParams` and `AssemblyParams`). Future per-domain settings (for example `SUMMARIES_`) live in each domain's `infrastructure/` and are composed into `Settings` by the root.
+`RecordingSettings` lives in `recording/infrastructure/recording_settings.py`, `ProcessingSettings` in `meetings/infrastructure/processing_settings.py`, `TranscriptionSettings` in `transcription/infrastructure/transcription_settings.py`, `SummariesSettings` in `summaries/infrastructure/summaries_settings.py` (loopback and https validation, `SecretStr` key, the "cloud" label and limits), `SpeakersSettings` in `speakers/infrastructure/speakers_settings.py` (it builds the domain's `MeParams` and `SampleParams`; the worker reads the same values from the job spec as `DiarizationParams` and `AssemblyParams`). Future per-domain settings live in each domain's `infrastructure/` and are composed into `Settings` by the root.
 
 ---
 
@@ -286,5 +303,6 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | [006](docs/decisions/006-summary-provider-openai-compatible.md) | `SummaryProvider` port, OpenAI-compatible adapter |
 | [007](docs/decisions/007-gpu-worker-subprocess.md) | GPU work in short-lived worker processes, one per GPU stage |
 | [008](docs/decisions/008-summary-sections.md) | The summary has a Decisions section |
+| [009](docs/decisions/009-cloud-summaries-through-opencode-go.md) | Cloud summaries go through OpenCode Go |
 
 Related: [error codes](docs/architecture/error-codes-catalog.md) · [rules registry](docs/project/rules-registry.md) · [scope](docs/project/mvp-scope.md).

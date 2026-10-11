@@ -93,3 +93,17 @@ def test_the_shipped_catalogs_cover_every_message_id() -> None:
 
 def test_the_shipped_catalog_is_found_through_package_resources() -> None:
     assert GettextHeadingCatalog().headings_for("es") != ENGLISH
+
+
+def test_a_rejected_heading_value_falls_back_to_english(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Rejecting:
+        def __init__(self, **values: str) -> None:  # noqa: ARG002
+            Headings.model_validate({"topics": 1})
+
+    monkeypatch.setattr(
+        "meeting_scribe.summaries.infrastructure.gettext_headings.Headings", Rejecting
+    )
+
+    assert GettextHeadingCatalog(_locale(tmp_path, "zz")).headings_for("zz") == ENGLISH

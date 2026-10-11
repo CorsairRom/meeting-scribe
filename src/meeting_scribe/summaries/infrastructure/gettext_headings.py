@@ -11,6 +11,8 @@ import re
 from importlib.resources import files
 from importlib.resources.abc import Traversable
 
+from pydantic import ValidationError
+
 from meeting_scribe.summaries.domain.headings import ENGLISH, Headings
 
 DOMAIN = "meeting_scribe"
@@ -85,4 +87,7 @@ class GettextHeadingCatalog:
         values = {
             name: catalog.get(message, message) for name, message in ENGLISH.model_dump().items()
         }
-        return Headings(**values)
+        try:
+            return Headings(**values)
+        except ValidationError:
+            return ENGLISH

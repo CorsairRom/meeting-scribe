@@ -76,7 +76,7 @@ GPU (8 GB). No accounts, no multi-user, no remote access.
 | FR-3 | On stop, enqueue a job that transcribes (word timestamps) and diarizes, one GPU job at a time | F3 |
 | FR-4 | Extract a voice sample per speaker; send a desktop notification on completion | F3 |
 | FR-5 | Review app (GTK4, opened from the extension menu): listen per speaker, rename, merge speakers, view transcript | F4 |
-| FR-6 | Summary through a `SummaryProvider` (Ollama local default, DeepSeek cloud opt-in), export `.md` | F5 |
+| FR-6 | Summary through a `SummaryProvider` (Ollama local default, OpenCode Go cloud opt-in), export `.md` | F5 |
 | FR-7 | Installable as a `systemd --user` service plus GNOME extension | F2.5 (runbook in F6) |
 
 ### 5.2 Non-functional

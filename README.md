@@ -2,7 +2,7 @@
 
 A local, GPU-accelerated meeting assistant for GNOME (Fedora, Wayland). Record from a panel button,
 get a transcript with speakers told apart, name or merge speakers in a native GNOME review app, and generate a summary
-with a local (Ollama) or opt-in cloud (DeepSeek) LLM. Everything runs on your machine; nothing leaves it
+with a local (Ollama) or opt-in cloud (OpenCode Go) LLM. Everything runs on your machine; nothing leaves it
 unless you explicitly ask for a cloud summary.
 
 **Status**: F0, F1, F2, F2.5, F3 and F4 are done: recording over the D-Bus session bus (`dev.meetingscribe.Recording1`), a GNOME panel extension to start and stop, and `make install`. F3 (processing): transcription, speaker assignment, the "Me" label and voice samples are built as worker stages, and the service queues processing after every recording (a desktop notification when it ends, `dev.meetingscribe.Meetings1` to list meetings and retry a failed one). The panel menu shows the processing state (stage, last result such as "N speakers", a "Processing failed — Reprocess" action, and the queued count). F4: a native GNOME review app, opened from the menu with "Review last meeting", lets you listen to each speaker's voice sample, name speakers, and merge or unmerge them. F5 (summaries) is in progress. See the [scope](docs/project/mvp-scope.md).
