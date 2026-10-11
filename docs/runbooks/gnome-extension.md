@@ -1,12 +1,13 @@
 ---
 type: runbook
 status: active
-last_updated: 2026-10-09
+last_updated: 2026-10-11
 phase: F3
 verifiable_by:
   - gnome-extension/meeting-scribe@meetingscribe.dev/lib/indicatorModel.js
   - gnome-extension/meeting-scribe@meetingscribe.dev/lib/meetingsClient.js
   - gnome-extension/meeting-scribe@meetingscribe.dev/metadata.json
+  - gnome-extension/meeting-scribe@meetingscribe.dev/extension.js
   - Makefile
   - tests/unit/test_extension_pack.py
 ai_instructions:
@@ -59,6 +60,12 @@ separator. It never changes what a click does: every click opens the menu and no
 | Last job `DONE` | unchanged | "Last meeting processed: N speakers" ("no speech detected" for 0); no meeting id or content |
 | Last job `FAILED` | unchanged | **Processing failed — Reprocess** (calls `Meetings1.Reprocess`; a refusal is shown as a notification) |
 | Service unavailable | `○` | none (processing is hidden) |
+
+**Review last meeting** (F4.7) is the last item of the recording group in every state except `RECORDING` and
+"service unavailable" (and while a Start or Stop call is in flight). It launches the review app through its desktop
+entry (`dev.meetingscribe.Review.desktop`, installed by `make install`), with no argument and no meeting data; the app
+picks the newest `DONE` meeting itself, and shows an empty state when there is none. If the launch fails, one
+notification says to run `make install`. Steps and troubleshooting: [`review-app.md`](review-app.md).
 
 The last result is kept until a job starts or the service restarts; a successful Reprocess forgets a `FAILED` result so
 the action cannot fire twice. The service already sends the desktop notification; the extension sends none.

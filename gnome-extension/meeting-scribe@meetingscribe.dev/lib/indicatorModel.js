@@ -52,6 +52,16 @@ export function errorMessage(dbusErrorName, fallbackMessage, _ = s => s) {
     }
 }
 
+/**
+ * The notification shown when the review app cannot be launched (its desktop entry is missing).
+ *
+ * @param {Function} [_] - translation function (identity by default)
+ * @returns {string} the message to show
+ */
+export function launchFailureMessage(_ = s => s) {
+    return _('Could not open the review app. Run `make install` to install it.');
+}
+
 export const ICON_IDLE = '●';
 export const ICON_RECORDING = '■';
 export const ICON_FAILED = '⚠';
@@ -182,6 +192,14 @@ function processingItems(processing, _) {
     return items;
 }
 
+// "Review last meeting" opens the review app, which resolves "last" itself: the extension never
+// lists meetings. It is offered whenever the service is available and nothing is recording.
+function withReview(model, state, _) {
+    if (state === 'RECORDING')
+        return model;
+    return {...model, menuItems: [...model.menuItems, action(_('Review last meeting'), 'review')]};
+}
+
 function withProcessing(model, processing, _) {
     if (!processing?.available)
         return model;
@@ -217,7 +235,7 @@ export function viewModel(input, _ = s => s) {
     if (!input.available)
         return unavailableModel(_);
 
-    const model = withProcessing(stateModel(input, _), input.processing, _);
+    const model = withProcessing(withReview(stateModel(input, _), input.state, _), input.processing, _);
     if (input.busy && model.clickAction !== 'none') {
         return {
             ...model,

@@ -318,3 +318,67 @@ test('processing changes after destroy are ignored', () => {
     f.setProcessing({...idleProcessing, queuedCount: 1});
     assertEqual(f.rendered.length, 1);
 });
+
+// -- Review last meeting (F4.7, AC-16) ---------------------------------------------------------
+
+function withLauncher(launchReview, snapshot = snap()) {
+    const f = fixture(snapshot);
+    const launches = [];
+    const controller = new IndicatorController({
+        client: f.client, view: f.view, scheduler: f.scheduler,
+        notify: (title, body) => f.notes.push([title, body]), _: s => s,
+        launchReview: (...args) => {
+            launches.push(args);
+            return launchReview();
+        },
+    });
+    return {...f, controller, launches};
+}
+
+test('the review action launches the app once, with no argument and no meeting data', async () => {
+    const f = withLauncher(() => true);
+    await f.controller.onMenuAction('review');
+    assertDeepEqual(f.launches, [[]]);
+    assertDeepEqual(f.notes, []);
+    assertDeepEqual(f.client.calls, []); // no recording call, no List or Get
+});
+
+test('a launch that reports false shows one notification to run make install', async () => {
+    const f = withLauncher(() => false);
+    await f.controller.onMenuAction('review');
+    assertEqual(f.notes.length, 1);
+    assertEqual(f.notes[0][0], 'Meeting Scribe');
+    assertEqual(f.notes[0][1].includes('make install'), true);
+});
+
+test('a launch that throws shows the same single notification and never raises', async () => {
+    const f = withLauncher(() => {
+        throw new Error('GDBus.Error: private text');
+    });
+    await f.controller.onMenuAction('review');
+    assertEqual(f.notes.length, 1);
+    assertEqual(f.notes[0][1].includes('private text'), false);
+});
+
+test('a rejected asynchronous launch is reported once too', async () => {
+    const f = withLauncher(() => Promise.reject(new Error('x')));
+    await f.controller.onMenuAction('review');
+    assertEqual(f.notes.length, 1);
+});
+
+test('the review action does nothing after destroy or without a launcher', async () => {
+    const f = withLauncher(() => true);
+    f.controller.destroy();
+    await f.controller.onMenuAction('review');
+    assertDeepEqual(f.launches, []);
+    const plain = fixture();
+    await plain.controller.onMenuAction('review');
+    assertDeepEqual(plain.notes, []);
+});
+
+test('the review action is allowed while a recording runs only through the menu rules', async () => {
+    // The model hides the item while recording; the controller still never touches the client.
+    const f = withLauncher(() => true, snap({state: 'RECORDING'}));
+    await f.controller.onMenuAction('review');
+    assertDeepEqual(f.client.calls, []);
+});

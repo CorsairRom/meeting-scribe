@@ -34,7 +34,7 @@ class PanelIndicator extends PanelMenu.Button {
      * @param {object} options
      * @param {string} options.name - accessible name of the button
      * @param {Function} options.onPrimaryClick - takes {menuOpen}; returns 'start', 'open-menu', 'close-menu' or 'none'
-     * @param {Function} options.onMenuAction - called with 'start', 'stop' or 'reprocess'
+     * @param {Function} options.onMenuAction - called with 'start', 'stop', 'reprocess' or 'review'
      */
     _init({name, onPrimaryClick, onMenuAction}) {
         super._init(0.5, name, true);
