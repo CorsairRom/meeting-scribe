@@ -467,17 +467,26 @@ def test_the_time_left_bounds_a_stalled_stream() -> None:
 
 
 def test_a_user_cancel_wins_over_an_expired_time() -> None:
-    cancel = Idle()
     stalled = Stalled()
+
+    class CancelOnceClosed(Idle):
+        """Not set while the stream stalls; set once the deadline has closed it.
+
+        The deadline fires first and, when the outcome is judged, both hold: the cancel must win.
+        """
+
+        def is_set(self) -> bool:
+            return stalled.released.is_set()
+
     provider = make(
         lambda _r: httpx2.Response(
             200, headers={"content-type": "text/event-stream"}, stream=stalled
         )
     )
-    threading.Timer(0.1, cancel.set).start()
 
-    failure = complete(provider, cancel, timeout=0.1).failure()
+    failure = complete(provider, CancelOnceClosed(), timeout=0.1).failure()
 
+    assert stalled.released.is_set()
     assert isinstance(failure, SummaryCancelledError)
 
 

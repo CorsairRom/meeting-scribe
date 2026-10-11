@@ -47,10 +47,11 @@ module-root = "src"
 pythonpath = ["src", "review-app/src"]
 testpaths = ["tests"]
 python_files = ["*test*.py"]
-addopts = "-q -m 'not gpu'"
+addopts = "-q -m 'not gpu and not packaging'"
 markers = [
     "dbus: runs against a private dbus-daemon session bus (skipped when dbus-daemon is not on PATH)",
     "ffmpeg: runs real ffmpeg on synthetic lavfi sources only (skipped when ffmpeg is not on PATH)",
+    "packaging: builds the wheel with uv --offline (run by make test-packaging, not by make test)",
     "gpu: loads a real model on the GPU with synthetic audio (excluded by default; run with -m gpu)",
 ]
 

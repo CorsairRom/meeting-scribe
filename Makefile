@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup lint format imports test test-extension check run run-review-app install uninstall extension-pack extension-install
+.PHONY: help setup lint format imports test test-packaging test-extension check run run-review-app install uninstall extension-pack extension-install
 
 EXTENSION_UUID := meeting-scribe@meetingscribe.dev
 PACK_DIR ?= dist
@@ -24,10 +24,13 @@ imports: ## Check architecture contracts only
 test: ## Run the test suite
 	scripts/run-tests.sh
 
+test-packaging: ## Build the wheel offline and check what ships in it (needs uv)
+	scripts/run-tests.sh -m packaging
+
 test-extension: ## Run the GNOME extension unit tests (gjs)
 	gjs -m gnome-extension/tests/run.js
 
-check: lint test test-extension ## lint + test + test-extension
+check: lint test test-packaging test-extension ## lint + test + test-packaging + test-extension
 
 run: ## Start the service in the foreground (development)
 	uv run meeting-scribe
