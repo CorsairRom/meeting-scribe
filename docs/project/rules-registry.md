@@ -429,11 +429,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 53 | 0 | 0 |
+| GO | 56 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-053 — 2026-10-11
-**Next available IDs**: BR-005, CR-014, GO-054, AP-005
+**Last rule added**: GO-056 — 2026-10-11
+**Next available IDs**: BR-005, CR-014, GO-057, AP-005
 
 ---
 
@@ -490,3 +490,24 @@ with `Supersedes: <ID>`. Never delete rules.
 - **Detail**: (1) The item is offered whenever the service is available and the state is not `RECORDING` (`IDLE`, `STOPPED` or `FAILED`; never in an unknown state, which stays inert), because the extension cannot know whether a `DONE` meeting exists without calling `List`, which the meetings client contract forbids; the app's empty state covers it. It is hidden while a call is in flight, in every state (the menu then shows only "Working…" or the inert unknown-state line). (2) `launchReview()` is injected into the controller and implemented in `extension.js` as `Gio.DesktopAppInfo.new('dev.meetingscribe.Review.desktop')?.launch([], null) ?? false`: a missing entry (`new` returns `null`) and a failed launch both count as failure, and the controller shows one fixed notification (`launchFailureMessage`) and never the launch error, which can hold paths. (3) The launch is a short, non-blocking hand-off to the shell's app launcher, with no ML and no D-Bus call of ours, so it stays within ADR-001; it needs a check in a real shell. (4) A `desktop-entry` notification action stays out of F4 (OQ-6).
 - **Source**: [review app spec](../specs/review-app.md) section 8, AC-16, A-7, A-8; F4.7
 - **Verifiable in**: `gnome-extension/tests/indicatorModel.test.js`, `gnome-extension/tests/indicatorController.test.js`, `gnome-extension/tests/shellGlue.test.js`
+
+### GO-054 — One GPU lease serves recording, processing and local summaries
+- **Date**: 2026-10-11
+- **Status**: active
+- **Detail**: `GpuLease` (port in `meetings/domain/ports.py`, `InMemoryGpuLease` in `meetings/application/gpu_lease.py`) replaces a second scheduler. A recording is always granted and revokes every other holder (their `on_revoke` runs outside the lease lock); a `processing` worker or a local `summary` is granted only when nobody holds it, and it is not re-entrant. `ProcessingController.preempt()` and `release()` take and give the `recording` holder; `run_next()` takes `processing` for the whole job and `_can_start()` reads `available("processing")`, so the loop never spins while a summary holds the GPU. When the summary ends it releases the lease and calls `on_gpu_free` (wired to `ProcessingController.wake()`), because the loop sleeps on its condition. The cloud summary takes no lease. The summary's model is released (`GenerateSummary` finally block) before the lease is given back, so Whisper never loads next to a resident LLM.
+- **Source**: [summaries spec](../specs/summaries.md) section 7, AC-12; F5.4
+- **Verifiable in**: `tests/unit/meetings/test_gpu_lease.py`, `tests/unit/meetings/test_processing_queue.py`, `tests/unit/meetings/test_summary_controller.py::test_local_summary_respects_the_gpu`
+
+### GO-055 — A summary save is the file, then meeting.json, under the meeting lock; a failure never touches the old file
+- **Date**: 2026-10-11
+- **Status**: active
+- **Detail**: `SummaryController` holds the shared `MeetingLock` only to snapshot and to save, never during the model call. The save re-checks `DONE`, writes `summary.md` (temp file, a copy of the current one as `summary.previous.md`, then an atomic replace, so a failed write leaves `summary.md` as it was and exactly one backup exists), then saves the `summary` section; a crash in between leaves a file without a section, which reads as "no summary". A failed attempt records `last_failure` (code and time, never content) on the section without touching the file; a cancel records nothing; a meeting that is no longer `DONE` discards the result with `MEETING_NOT_PROCESSED` and records nothing. `SummaryFinished` is emitted after the slot and the lease are free, so a client that refreshes on it sees `DONE`, not `RUNNING`. `Meeting.complete` keeps `files["summary"]` when a summary exists; `Meeting.reprocess` never touches the section.
+- **Source**: [summaries spec](../specs/summaries.md) sections 7 and AC-1, AC-10, AC-13, AC-15; F5.4
+- **Verifiable in**: `tests/unit/meetings/test_summary_controller.py`, `tests/unit/meetings/test_filesystem_summary_files.py`, `tests/unit/meetings/test_meeting.py`
+
+### GO-056 — The cloud key is read only for a confirmed cloud request that nothing else refused
+- **Date**: 2026-10-11
+- **Status**: active
+- **Detail**: The `Summarize` gates run in this order: unknown provider (`INVALID_VALUE`), cloud disabled, not confirmed, then the `DONE` and no-speech snapshot, then the single slot and the GPU, and only then `CloudKeyStore.get_key()` (a missing, locked or unreachable key refuses the call and frees the slot). `Providers` never reads the key, so its cloud row says only whether the cloud is enabled; a missing key shows when a confirmed request runs. The pre-check key is dropped at once; the provider reads it again for its own request (BR-005).
+- **Source**: [summaries spec](../specs/summaries.md) AC-5, AC-6, section 8a; BR-005; F5.4
+- **Verifiable in**: `tests/unit/meetings/test_summary_controller.py::test_cloud_gates`, `::test_providers_rows`, `::test_no_secret_in_logs`
