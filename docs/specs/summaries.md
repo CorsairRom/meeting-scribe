@@ -129,8 +129,10 @@ THEN exactly one request is made
 GIVEN SUMMARIES_CLOUD_ENABLED is false
 WHEN a client calls Summarize(meeting, "cloud", true)
 THEN it fails with SUMMARY_CLOUD_DISABLED and no request is made
-GIVEN cloud is enabled but no API key is configured
+GIVEN cloud is enabled but the keyring holds no API key
 THEN it fails with SUMMARY_CLOUD_KEY_MISSING
+GIVEN the keyring is locked
+THEN it fails with SUMMARY_CLOUD_KEY_LOCKED and the service never prompts
 GIVEN cloud is enabled and keyed
 WHEN cloud_confirmed is false
 THEN it fails with SUMMARY_CLOUD_NOT_CONFIRMED and no request is made
@@ -181,8 +183,8 @@ THEN it fails at load
 ### AC-9: The API key never leaks
 
 ```gherkin
-GIVEN an API key configured in the environment
-THEN repr and str of the settings show a masked value
+GIVEN an API key stored in the GNOME Keyring (ADR-009)
+THEN no settings class holds it, and the store hands it out as a SecretStr whose repr is masked
 AND no log record, D-Bus reply, error message, meeting.json or summary.md produced in any test contains it
 AND the key is sent only in the Authorization header of the cloud request
 ```
@@ -478,7 +480,7 @@ flowchart LR
 
 Decisions in one line each (details in the sections that follow):
 
-1. **The service calls the provider, never a client** (ADR-001, thin clients). The API key lives only in the service environment.
+1. **The service calls the provider, never a client** (ADR-001, thin clients). The API key lives only in the GNOME Keyring and is read by the service on demand (ADR-009).
 2. **One manual action per summary**: a button in the review app; nothing runs automatically (product decision 2). The menu only opens the result.
 3. **`summaries` is a pure domain plus one adapter**: the port, chunking, prompts, rendering and fingerprint are pure; `meetings` owns meeting state, the lock and the files, and hands `summaries` plain data (CR-001, CR-003).
 4. **One button, one configured provider, the cloud gated four times**: the button uses `SUMMARIES_PROVIDER` (default local); the cloud needs the setting enabled, a key, the `cloud_confirmed` argument and a confirmation dialog on every request (ADR-006, BR-003, BR-004). Names go to the cloud as written. The "cloud" label comes from the service (`Providers`) and is on the button, so no client can forget it.
@@ -555,7 +557,7 @@ The real context window is the weak point of the local path, so the design assum
 
 ### 5. The provider adapter (Ollama default, cloud gateway opt-in)
 
-One class, `OpenAiCompatibleProvider`, configured by `base_url`, `model`, `api_key` and a `cloud` flag (ADR-006).
+One class, `OpenAiCompatibleProvider`, configured by `base_url`, `model`, a `cloud` flag and, for the cloud, a `CloudKeyStore` (ADR-006, ADR-009).
 It uses the official `openai` Python client (new dependency, assumption A-5):
 
 - **Endpoint**: `chat.completions.create(model=..., messages=..., temperature=..., max_tokens=..., stream=True)`.
@@ -645,8 +647,8 @@ single-GPU-job rule (ADR-003, ADR-007) instead of adding a second scheduler. The
 ### 8. Settings
 
 `SummariesSettings` in `summaries/infrastructure/summaries_settings.py`, prefix `SUMMARIES_`, composed into `Settings`.
-New rows are added to `.env.example` and `ARCHITECTURE.md` section 7 in the same commit. The key is a pydantic
-`SecretStr`, read only from the environment or the user's `.env` (never from meeting files), never logged (AC-9).
+New rows are added to `.env.example` and `ARCHITECTURE.md` section 7 in the same commit. The API key is **not a
+setting**: it is read from the GNOME Keyring through the `CloudKeyStore` port (section 8a), never logged (AC-9).
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -659,7 +661,7 @@ New rows are added to `.env.example` and `ARCHITECTURE.md` section 7 in the same
 | `SUMMARIES_CLOUD_BASE_URL` | `https://opencode.ai/zen/go/v1` | OpenAI-compatible cloud gateway (default OpenCode Go, ADR-009); must be https |
 | `SUMMARIES_CLOUD_MODEL` | `deepseek-v4-pro` | Any model the gateway serves on `/chat/completions`; not those on `/responses` or `/messages` (assumption A-1) |
 | `SUMMARIES_CLOUD_CONTEXT_TOKENS` | `100000` | Conservative budget (the published figures disagree, A-2) |
-| `SUMMARIES_CLOUD_API_KEY` | unset | Secret; only in the environment or `.env`; masked everywhere |
+| `SUMMARIES_CLOUD_PROVIDER_NAME` | `OpenCode Go` | Name shown in the "cloud" label (`cloud: <name>, <model>`) |
 | `SUMMARIES_LANGUAGE` | `auto` | `auto` follows the meeting language (product decision 4), or an ISO code |
 | `SUMMARIES_MAX_OUTPUT_TOKENS` | `2048` | Output limit per request (>= 256) |
 | `SUMMARIES_TEMPERATURE` | `0.2` | Low, for faithful minutes (0 to 1) |
@@ -668,6 +670,27 @@ New rows are added to `.env.example` and `ARCHITECTURE.md` section 7 in the same
 | `SUMMARIES_MAX_RETRIES` | `2` | Retries for transient failures (>= 0) |
 
 All numeric settings are validated (`gt`/`ge`); an invalid value fails at load, like `RECORDING_*`.
+
+### 8a. The cloud API key (GNOME Keyring)
+
+Owner decision of 2026-10-11, recorded in [ADR-009](../decisions/009-cloud-summaries-through-opencode-go.md).
+
+- **Where**: the freedesktop Secret Service (`org.freedesktop.secrets`) of the user's session; no `.env`, settings or
+  meeting file ever holds the key. No `SUMMARIES_CLOUD_API_KEY` setting exists.
+- **Port**: `CloudKeyStore.get_key() -> Result[SecretStr, SummaryError]` in `summaries/domain`; the adapter
+  `SecretServiceKeyStore` (`dbus-fast`, no new dependency) is in `summaries/infrastructure`. The cloud provider asks the
+  store when a confirmed cloud request starts and holds the `SecretStr` for that request only.
+- **Protocol** (Secret Service API 0.2): `OpenSession("plain", "")`, `SearchItems({application: meeting-scribe,
+  key: opencode-api-key})`, then `GetSecrets(items, session)` on the unlocked match. A match only in the `locked` list
+  gives `SUMMARY_CLOUD_KEY_LOCKED`; `Unlock` is never called (it prompts). The "plain" session is used because the
+  secret crosses only the user's local session-bus socket.
+- **Invariants**: never logged, never in an error message, `meeting.json`, a D-Bus reply, a command line or a worker
+  environment; sent only over HTTPS to the configured base URL; in memory only for the request.
+- **Limitation**: while the session is unlocked, any process running as the user can query the keyring (no per-app ACL
+  outside Flatpak).
+- **Storing it**: `secret-tool store --label="Meeting Scribe OpenCode API key" application meeting-scribe key opencode-api-key`
+  with the secret on stdin (runbook `store-cloud-api-key.md`). A "Set API key" password field in the review app is F5.6 scope.
+- **Tests**: a fake store for the use cases; a fake Secret Service object on a private `dbus-daemon`. The real keyring is never touched.
 
 ### 9. Errors and stable codes
 
@@ -678,7 +701,8 @@ New classes derive from `MeetingScribeError`; each is registered in `error-codes
 |---|---|---|
 | `SUMMARY_NO_SPEECH` | The meeting has no utterances | Nothing to summarize |
 | `SUMMARY_CLOUD_DISABLED` | Cloud requested while `SUMMARIES_CLOUD_ENABLED` is false | Enable it in the settings |
-| `SUMMARY_CLOUD_KEY_MISSING` | Cloud enabled, no key | Set `SUMMARIES_CLOUD_API_KEY` |
+| `SUMMARY_CLOUD_KEY_MISSING` | Cloud enabled, no key in the keyring (or the keyring is unreachable) | Store the key with `secret-tool` (runbook `store-cloud-api-key.md`) |
+| `SUMMARY_CLOUD_KEY_LOCKED` | The keyring holds the key but is locked | Unlock the login keyring and try again; the service never prompts |
 | `SUMMARY_CLOUD_NOT_CONFIRMED` | Cloud requested without `cloud_confirmed` | Confirm in the app |
 | `SUMMARY_ALREADY_RUNNING` / `SUMMARY_BUSY` | A summary is running for this meeting / another meeting | Wait or cancel |
 | `SUMMARY_GPU_BUSY` | Local summary while recording or processing | Try again when it ends |
@@ -790,7 +814,7 @@ tests and docs. Branch per phase from `main`, one commit per unit, no push witho
 |---|---|---|
 | F5.1 | `summaries` domain: `SummaryRequest`, ports, chunker, prompt builder (language and technical-terms rule) and heading table, renderer, fingerprint, errors, catalog and import contracts | ~350 |
 | F5.2 | `GenerateSummary` use case: single pass and map-reduce, cancel, progress, validation with one repair, fake provider tests | ~300 |
-| F5.3 | `SummariesSettings` (`SUMMARIES_PROVIDER`, loopback and https validation, `SecretStr`), `OpenAiCompatibleProvider` (streaming, retries, error mapping, truncation guard), `OllamaModelReleaser`, `openai` dependency, `.env.example`, `ARCHITECTURE.md` section 7; tests with an in-process fake transport | ~400 |
+| F5.3 | `SummariesSettings` (`SUMMARIES_PROVIDER`, loopback and https validation), the `CloudKeyStore` port with its GNOME Keyring adapter, `OpenAiCompatibleProvider` (streaming, retries, error mapping, truncation guard), `OllamaModelReleaser`, `openai` dependency, `.env.example`, `ARCHITECTURE.md` section 7; tests with an in-process fake transport | ~400 |
 | F5.4 | `meetings`: `SummaryInfo` section, `SummaryController` (state, lock use, gates, one job thread, backup rotation, stale, `GpuLease` shared with `ProcessingController`), file store | ~400 |
 | F5.5 | `Summaries1` adapter and wiring in `main.py`, `api-contracts.md` first, e2e on a private bus, signals | ~400 |
 | F5.6a | Review app core: models, parsers, `SummariesGateway`, summary and cloud-confirmation presenters, error messages and drift test | ~400 |

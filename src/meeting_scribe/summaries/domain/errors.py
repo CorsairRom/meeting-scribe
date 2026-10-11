@@ -50,3 +50,11 @@ class SummaryOutputInvalidError(SummaryError):
 
 class SummaryCancelledError(SummaryError):
     error_code = "SUMMARY_CANCELLED"
+
+
+class SummaryCloudKeyMissingError(SummaryError):
+    error_code = "SUMMARY_CLOUD_KEY_MISSING"
+
+
+class SummaryCloudKeyLockedError(SummaryError):
+    error_code = "SUMMARY_CLOUD_KEY_LOCKED"

@@ -2,7 +2,7 @@
 
 from typing import Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, SecretStr
 from returns.result import Result
 
 from meeting_scribe.summaries.domain.errors import SummaryError
@@ -55,4 +55,14 @@ class SummaryProvider(Protocol):
 class ModelReleaser(Protocol):
     def release(self) -> None:
         """Free the model from the GPU. Best effort: never raises; a no-op for the cloud."""
+        ...
+
+
+class CloudKeyStore(Protocol):
+    def get_key(self) -> Result[SecretStr, SummaryError]:
+        """The cloud API key, read on demand and held by the caller for one request only.
+
+        Never raises and never prompts: a missing key or an unreachable store is
+        ``SUMMARY_CLOUD_KEY_MISSING``, a locked one ``SUMMARY_CLOUD_KEY_LOCKED``.
+        """
         ...

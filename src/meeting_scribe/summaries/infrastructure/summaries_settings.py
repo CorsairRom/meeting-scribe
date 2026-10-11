@@ -1,10 +1,13 @@
-"""Summaries settings (``SUMMARIES_*``), composed into the root ``Settings`` (spec 8)."""
+"""Summaries settings (``SUMMARIES_*``), composed into the root ``Settings`` (spec 8).
+
+The cloud API key is deliberately not a setting: it lives in the GNOME Keyring (ADR-009, spec 8a).
+"""
 
 import re
 from typing import Literal, Self
 from urllib.parse import urlparse
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import SettingsConfigDict
 
 from meeting_scribe.base.infrastructure.settings import MeetingScribeSettings
@@ -27,7 +30,6 @@ class SummariesSettings(MeetingScribeSettings):
     cloud_base_url: str = "https://opencode.ai/zen/go/v1"
     cloud_model: str = Field(default="deepseek-v4-pro", min_length=1)
     cloud_context_tokens: int = Field(default=100000, gt=0)
-    cloud_api_key: SecretStr | None = None
     language: str = "auto"
     max_output_tokens: int = Field(default=2048, ge=256)
     temperature: float = Field(default=0.2, ge=0, le=1)

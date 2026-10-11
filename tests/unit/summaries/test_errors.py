@@ -14,6 +14,8 @@ CODES = {
     errors.SummaryContextTooLargeError: "SUMMARY_CONTEXT_TOO_LARGE",
     errors.SummaryOutputInvalidError: "SUMMARY_OUTPUT_INVALID",
     errors.SummaryCancelledError: "SUMMARY_CANCELLED",
+    errors.SummaryCloudKeyMissingError: "SUMMARY_CLOUD_KEY_MISSING",
+    errors.SummaryCloudKeyLockedError: "SUMMARY_CLOUD_KEY_LOCKED",
 }
 
 
