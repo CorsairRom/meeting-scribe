@@ -546,7 +546,13 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
       TEST-NET 192.0.2.1 before the guard covered connect_ex (nothing sent). Follow-ups for F5.4 first commit:
       undecodable secret reported as unavailable (should be missing), vacuous no-secret-in-log test, stringly
       _Outcome.kind; suggestions: max_retries dual budget comment, Retry-After docstring, releaser client close.
-- [ ] F5.4 `meetings`: SummaryInfo, SummaryController, GpuLease, backups, stale (~400)
+- [x] F5.4 `meetings`: summary section, GpuLease shared by recording/processing/summaries, summary.md with one
+      backup, SummaryController (gates, one job thread, cancel on recording, cloud key only after confirmation).
+      Reviews review-7c5ad1ca6786fd9b (3 warnings: leaked slot/lease could stop processing, spawn failure,
+      shutdown race — fixed in `17bc14d`) and review-2737a59f4ffb8a39 approved. Integrated #107-#108.
+      GREEN 1417 python / 122 gjs. Follow-ups for F5.5 first commit: older backup lost if the backup replace
+      fails; _start_job called under the slot lock (inline starter would deadlock); _finish_slot release
+      unguarded; untested _stopping branch.
 - [ ] F5.5 `Summaries1` D-Bus + wiring + api-contracts + e2e (~400)
 - [ ] F5.6a review app core: summaries gateway, presenters (~400)
 - [ ] F5.6b review app ui: summary view, button, confirmation, progress (~350)
