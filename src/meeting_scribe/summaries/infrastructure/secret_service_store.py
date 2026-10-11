@@ -76,7 +76,7 @@ class SecretServiceKeyStore:
             return Failure(SummaryCloudKeyLockedError(_LOCKED_MESSAGE))
         except _MissingError:
             return Failure(SummaryCloudKeyMissingError(missing_message()))
-        except Exception as error:  # no service, a lost bus, an error reply, a timeout, bad bytes
+        except Exception as error:  # no service, a lost bus, an error reply, a timeout
             logger.warning("Secret Service lookup failed: %s", type(error).__name__)
             return Failure(SummaryCloudKeyUnavailableError(_UNAVAILABLE_MESSAGE))
         if not secret:
@@ -104,7 +104,10 @@ class SecretServiceKeyStore:
             if not unlocked:
                 raise _LockedError if locked else _MissingError
             (secrets,) = await self._call(bus, "GetSecrets", "aoo", [unlocked[:1], session])
-            return bytes(secrets[unlocked[0]][2]).decode("utf-8").strip()
+            try:
+                return bytes(secrets[unlocked[0]][2]).decode("utf-8").strip()
+            except UnicodeDecodeError:  # the keyring answered, but with no usable key
+                raise _MissingError from None
         finally:
             bus.disconnect()
 
