@@ -499,8 +499,14 @@ Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv 
       ends DONE. Review review-9d039d6d0c138290 approved. Integrated #88-#89. GREEN 916 python / 108 gjs.
       Follow-ups (suggestions): bounded read instead of stat-then-read for samples; test that a FAILED job
       emits no SpeakersChanged; repair_stale runs synchronously at start (latency grows with stale meetings).
-- [ ] F4.4a `review-app/` scaffold, core models/ports, import-linter roots and contracts (~350)
-- [ ] F4.4b core presenters (list, review, rename, merge, playback) (~400)
+- [x] F4.4a `review-app/` scaffold, core models/ports, import-linter roots and contracts (A-6 verified:
+      import-linter 2.15 supports two root packages; 12 contracts kept). Review review-c8b314a2c4be0c97 (4 lenses)
+      approved; 2 warnings fixed in `885ef7e` (review-0ffd2cc283da1af3 approved). Integrated #90.
+- [x] F4.4b core presenters (list, review, rename, merge, playback). First CRITICAL finding of the project
+      (late reply applied to another meeting) fixed by one bounded correction `bb1dba3`, validated by the
+      provider targeted validator; review review-562d369f1d637d8e approved. Integrated #91-#92. GREEN 1047
+      python / 108 gjs. Follow-up: `_moment` astimezone outside the try can raise OverflowError on an extreme
+      malformed timestamp (fix first in F4.5).
 - [ ] F4.5a GTK ui: application, window, sidebar, transcript, D-Bus gateway (~400)
 - [ ] F4.5b GTK ui: speaker rows, dialogs, unmerge, media player, banners (~400)
 - [ ] F4.6 packaging: launcher, desktop entry, install/uninstall, runbook (~300)
