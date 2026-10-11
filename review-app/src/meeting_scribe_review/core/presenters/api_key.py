@@ -39,17 +39,20 @@ class ApiKeyPresenter:
         self._state = ApiKeyState()
         self._attempt = 0  # bumped per submit: names the attempt a store result belongs to
         self._saving: int | None = None  # the attempt in flight, if any; only it decides the state
+        self._stored_earlier = False  # a stale attempt stored the key while a newer one was saving
 
     @property
     def state(self) -> ApiKeyState:
         return self._state
 
     def edit(self) -> None:
-        self._saving = None  # an attempt still running is now stale
+        self._saving = None
+        self._stored_earlier = False  # an attempt still running is now stale
         self._publish(ApiKeyState(ApiKeyStatus.EDITING))
 
     def cancel(self) -> None:
         self._saving = None
+        self._stored_earlier = False
         self._publish(ApiKeyState())
 
     def submit(self, raw: str) -> None:
@@ -66,24 +69,34 @@ class ApiKeyPresenter:
         self._store.store(secret, lambda result: self._stored(attempt, result))
 
     def _stored(self, attempt: int, result: Result[None, ServiceError]) -> None:
+        failed = isinstance(result, Err)
         if attempt != self._saving:
-            # A stale result never overrides a newer attempt that is still saving. With none in
-            # flight, a stale success still means the key IS in the keyring: say so, without
-            # claiming the user's current edit was saved and without closing it.
-            if (
-                self._saving is None
-                and not isinstance(result, Err)
-                and self._state.status is not ApiKeyStatus.SAVED
-            ):
-                self._publish(replace(self._state, message=KEY_STORED_TEXT))
+            # Stale: it never overrides a newer attempt, but a success still means the key IS in
+            # the keyring, so the fact is kept (newer attempt saving) or shown (none in flight).
+            if not failed:
+                self._note_stored_key()
             return
         self._saving = None
-        if isinstance(result, Err):
-            problem = message_for(result.error).text
-            self._publish(ApiKeyState(ApiKeyStatus.EDITING, problem=problem))
-        else:
-            self._publish(ApiKeyState(ApiKeyStatus.SAVED, message=SAVED_TEXT))
+        stored_earlier, self._stored_earlier = self._stored_earlier, False
+        self._publish(_outcome(result, stored_earlier=stored_earlier))
+
+    def _note_stored_key(self) -> None:
+        if self._saving is not None:
+            self._stored_earlier = True  # no state change; the newer attempt reports it
+        elif self._state.status is not ApiKeyStatus.SAVED:
+            # Replaces any old problem text; the user's current edit is neither closed nor claimed.
+            self._publish(replace(self._state, problem="", message=KEY_STORED_TEXT))
 
     def _publish(self, state: ApiKeyState) -> None:
         self._state = state
         self._on_change(state)
+
+
+def _outcome(result: Result[None, ServiceError], *, stored_earlier: bool) -> ApiKeyState:
+    """Saved, or the attempt's error plus a note when an earlier attempt stored the key."""
+    if isinstance(result, Err):
+        message = KEY_STORED_TEXT if stored_earlier else ""
+        return ApiKeyState(
+            ApiKeyStatus.EDITING, problem=message_for(result.error).text, message=message
+        )
+    return ApiKeyState(ApiKeyStatus.SAVED, message=SAVED_TEXT)

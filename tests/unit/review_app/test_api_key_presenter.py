@@ -169,3 +169,34 @@ def test_a_stale_failure_never_changes_a_newer_attempt() -> None:
     assert presenter.state.status is ApiKeyStatus.SAVING
     store.finish(1, Ok(None))
     assert presenter.state.status is ApiKeyStatus.SAVED
+
+
+def test_an_earlier_stored_key_is_still_reported_when_the_newer_attempt_fails() -> None:
+    presenter, store, _ = _slow()
+    _submit_cancel_edit_submit(presenter)
+    store.finish(0, Ok(None))  # A stores the key while B is saving: no state change
+    assert presenter.state.status is ApiKeyStatus.SAVING
+    store.finish(1, FAILURE)
+    assert presenter.state.status is ApiKeyStatus.EDITING
+    assert "keyring" in presenter.state.problem  # B's own error
+    assert presenter.state.message == KEY_STORED_TEXT  # and the key from A is in the keyring
+
+
+def test_an_earlier_stored_key_is_not_mentioned_when_the_newer_attempt_succeeds() -> None:
+    presenter, store, _ = _slow()
+    _submit_cancel_edit_submit(presenter)
+    store.finish(0, Ok(None))
+    store.finish(1, Ok(None))
+    assert presenter.state == ApiKeyState(ApiKeyStatus.SAVED, message=SAVED_TEXT)
+
+
+def test_a_stale_success_replaces_an_old_problem_instead_of_stacking_it() -> None:
+    presenter, store, _ = _slow()
+    presenter.edit()
+    presenter.submit(FAKE_KEY)
+    presenter.cancel()
+    presenter.edit()
+    presenter.submit("   ")  # an empty key: the editor shows its problem
+    assert presenter.state.problem != ""
+    store.finish(0, Ok(None))
+    assert presenter.state == ApiKeyState(ApiKeyStatus.EDITING, message=KEY_STORED_TEXT)

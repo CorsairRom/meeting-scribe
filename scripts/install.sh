@@ -263,7 +263,7 @@ parse_env_value() {
 }
 
 # The configured local model: SUMMARIES_LOCAL_MODEL from the environment, else that one line of the
-# settings file (nothing else in it is read), else the default. Quotes and spaces are stripped.
+# settings file (nothing else in it is read), else the default. The value is parsed by `parse_env_value` (above).
 readonly OLLAMA_MODEL_DEFAULT="qwen3.5:9b"
 readonly OLLAMA_TIMEOUT_DEFAULT=10
 ollama_model="${SUMMARIES_LOCAL_MODEL:-}"

@@ -227,7 +227,8 @@ export class FakeMeetingsService {
         this.lastSummary = null; // {meeting_id, started_at, generated_at, path}
         this.withSummaries = true; // false: an older service without Summaries1
         this.summaryCalls = 0;
-        this.summaryDelays = []; // per call, in order: ms to wait before answering (-1: never)
+        this.holdNext = 0; // answer the next N LastSummary calls only on releaseHeld()
+        this.held = [];
         this.hangSummary = false;
         this._summaries = null;
     }
@@ -268,16 +269,19 @@ export class FakeMeetingsService {
         this.summaryCalls++;
         if (this.hangSummary)
             return; // never answers: simulates a stuck service
-        const delay = this.summaryDelays.shift() ?? 0;
         const answer = this.lastSummary; // what the service knew when it was asked
-        if (delay > 0) {
-            GLib.timeout_add(GLib.PRIORITY_DEFAULT, delay, () => {
-                this._answerSummary(answer, invocation);
-                return GLib.SOURCE_REMOVE;
-            });
+        if (this.holdNext > 0) {
+            this.holdNext--;
+            this.held.push({answer, invocation});
             return;
         }
         this._answerSummary(answer, invocation);
+    }
+
+    /** Answer, in order, every held call (with the answer it had when it was asked). */
+    releaseHeld() {
+        for (const {answer, invocation} of this.held.splice(0))
+            this._answerSummary(answer, invocation);
     }
 
     _answerSummary(answer, invocation) {

@@ -360,12 +360,16 @@ test('meetings: overlapping refreshes resolved out of order keep the newest answ
         await until(() => client.snapshot.available);
         await sleep(150); // the refresh made on appear is settled
         assertEqual(fake.summaryCalls, 1);
-        fake.summaryDelays = [400, 0];
+        fake.holdNext = 1; // the first answer is held back by the fake until released
         fake.lastSummary = SUMMARY; // the first call is asked while this is the answer
         const first = client.refreshLastSummary();
+        await sleep(100); // the call reaches the fake and is held
+        assertEqual(fake.held.length, 1, 'the first call is held: ');
         fake.lastSummary = {...SUMMARY, path: '/fake/dir/m2/summary.md'};
-        const second = client.refreshLastSummary();
-        await Promise.all([first, second]);
+        await client.refreshLastSummary(); // the second is answered first
+        assertEqual(client.snapshot.lastSummary?.path, '/fake/dir/m2/summary.md');
+        fake.releaseHeld(); // the late answer for the first call arrives now
+        await first;
         assertEqual(client.snapshot.lastSummary?.path, '/fake/dir/m2/summary.md');
         assertEqual(fake.summaryCalls, 3);
     });
