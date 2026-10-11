@@ -7,6 +7,7 @@ the venv asserts they are equal (tests/unit/review_app/test_constants_drift.py).
 BUS_NAME = "dev.meetingscribe.Service"
 OBJECT_PATH = "/dev/meetingscribe/Service"
 MEETINGS_INTERFACE = "dev.meetingscribe.Meetings1"
+SUMMARIES_INTERFACE = "dev.meetingscribe.Summaries1"
 ERROR_PREFIX = "dev.meetingscribe.Error"
 
 METHODS = (
@@ -19,3 +20,12 @@ METHODS = (
     "UnmergeSpeaker",
 )
 SIGNALS = ("ProcessingStateChanged", "ProcessingFinished", "SpeakersChanged")
+
+SUMMARY_METHODS = (
+    "Providers",
+    "Summarize",
+    "CancelSummary",
+    "GetSummaryStatus",
+    "GetSummary",
+)
+SUMMARY_SIGNALS = ("SummaryProgress", "SummaryFinished")
