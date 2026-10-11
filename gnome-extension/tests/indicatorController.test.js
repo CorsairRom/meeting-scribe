@@ -376,8 +376,8 @@ test('the review action does nothing after destroy or without a launcher', async
     assertDeepEqual(plain.notes, []);
 });
 
-test('the review action is allowed while a recording runs only through the menu rules', async () => {
-    // The model hides the item while recording; the controller still never touches the client.
+test('the review action never calls the recording client, whatever the state', async () => {
+    // The model hides the item while recording; the controller itself stays state-agnostic.
     const f = withLauncher(() => true, snap({state: 'RECORDING'}));
     await f.controller.onMenuAction('review');
     assertDeepEqual(f.client.calls, []);

@@ -61,8 +61,8 @@ separator. It never changes what a click does: every click opens the menu and no
 | Last job `FAILED` | unchanged | **Processing failed — Reprocess** (calls `Meetings1.Reprocess`; a refusal is shown as a notification) |
 | Service unavailable | `○` | none (processing is hidden) |
 
-**Review last meeting** (F4.7) is the last item of the recording group in every state except `RECORDING` and
-"service unavailable" (and while a Start or Stop call is in flight). It launches the review app through its desktop
+**Review last meeting** (F4.7) is the last item of the recording group when the state is `IDLE`, `STOPPED` or
+`FAILED` (hidden while recording, in an unknown state, with the service unavailable and while a call is in flight). It launches the review app through its desktop
 entry (`dev.meetingscribe.Review.desktop`, installed by `make install`), with no argument and no meeting data; the app
 picks the newest `DONE` meeting itself, and shows an empty state when there is none. If the launch fails, one
 notification says to run `make install`. Steps and troubleshooting: [`review-app.md`](review-app.md).

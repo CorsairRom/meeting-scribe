@@ -192,10 +192,14 @@ function processingItems(processing, _) {
     return items;
 }
 
+const REVIEWABLE_STATES = ['IDLE', 'STOPPED', 'FAILED'];
+
 // "Review last meeting" opens the review app, which resolves "last" itself: the extension never
-// lists meetings. It is offered whenever the service is available and nothing is recording.
-function withReview(model, state, _) {
-    if (state === 'RECORDING')
+// lists meetings. It is offered when the service is available and the state is IDLE, STOPPED or
+// FAILED (never while recording or in an unknown state).
+function withReview(model, input, _) {
+    // Inert in every other state: recording, an unknown state, and while a call is in flight.
+    if (!REVIEWABLE_STATES.includes(input.state) || input.busy)
         return model;
     return {...model, menuItems: [...model.menuItems, action(_('Review last meeting'), 'review')]};
 }
@@ -235,7 +239,7 @@ export function viewModel(input, _ = s => s) {
     if (!input.available)
         return unavailableModel(_);
 
-    const model = withProcessing(withReview(stateModel(input, _), input.state, _), input.processing, _);
+    const model = withProcessing(withReview(stateModel(input, _), input, _), input.processing, _);
     if (input.busy && model.clickAction !== 'none') {
         return {
             ...model,

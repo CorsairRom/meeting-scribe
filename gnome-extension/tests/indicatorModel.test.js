@@ -211,10 +211,7 @@ test('an unknown state is inert and dimmed', () => {
     assertEqual(m.clickAction, 'none');
     assertEqual(m.icon, ICON_UNAVAILABLE);
     assertEqual(m.dimmed, true);
-    assertDeepEqual(m.menuItems, [
-        {kind: 'status', text: 'Unknown recording state: WEIRD'},
-        {kind: 'action', text: 'Review last meeting', action: 'review'},
-    ]);
+    assertDeepEqual(m.menuItems, [{kind: 'status', text: 'Unknown recording state: WEIRD'}]);
 });
 
 test('viewModel translates every string through the injected function', () => {
@@ -350,6 +347,13 @@ test('the review item comes after the recording items and before the processing 
         last: {meetingId: 'm', state: 'DONE', speakerCount: 2}};
     const items = vm({state: 'IDLE', processing}).menuItems;
     assertDeepEqual(items.map(i => i.action ?? i.kind), ['start', 'review', 'separator', 'status']);
+});
+
+test('the review item stays hidden in an unknown state and while a call is in flight', () => {
+    assertDeepEqual(reviewItems(vm({state: 'WEIRD'})), []);
+    assertDeepEqual(reviewItems(vm({state: 'WEIRD', busy: true})), []);
+    for (const state of ['IDLE', 'STOPPED', 'FAILED', 'RECORDING'])
+        assertDeepEqual(reviewItems(vm({state, busy: true})), [], `${state} busy: `);
 });
 
 test('the review item is hidden while recording, unavailable or busy', () => {

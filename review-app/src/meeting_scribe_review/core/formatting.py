@@ -1,5 +1,7 @@
 """Display helpers for times. Locale-aware dates are the view's job (it owns GLib)."""
 
+from datetime import datetime
+
 _MINUTE = 60
 _HOUR = 3600
 
@@ -27,3 +29,14 @@ def format_duration(seconds: float) -> str:
 
 def format_speaker_count(count: int) -> str:
     return f"{count} speaker" if count == 1 else f"{count} speakers"
+
+
+def unix_seconds(moment: datetime) -> int | None:
+    """Whole Unix seconds of ``moment``, or ``None`` when it cannot be converted.
+
+    An extreme or malformed value must never break the meeting list: the view shows "Unknown date".
+    """
+    try:
+        return int(moment.timestamp())
+    except (OverflowError, OSError, ValueError, AttributeError, TypeError):
+        return None

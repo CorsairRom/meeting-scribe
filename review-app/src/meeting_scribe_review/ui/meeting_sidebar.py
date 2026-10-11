@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from gi.repository import Adw, GLib, Gtk
 
-from meeting_scribe_review.core.formatting import format_speaker_count
+from meeting_scribe_review.core.formatting import format_speaker_count, unix_seconds
 from meeting_scribe_review.core.presenters.meeting_list import (
     MeetingListState,
     MeetingListStatus,
@@ -19,10 +19,10 @@ _STATUS = "status"
 
 def _when(row: MeetingRow) -> str:
     """The start time in the user's locale and time zone; never fails on an odd value."""
-    try:
-        moment = GLib.DateTime.new_from_unix_utc(int(row.started_at.timestamp()))
-    except (OverflowError, OSError, ValueError):
+    seconds = unix_seconds(row.started_at)
+    if seconds is None:
         return UNKNOWN_DATE
+    moment = GLib.DateTime.new_from_unix_utc(seconds)
     local = moment.to_local() if moment else None
     text = local.format("%x %R") if local else None
     return text or UNKNOWN_DATE
