@@ -8,7 +8,7 @@ from pathlib import Path
 
 from returns.result import Failure, Result, Success
 
-from meeting_scribe.base.domain.errors import MeetingScribeError
+from meeting_scribe.base.domain.errors import EntityNotFoundError, MeetingScribeError
 from meeting_scribe.meetings.domain.errors import (
     MeetingAudioMissingError,
     MeetingSchemaUnsupportedError,
@@ -255,3 +255,22 @@ class FakeUtterancesStore:
         self.lock_held_when_written.append(self._lock.held)
         self.transcripts.append(text)
         return Success("transcript.md")
+
+
+class FakeSampleReader:
+    """In-memory ``SampleReader``: files keyed by their path relative to the meeting folder."""
+
+    def __init__(self, lock: FakeMeetingLock) -> None:
+        self._lock = lock
+        self.files: dict[str, bytes] = {}
+        self.lock_held_when_read: list[bool] = []
+        self.requested: list[str] = []
+
+    def read(self, meeting_dir: Path, relative_path: str) -> Result[bytes, MeetingScribeError]:
+        self.requested.append(relative_path)
+        self.lock_held_when_read.append(self._lock.held)
+        if relative_path not in self.files:
+            return Failure(
+                EntityNotFoundError("The sample is not available.", detail_code="SPEAKER_SAMPLE")
+            )
+        return Success(self.files[relative_path])
