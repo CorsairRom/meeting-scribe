@@ -50,7 +50,7 @@ def test_failures_pass_through() -> None:
 def test_the_rows_are_the_effective_speakers() -> None:
     merged = ReviewSpeakers().merge(_state(), "S2", "S1").unwrap().state
 
-    rows = ReviewSpeakers().speakers(merged)
+    rows = ReviewSpeakers().speakers(merged).unwrap()
 
     assert [(r.id, r.talk_seconds, r.merged_into) for r in rows] == [
         ("S1", 6.0, ""),
