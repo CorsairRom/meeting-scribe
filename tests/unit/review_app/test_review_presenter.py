@@ -205,3 +205,15 @@ def test_close_returns_to_idle_and_ignores_later_replies() -> None:
     assert presenter.state.status is ReviewStatus.IDLE and presenter.state.meeting_id == ""
     presenter.on_speakers_changed("m1")
     assert presenter.state.status is ReviewStatus.IDLE
+
+
+def test_a_late_reply_cannot_ready_a_read_only_meeting_opened_after_it() -> None:
+    gateway = _gateway()
+    gateway.deferred = True
+    presenter = ReviewPresenter(gateway, lambda _state: None)
+    presenter.open("m1", "DONE")
+    presenter.open("m2", "TRANSCRIBING")
+    gateway.release(0)  # the speakers of m1 arrive after m2 was opened
+    assert gateway.names_of("get_transcript") == []
+    assert presenter.state.meeting_id == "m2"
+    assert presenter.state.status is ReviewStatus.READ_ONLY and not presenter.state.editable
