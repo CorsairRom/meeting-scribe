@@ -234,6 +234,8 @@ export class MeetingsClient {
             (proxy, error) => {
                 if (this._destroyed || generation !== this._generation || error)
                     return;
+                // Same bound as every other call: a stuck service must not hang a refresh.
+                proxy.set_default_timeout(this._callTimeoutMs);
                 this._summariesProxy = proxy;
                 this._summariesHandler = proxy.connectSignal('SummaryFinished',
                     () => this.refreshLastSummary());
