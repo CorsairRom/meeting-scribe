@@ -70,14 +70,22 @@ async def _error(call: Awaitable) -> DBusError:
 
 async def _summarize_once_the_gpu_is_free(summaries: Proxy, meeting_id: str) -> str:
     """Start a local summary, retrying only while processing still holds the GPU."""
-    busy = {f"{ERROR}.SUMMARY_GPU_BUSY", f"{ERROR}.SUMMARY_BUSY"}
-    deadline = time.monotonic() + 10
+    started = time.monotonic()
+    attempts = 0
     while True:
+        attempts += 1
         try:
             return await summaries.call_summarize(meeting_id, "local", False)
         except DBusError as error:
-            if error.type not in busy or time.monotonic() > deadline:
+            # Only GPU contention is expected here; SUMMARY_BUSY (another summary still active)
+            # would be a real regression of the cancellation above.
+            if error.type != f"{ERROR}.SUMMARY_GPU_BUSY":
                 raise
+            waited = time.monotonic() - started
+            if waited > 10:
+                raise AssertionError(
+                    f"the GPU stayed busy for {waited:.1f} s over {attempts} attempts"
+                ) from error
         await asyncio.sleep(0.05)
 
 
