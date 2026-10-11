@@ -1,13 +1,20 @@
 """Display helpers and the transcript rows shown with speaker names (AC-8)."""
 
+from datetime import UTC, datetime
+
+import pytest
+
 from meeting_scribe_review.core.formatting import (
     format_duration,
     format_speaker_count,
     format_timestamp,
+    unix_seconds,
 )
 from meeting_scribe_review.core.models import Utterance
 from meeting_scribe_review.core.transcript import TranscriptLine, build_transcript
 from tests.unit.review_app.fakes import speaker
+
+EXPECTED_NOON = int(datetime(2026, 10, 11, 12, 0, tzinfo=UTC).timestamp())
 
 
 def test_timestamps_are_clock_style() -> None:
@@ -52,3 +59,24 @@ def test_speaker_counts_are_pluralised() -> None:
     assert format_speaker_count(0) == "0 speakers"
     assert format_speaker_count(1) == "1 speaker"
     assert format_speaker_count(3) == "3 speakers"
+
+
+def test_unix_seconds_of_a_normal_moment() -> None:
+    assert unix_seconds(datetime(2026, 10, 11, 12, 0, tzinfo=UTC)) == EXPECTED_NOON
+
+
+class _Unconvertible:
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    def timestamp(self) -> float:
+        raise self._error
+
+
+@pytest.mark.parametrize("error", [OverflowError(), OSError(), ValueError()])
+def test_unix_seconds_gives_none_when_the_conversion_fails(error: Exception) -> None:
+    assert unix_seconds(_Unconvertible(error)) is None  # type: ignore[arg-type]
+
+
+def test_unix_seconds_gives_none_for_a_malformed_value() -> None:
+    assert unix_seconds("not a date") is None  # type: ignore[arg-type]

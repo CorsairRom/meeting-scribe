@@ -109,12 +109,6 @@ mkdir -p "$(dirname "$UNIT_PATH")" "$(dirname "$ACTIVATION_PATH")"
 printf '%s\n' "$rendered" >"$UNIT_PATH"
 cp "$REPO_ROOT/packaging/dbus/$BUS_NAME.service" "$ACTIVATION_PATH"
 
-desktop_template="$(<"$REPO_ROOT/packaging/applications/$DESKTOP_ENTRY_NAME.in")"
-review_exec="$CURRENT_LINK/bin/$REVIEW_LAUNCHER_NAME"
-mkdir -p "$APPLICATIONS_DIR"
-printf '%s\n' "${desktop_template%%@EXEC@*}$review_exec${desktop_template#*@EXEC@}" >"$DESKTOP_ENTRY_PATH"
-refresh_desktop_database
-
 echo "==> Enabling and starting the service"
 was_active=0
 if unit_active; then was_active=1; fi
@@ -163,6 +157,18 @@ if ((start_failed)) && [[ -n "$previous" || $legacy_tool == 1 ]]; then
   if ((was_active)); then
     systemctl --user restart "$UNIT_NAME" || echo "warning: restarting the previous version failed too." >&2
   fi
+fi
+
+# The desktop entry follows the switch: it is written only for a version that stays in charge, and
+# a rollback removes it when the restored version has no review launcher (a pre-F4 install).
+if [[ -z "$rolled_back" ]]; then
+  desktop_template="$(<"$REPO_ROOT/packaging/applications/$DESKTOP_ENTRY_NAME.in")"
+  mkdir -p "$APPLICATIONS_DIR"
+  printf '%s\n' "${desktop_template%%@EXEC@*}$(desktop_exec_argument "$CURRENT_LINK/bin/$REVIEW_LAUNCHER_NAME")${desktop_template#*@EXEC@}" >"$DESKTOP_ENTRY_PATH"
+  refresh_desktop_database
+elif [[ ! -x "$CURRENT_LINK/bin/$REVIEW_LAUNCHER_NAME" ]]; then
+  rm -f "$DESKTOP_ENTRY_PATH"
+  refresh_desktop_database
 fi
 
 migration_note=""

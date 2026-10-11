@@ -1,4 +1,4 @@
-import {viewModel, errorMessage} from './indicatorModel.js';
+import {viewModel, errorMessage, launchFailureMessage} from './indicatorModel.js';
 
 const TICK_SECONDS = 1;
 
@@ -16,14 +16,17 @@ export class IndicatorController {
      * @param {{every: Function, cancel: Function}} options.scheduler - `every(seconds, fn)`
      *     returns a handle that `cancel(handle)` releases
      * @param {Function} options.notify - `notify(title, body)` shows an error to the user
+     * @param {Function} [options.launchReview] - opens the review app (no argument, no meeting
+     *     data); returns false or throws when it cannot. Omit it and the action does nothing
      * @param {Function} [options._] - translation function (identity by default)
      */
-    constructor({client, meetings = null, view, scheduler, notify, _ = s => s}) {
+    constructor({client, meetings = null, view, scheduler, notify, launchReview = null, _ = s => s}) {
         this._client = client;
         this._meetings = meetings;
         this._view = view;
         this._scheduler = scheduler;
         this._notify = notify;
+        this._launchReview = launchReview;
         this._ = _;
         this._tick = null;
         this._destroyed = false;
@@ -75,7 +78,7 @@ export class IndicatorController {
     /**
      * Handle a menu action item.
      *
-     * @param {string} id - `start`, `stop` or `reprocess` (the failed meeting shown last)
+     * @param {string} id - `start`, `stop`, `reprocess` (the failed meeting shown last) or `review`
      * @returns {Promise<void>} settles once the call (and any notification) is done
      */
     onMenuAction(id) {
@@ -87,6 +90,8 @@ export class IndicatorController {
             return this._run(() => this._client.stop());
         if (id === 'reprocess')
             return this._reprocess();
+        if (id === 'review')
+            return this._review();
         return Promise.resolve();
     }
 
@@ -110,6 +115,20 @@ export class IndicatorController {
         if (last?.state !== 'FAILED')
             return Promise.resolve();
         return this._run(() => this._meetings.reprocess(last.meetingId));
+    }
+
+    // The failure text is fixed: a launch error may carry private paths or text and is never shown.
+    async _review() {
+        if (this._launchReview === null)
+            return;
+        let launched = false;
+        try {
+            launched = await this._launchReview() !== false;
+        } catch (_e) {
+            launched = false;
+        }
+        if (!launched && !this._destroyed)
+            this._notify(this._('Meeting Scribe'), launchFailureMessage(this._));
     }
 
     _stopTick() {

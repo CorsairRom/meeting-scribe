@@ -1,5 +1,5 @@
 import {test, assertEqual, assertDeepEqual} from './harness.js';
-import {formatElapsed, errorMessage, viewModel, ICON_IDLE, ICON_RECORDING, ICON_FAILED, ICON_UNAVAILABLE} from '../meeting-scribe@meetingscribe.dev/lib/indicatorModel.js';
+import {formatElapsed, errorMessage, launchFailureMessage, viewModel, ICON_IDLE, ICON_RECORDING, ICON_FAILED, ICON_UNAVAILABLE} from '../meeting-scribe@meetingscribe.dev/lib/indicatorModel.js';
 
 test('formatElapsed pads to HH:MM:SS', () => {
     assertEqual(formatElapsed(0), '00:00:00');
@@ -97,7 +97,10 @@ test('IDLE shows the idle glyph and a click opens a menu with Start (never start
     assertEqual(m.icon, ICON_IDLE);
     assertEqual(m.label, '');
     assertEqual(m.clickAction, 'open-menu');
-    assertDeepEqual(m.menuItems, [{kind: 'action', text: 'Start recording', action: 'start'}]);
+    assertDeepEqual(m.menuItems, [
+        {kind: 'action', text: 'Start recording', action: 'start'},
+        {kind: 'action', text: 'Review last meeting', action: 'review'},
+    ]);
     assertEqual(m.tooltip, 'Start recording');
     assertEqual(m.dimmed, false);
 });
@@ -129,12 +132,16 @@ test('STOPPED looks idle, click opens a menu with the last session and Start', (
         {kind: 'status', text: 'Last recording: s1'},
         {kind: 'separator'},
         {kind: 'action', text: 'Start recording', action: 'start'},
+        {kind: 'action', text: 'Review last meeting', action: 'review'},
     ]);
 });
 
 test('STOPPED without a session id offers only Start', () => {
     assertDeepEqual(vm({state: 'STOPPED'}).menuItems,
-        [{kind: 'action', text: 'Start recording', action: 'start'}]);
+        [
+            {kind: 'action', text: 'Start recording', action: 'start'},
+            {kind: 'action', text: 'Review last meeting', action: 'review'},
+        ]);
 });
 
 test('no state starts a recording on a plain click', () => {
@@ -153,6 +160,7 @@ test('FAILED shows a warning, click opens a menu with reason and Start', () => {
         {kind: 'status', text: 'Recording failed: ffmpeg exited with code 1'},
         {kind: 'separator'},
         {kind: 'action', text: 'Start recording', action: 'start'},
+        {kind: 'action', text: 'Review last meeting', action: 'review'},
     ]);
     assertEqual(m.tooltip, 'Recording failed');
 });
@@ -224,7 +232,10 @@ const withProcessing = (processing, overrides = {}) => vm({...overrides, process
 const texts = items => items.filter(i => i.kind !== 'separator').map(i => i.text);
 
 test('without processing input the model is unchanged', () => {
-    assertDeepEqual(vm({}).menuItems, [{kind: 'action', text: 'Start recording', action: 'start'}]);
+    assertDeepEqual(vm({}).menuItems, [
+        {kind: 'action', text: 'Start recording', action: 'start'},
+        {kind: 'action', text: 'Review last meeting', action: 'review'},
+    ]);
     assertEqual(vm({}).label, '');
 });
 
@@ -242,6 +253,7 @@ test('a processing job shows its stage under the recording items', () => {
         const m = withProcessing(proc({activeMeetingId: 'm1', activeState: state}));
         assertDeepEqual(m.menuItems, [
             {kind: 'action', text: 'Start recording', action: 'start'},
+            {kind: 'action', text: 'Review last meeting', action: 'review'},
             {kind: 'separator'},
             {kind: 'status', text},
         ], `${state}: `);
@@ -250,9 +262,9 @@ test('a processing job shows its stage under the recording items', () => {
 
 test('queued jobs are counted, singular and plural, with or without an active job', () => {
     const one = withProcessing(proc({activeMeetingId: 'm1', activeState: 'DIARIZING', queuedCount: 1}));
-    assertDeepEqual(texts(one.menuItems).slice(1), ['Processing meeting… (diarizing)', '1 meeting queued']);
+    assertDeepEqual(texts(one.menuItems).slice(2), ['Processing meeting… (diarizing)', '1 meeting queued']);
     const many = withProcessing(proc({queuedCount: 3}));
-    assertDeepEqual(texts(many.menuItems).slice(1), ['3 meetings queued']);
+    assertDeepEqual(texts(many.menuItems).slice(2), ['3 meetings queued']);
 });
 
 test('the panel shows a processing hint only while a job runs, never replacing the timer', () => {
@@ -284,7 +296,7 @@ test('a failed meeting offers one Reprocess action', () => {
     assertDeepEqual(m.menuItems.slice(-1), [
         {kind: 'action', text: 'Processing failed — Reprocess', action: 'reprocess'},
     ]);
-    assertDeepEqual(ids(m.menuItems), ['start', 'reprocess']);
+    assertDeepEqual(ids(m.menuItems), ['start', 'review', 'reprocess']);
 });
 
 test('an active job hides the previous result', () => {
@@ -292,7 +304,7 @@ test('an active job hides the previous result', () => {
         activeMeetingId: 'm2', activeState: 'TRANSCRIBING',
         last: {meetingId: 'm1', state: 'FAILED', speakerCount: 0},
     }));
-    assertDeepEqual(texts(m.menuItems).slice(1), ['Processing meeting… (transcribing)']);
+    assertDeepEqual(texts(m.menuItems).slice(2), ['Processing meeting… (transcribing)']);
 });
 
 test('processing is not shown when the service is unavailable or a call is in flight', () => {
@@ -300,14 +312,14 @@ test('processing is not shown when the service is unavailable or a call is in fl
     assertEqual(withProcessing(active, {available: false}).menuItems.length, 2);
     assertEqual(withProcessing(active, {available: false}).label, '');
     assertDeepEqual(texts(withProcessing(active, {busy: true}).menuItems), ['Working…']);
-    assertEqual(withProcessing({...active, available: false}).menuItems.length, 1);
+    assertEqual(withProcessing({...active, available: false}).menuItems.length, 2);
 });
 
 test('processing lines translate through the injected function', () => {
     const up = s => s.split('%s').map(part => part.toUpperCase()).join('%s');
     const m = viewModel({...base, processing: proc({activeMeetingId: 'm1',
         activeState: 'DIARIZING', queuedCount: 2})}, up);
-    assertDeepEqual(texts(m.menuItems).slice(1),
+    assertDeepEqual(texts(m.menuItems).slice(2),
         ['PROCESSING MEETING… (DIARIZING)', '2 MEETINGS QUEUED']);
 });
 
@@ -316,4 +328,49 @@ test('errorMessage maps the Meetings1 errors', () => {
     assertEqual(errorMessage(`${E}MEETING_PROCESSING_ACTIVE`, ''),
         'That meeting is already queued or being processed.');
     assertEqual(errorMessage(`${E}MEETING_STORAGE_FAILED`, ''), 'Could not read the meetings folder.');
+});
+
+// -- Review last meeting (F4.7, AC-16) ---------------------------------------------------------
+
+const REVIEW = {kind: 'action', text: 'Review last meeting', action: 'review'};
+const reviewItems = model => model.menuItems.filter(item => item.action === 'review');
+
+test('the review item is offered whenever the service is available and nothing records', () => {
+    for (const state of ['IDLE', 'STOPPED', 'FAILED']) {
+        const items = reviewItems(vm({state}));
+        assertDeepEqual(items, [REVIEW], `${state}: `);
+    }
+});
+
+test('the review item comes after the recording items and before the processing lines', () => {
+    const processing = {available: true, activeState: 'IDLE', queuedCount: 0,
+        last: {meetingId: 'm', state: 'DONE', speakerCount: 2}};
+    const items = vm({state: 'IDLE', processing}).menuItems;
+    assertDeepEqual(items.map(i => i.action ?? i.kind), ['start', 'review', 'separator', 'status']);
+});
+
+test('the review item stays hidden in an unknown state and while a call is in flight', () => {
+    assertDeepEqual(reviewItems(vm({state: 'WEIRD'})), []);
+    assertDeepEqual(reviewItems(vm({state: 'WEIRD', busy: true})), []);
+    for (const state of ['IDLE', 'STOPPED', 'FAILED', 'RECORDING'])
+        assertDeepEqual(reviewItems(vm({state, busy: true})), [], `${state} busy: `);
+});
+
+test('the review item is hidden while recording, unavailable or busy', () => {
+    assertDeepEqual(reviewItems(vm({state: 'RECORDING'})), []);
+    assertDeepEqual(reviewItems(vm({available: false})), []);
+    assertDeepEqual(reviewItems(vm({busy: true})), []);
+});
+
+test('the review item is translated and needs no meeting data', () => {
+    const tr = s => `<${s}>`;
+    const item = reviewItems(vm({state: 'IDLE'}, tr))[0];
+    assertEqual(item.text, '<Review last meeting>');
+    assertDeepEqual(Object.keys(item).sort(), ['action', 'kind', 'text']);
+});
+
+test('launchFailureMessage tells the user to run make install', () => {
+    const message = launchFailureMessage(s => s);
+    assertEqual(message.includes('make install'), true);
+    assertEqual(launchFailureMessage(s => `<${s}>`).startsWith('<'), true);
 });

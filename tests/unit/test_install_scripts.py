@@ -963,11 +963,38 @@ def test_the_launcher_interpreter_is_the_system_one_by_default() -> None:
     assert 'REVIEW_APP_PYTHON="${REVIEW_APP_PYTHON:-/usr/bin/python3}"' in text
 
 
+def _exec_argv(entry: Path) -> list[str]:
+    """Parse the Exec line the way the Desktop Entry specification says a launcher must."""
+    line = next(x for x in entry.read_text().splitlines() if x.startswith("Exec="))
+    value = line.removeprefix("Exec=").replace("\\\\", "\x00")  # string level: \\ -> \
+    value = value.replace("\x00", "\\")
+    argv: list[str] = []
+    current, quoted, started, i = "", False, False, 0
+    while i < len(value):
+        ch = value[i]
+        if quoted and ch == "\\":
+            current += value[i + 1]
+            i += 2
+            continue
+        if ch == '"':
+            quoted, started = not quoted, True
+        elif ch == " " and not quoted:
+            if started:
+                argv.append(current)
+            current, started = "", False
+        else:
+            current, started = current + ch, True
+        i += 1
+    if started:
+        argv.append(current)
+    return argv
+
+
 def test_install_renders_the_desktop_entry_with_the_stable_current_path(sandbox: Env) -> None:
     sandbox.run(INSTALL, **IDLE)
     lines = sandbox.desktop_entry.read_text().splitlines()
     launcher = sandbox.root / "current" / "bin" / "meeting-scribe-review"
-    assert f"Exec={launcher}" in lines
+    assert _exec_argv(sandbox.desktop_entry) == [str(launcher)]
     for expected in (
         "Type=Application",
         "Icon=audio-input-microphone",
@@ -980,15 +1007,45 @@ def test_install_renders_the_desktop_entry_with_the_stable_current_path(sandbox:
     assert not any("@" in line for line in lines)  # every placeholder was rendered
 
 
-def test_the_desktop_entry_is_rendered_verbatim_for_special_characters(
+def test_the_exec_line_is_spec_valid_for_spaces_and_reserved_characters(
     sandbox: Env, tmp_path: Path
 ) -> None:
-    data = tmp_path / "a&b|c" / "share"
+    data = tmp_path / 'a b&c|d$e`f"g\\h%i' / "share"
     result = sandbox.run(INSTALL, XDG_DATA_HOME=str(data), **IDLE)
     assert result.returncode == 0, result.stderr
     entry = data / "applications" / DESKTOP_ENTRY
-    exec_line = next(x for x in entry.read_text().splitlines() if x.startswith("Exec="))
-    assert exec_line == f"Exec={data}/meeting-scribe/current/bin/meeting-scribe-review"
+    expected = f"{data}/meeting-scribe/current/bin/meeting-scribe-review"
+    assert _exec_argv(entry) == [expected.replace("%", "%%")]
+    line = next(x for x in entry.read_text().splitlines() if x.startswith("Exec="))
+    assert line.startswith('Exec="') and line.endswith('"')  # one quoted argument
+
+
+def test_a_rollback_to_a_version_without_the_launcher_removes_the_entry(sandbox: Env) -> None:
+    sandbox.run(INSTALL, **IDLE)
+    (first,) = sandbox.versions
+    (first / "bin" / "meeting-scribe-review").unlink()  # stands in for a pre-F4 install
+    result = sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_SYSTEMCTL_FAIL="restart", **IDLE)
+    assert "rolled back" in result.stdout
+    assert not sandbox.desktop_entry.exists()
+    assert "review app: " in result.stdout  # the summary still reports the new, kept version
+
+
+def test_a_rollback_to_a_version_with_the_launcher_keeps_the_entry(sandbox: Env) -> None:
+    sandbox.run(INSTALL, **IDLE)
+    sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_SYSTEMCTL_FAIL="restart", **IDLE)
+    assert sandbox.desktop_entry.exists()
+
+
+def test_the_entry_is_written_only_after_the_switch_succeeded(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, FAKE_UV_FAIL="1", **IDLE)
+    assert result.returncode != 0
+    assert not sandbox.desktop_entry.exists()
+
+
+def test_a_failed_first_start_leaves_an_entry_for_the_kept_version(sandbox: Env) -> None:
+    # No previous version to roll back to: the new one stays in charge, so its entry stays.
+    sandbox.run(INSTALL, FAKE_SYSTEMCTL_FAIL="enable", **IDLE)
+    assert sandbox.desktop_entry.exists()
 
 
 def test_install_refreshes_the_desktop_database_when_the_tool_exists(sandbox: Env) -> None:
@@ -1084,6 +1141,14 @@ def test_make_run_review_app_uses_system_python_and_the_working_tree() -> None:
     assert dry.returncode == 0, dry.stderr
     assert "PYTHONPATH=review-app/src" in dry.stdout
     assert "/usr/bin/python3 -m meeting_scribe_review" in dry.stdout
+    override = subprocess.run(
+        ["make", "-n", "run-review-app", "REVIEW_APP_PYTHON=/opt/py/python3"],  # noqa: S607
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert "/opt/py/python3 -m meeting_scribe_review" in override.stdout
 
 
 def test_the_desktop_template_has_exactly_one_exec_placeholder() -> None:
