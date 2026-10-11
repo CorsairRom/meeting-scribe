@@ -75,6 +75,25 @@ if [[ ! -x "$version_dir/bin/meeting-scribe" ]]; then
   abort_before_switch "$version_dir/bin/meeting-scribe was not created by uv tool install"
 fi
 
+# The review app and its launcher live in the same version directory as the service, so a rollback
+# restores both and `current` switches them together. The launcher is rendered in bash (printf %q
+# keeps any path character intact) and pins the system interpreter on purpose.
+echo "==> Installing the review app into $version_dir/app"
+app_dir="$version_dir/app"
+launcher="$version_dir/bin/$REVIEW_LAUNCHER_NAME"
+if ! mkdir -p "$app_dir" || ! cp -r "$REPO_ROOT/review-app/src/meeting_scribe_review" "$app_dir/"; then
+  abort_before_switch "the review app could not be copied"
+fi
+shopt -s globstar nullglob
+rm -rf "$app_dir"/**/__pycache__
+shopt -u globstar nullglob
+{
+  echo '#!/usr/bin/env bash'
+  printf 'PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=%q exec %q -m meeting_scribe_review "$@"\n' \
+    "$app_dir" "$REVIEW_APP_PYTHON"
+} >"$launcher"
+chmod +x "$launcher"
+
 # Render in bash (no sed replacement): the path may contain '&', '|' or '\'. Check it before
 # anything is switched.
 template="$(<"$REPO_ROOT/packaging/systemd/$UNIT_NAME.in")"
@@ -140,6 +159,18 @@ if ((start_failed)) && [[ -n "$previous" || $legacy_tool == 1 ]]; then
   fi
 fi
 
+# The desktop entry follows the switch: it is written only for a version that stays in charge, and
+# a rollback removes it when the restored version has no review launcher (a pre-F4 install).
+if [[ -z "$rolled_back" ]]; then
+  desktop_template="$(<"$REPO_ROOT/packaging/applications/$DESKTOP_ENTRY_NAME.in")"
+  mkdir -p "$APPLICATIONS_DIR"
+  printf '%s\n' "${desktop_template%%@EXEC@*}$(desktop_exec_argument "$CURRENT_LINK/bin/$REVIEW_LAUNCHER_NAME")${desktop_template#*@EXEC@}" >"$DESKTOP_ENTRY_PATH"
+  refresh_desktop_database
+elif [[ ! -x "$CURRENT_LINK/bin/$REVIEW_LAUNCHER_NAME" ]]; then
+  rm -f "$DESKTOP_ENTRY_PATH"
+  refresh_desktop_database
+fi
+
 migration_note=""
 if ((activated)) && unit_active; then
   # The service now runs the new version: older versions and the legacy uv tool are unused.
@@ -200,6 +231,17 @@ elif ! gnome-extensions enable "$EXTENSION_UUID" 2>/dev/null \
   fi
 fi
 
+# Read-only check of the system toolkit; a gap only warns (like the extension and the models).
+review_missing=()
+if ! "$REVIEW_APP_PYTHON" -c 'import gi' >/dev/null 2>&1; then
+  review_missing=(python3-gobject gtk4 libadwaita)
+else
+  "$REVIEW_APP_PYTHON" -c 'import gi; gi.require_version("Gtk", "4.0")' >/dev/null 2>&1 \
+    || review_missing+=(gtk4)
+  "$REVIEW_APP_PYTHON" -c 'import gi; gi.require_version("Adw", "1")' >/dev/null 2>&1 \
+    || review_missing+=(libadwaita)
+fi
+
 echo
 echo "meeting-scribe installed"
 if [[ -n "$rolled_back" ]]; then
@@ -233,6 +275,12 @@ if [[ -n "$extension_failed" ]]; then
   echo "  extension: FAILED ($extension_failed)"
 else
   echo "  extension: $extension_state ($EXTENSION_UUID)"
+fi
+if ((${#review_missing[@]})); then
+  echo "  review app: NOT usable (missing: ${review_missing[*]}); install with: sudo dnf install ${review_missing[*]}"
+  echo "             Sample playback also needs gstreamer1-plugins-good. The extension menu item stays; re-run 'make install' to re-check."
+else
+  echo "  review app: ready ($DESKTOP_ENTRY_NAME)"
 fi
 case "$models_status" in
   skipped_rollback)

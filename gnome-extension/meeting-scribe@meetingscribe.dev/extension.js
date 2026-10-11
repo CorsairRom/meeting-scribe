@@ -1,3 +1,5 @@
+import Gio from 'gi://Gio';
+
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
@@ -9,6 +11,10 @@ import {RecordingClient} from './lib/recordingClient.js';
 
 const BUS_NAME = 'dev.meetingscribe.Service';
 const OBJECT_PATH = '/dev/meetingscribe/Service';
+
+// Installed by `make install` (packaging/applications/); the app resolves "last meeting" itself.
+const launchReview = () =>
+    Gio.DesktopAppInfo.new('dev.meetingscribe.Review.desktop')?.launch([], null) ?? false;
 
 export default class MeetingScribeExtension extends Extension {
     enable() {
@@ -35,6 +41,7 @@ export default class MeetingScribeExtension extends Extension {
             view: this._indicator,
             scheduler: this._scheduler,
             notify: (title, body) => Main.notify(title, body),
+            launchReview,
             _,
         });
         Main.panel.addToStatusArea(this.uuid, this._indicator);

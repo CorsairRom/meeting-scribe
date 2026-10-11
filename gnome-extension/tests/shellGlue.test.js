@@ -118,3 +118,16 @@ test('stylesheet.css defines the three indicator states', () => {
         'meeting-scribe-failed'])
         assertEqual(css.includes(`.${name}`), true, `${name}: `);
 });
+
+test('extension.js launches the review app through its desktop entry and hands it to the controller', () => {
+    const source = read('extension.js');
+    assertEqual(source.includes("Gio.DesktopAppInfo.new('dev.meetingscribe.Review.desktop')"), true);
+    assertEqual(/\.launch\(\[\], null\)/.test(source), true, 'launch([], null): ');
+    assertEqual(/\blaunchReview,/.test(source), true, 'the controller gets launchReview: ');
+});
+
+test('the desktop entry id in extension.js is the one packaging installs', () => {
+    const id = read('extension.js').match(/DesktopAppInfo\.new\('([^']+)'\)/)?.[1];
+    const template = GLib.build_filenamev([EXTENSION_DIR, '..', '..', 'packaging', 'applications', `${id}.in`]);
+    assertEqual(GLib.file_test(template, GLib.FileTest.EXISTS), true, `no template for ${id}: `);
+});

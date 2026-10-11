@@ -1,8 +1,9 @@
 .DEFAULT_GOAL := help
-.PHONY: help setup lint format imports test test-extension check run install uninstall extension-pack extension-install
+.PHONY: help setup lint format imports test test-extension check run run-review-app install uninstall extension-pack extension-install
 
 EXTENSION_UUID := meeting-scribe@meetingscribe.dev
 PACK_DIR ?= dist
+REVIEW_APP_PYTHON ?= /usr/bin/python3
 
 help: ## List available targets
 	@awk -F':.*## ' '/^[a-z-]+:.*## / {printf "%s\t%s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -14,11 +15,11 @@ lint: ## ruff, pyrefly and import-linter
 	scripts/run-linter.sh
 
 format: ## Auto-format and fix lint issues
-	uv run --extra quality-assurance ruff format src tests
-	uv run --extra quality-assurance ruff check --fix src tests
+	uv run --extra quality-assurance ruff format src tests review-app
+	uv run --extra quality-assurance ruff check --fix src tests review-app
 
 imports: ## Check architecture contracts only
-	uv run --extra quality-assurance lint-imports
+	PYTHONPATH=review-app/src uv run --extra quality-assurance lint-imports
 
 test: ## Run the test suite
 	scripts/run-tests.sh
@@ -30,6 +31,9 @@ check: lint test test-extension ## lint + test + test-extension
 
 run: ## Start the service in the foreground (development)
 	uv run meeting-scribe
+
+run-review-app: ## Open the review app from the working tree (development; opens a window, ask the user first)
+	PYTHONPATH=review-app/src $(REVIEW_APP_PYTHON) -m meeting_scribe_review
 
 install: ## Install everything: service, systemd unit, D-Bus activation, GNOME extension
 	scripts/install.sh

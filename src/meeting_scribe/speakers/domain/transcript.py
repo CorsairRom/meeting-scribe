@@ -5,6 +5,8 @@ from collections.abc import Mapping, Sequence
 from meeting_scribe.speakers.domain.turns import SpeakerLabel, Utterance, unnumbered_label
 
 NO_SPEECH_TEXT = "(no speech detected)"
+UTTERANCES_FILE = "utterances.json"
+TRANSCRIPT_FILE = "transcript.md"
 
 
 def format_timestamp(seconds: float) -> str:
@@ -43,4 +45,12 @@ def render_transcript(utterances: Sequence[Utterance], labels: Mapping[str, Spea
 
 def _display(speaker: str, labels: Mapping[str, SpeakerLabel]) -> str:
     label = labels.get(speaker)
-    return label.display if label else speaker
+    return escape_markdown(label.display if label else speaker)
+
+
+_MARKDOWN_SPECIAL = frozenset("\\`*_[]<>|~&")
+
+
+def escape_markdown(text: str) -> str:
+    """Backslash-escape what could turn a name into markup; the utterance text is left as spoken."""
+    return "".join(f"\\{char}" if char in _MARKDOWN_SPECIAL else char for char in text)

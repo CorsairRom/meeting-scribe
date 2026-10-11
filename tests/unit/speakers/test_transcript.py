@@ -5,7 +5,7 @@ from meeting_scribe.speakers.domain.transcript import (
     number_speakers,
     render_transcript,
 )
-from meeting_scribe.speakers.domain.turns import ME, UNKNOWN, Utterance
+from meeting_scribe.speakers.domain.turns import ME, UNKNOWN, SpeakerLabel, Utterance
 
 
 def _u(speaker: str, start: float, text: str = "hola") -> Utterance:
@@ -80,3 +80,19 @@ def test_timestamps_truncate_to_whole_seconds_and_hours_never_shrink() -> None:
 def test_no_utterances_render_the_no_speech_marker() -> None:
     assert render_transcript((), {}) == f"{NO_SPEECH_TEXT}\n"
     assert NO_SPEECH_TEXT == "(no speech detected)"
+
+
+def test_markdown_in_a_name_is_escaped_in_the_rendered_transcript() -> None:
+    labels = {"S1": SpeakerLabel(id="S1", label="Speaker 1", name="*A_l*[x](y) `z` <b> a|b\\")}
+
+    rendered = render_transcript((_u("S1", 0.0, "plain *text*"),), labels)
+
+    assert rendered == (
+        "[00:00:00] **\\*A\\_l\\*\\[x\\](y) \\`z\\` \\<b\\> a\\|b\\\\:** plain *text*\n"
+    )
+
+
+def test_plain_names_and_labels_render_unchanged() -> None:
+    labels = {"S1": SpeakerLabel(id="S1", label="Speaker 1", name="Zoë O'Brien-Smith, Dr.")}
+
+    assert "**Zoë O'Brien-Smith, Dr.:**" in render_transcript((_u("S1", 0.0, "x"),), labels)

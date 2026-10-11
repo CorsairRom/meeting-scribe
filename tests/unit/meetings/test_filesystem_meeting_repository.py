@@ -20,6 +20,8 @@ from meeting_scribe.meetings.domain.meeting import (
     ProcessingDevice,
     ProcessingParams,
     RecordingInfo,
+    SpeakerEntry,
+    SpeakerReview,
 )
 from meeting_scribe.meetings.infrastructure.filesystem_meeting_repository import (
     FilesystemMeetingRepository,
@@ -301,3 +303,18 @@ def test_a_directory_fsync_failure_after_the_rename_still_saves(
     assert saved.unwrap() == meeting
     assert repo.get(meeting.id).unwrap() == meeting
     assert "durable" in caplog.text
+
+
+def test_the_speaker_review_round_trips_and_stays_on_schema_v1(tmp_path: Path) -> None:
+    repo = FilesystemMeetingRepository(tmp_path)
+    review = SpeakerReview(merged_into={"S2": "S1"}, name_adopted_from={"S1": "S2"})
+    meeting = _meeting(tmp_path).with_speaker_review(
+        (SpeakerEntry(id="S1", label="Speaker 1", name="Fake One"),), review.stale()
+    )
+
+    repo.save(meeting).unwrap()
+
+    document = json.loads((tmp_path / meeting.id / "meeting.json").read_text(encoding="utf-8"))
+    assert document["schema_version"] == 1
+    assert document["speaker_review"]["transcript_stale"] is True
+    assert repo.get(meeting.id).unwrap() == meeting

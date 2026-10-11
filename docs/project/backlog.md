@@ -18,13 +18,6 @@ Fine-grained task tracking lives in [`odd/tasks/meeting-scribe.md`](../../odd/ta
 
 ## To do
 
-### [EPIC] F4 Review app — ADR-005
-
-- [ ] GTK4 + libadwaita app on system python, thin D-Bus client; presenters in pure Python (no `gi`) tested with pytest
-- [ ] Audio sample playback with `Gtk.MediaFile`
-- [ ] Rename and merge speakers
-- [ ] Launch from the extension menu "Review last meeting"
-
 ### [EPIC] F5 Summaries — ADR-006
 
 - [ ] `summaries` domain: `SummaryProvider` port
@@ -42,6 +35,8 @@ Raised after the first real recording (2026-10-09); recorded so nothing is lost,
 - [ ] Audio retention: setting to keep or drop the audio after review or after N days; optional Opus compression (about 230 MB/h today, about 20 MB/h as Opus)
 - [ ] A database (SQLite) only if search or long meeting lists need it; behind the `MeetingRepository` port
 - [ ] Recognise the same speaker across meetings (voice embeddings), out of the MVP
+- [ ] Suggest speaker names already used in earlier meetings while naming (F4 OQ-5: typed by hand for now); design together with cross-meeting voice recognition
+- [ ] Open the review app from the "Meeting processed" notification (F4 OQ-6: menu only for now); a `desktop-entry` hint needs a manual check in GNOME Shell
 - [ ] Import recordings made before F3 (no `meeting.json`) so they can be processed
 
 ### [EPIC] F6 Hardening
@@ -52,16 +47,14 @@ Raised after the first real recording (2026-10-09); recorded so nothing is lost,
 
 ## In progress
 
-### [EPIC] F3 Processing — ADR-002, ADR-003, ADR-004, ADR-007; spec [`processing.md`](../specs/processing.md)
+### [EPIC] F4 Review app — ADR-005
 
-- [x] F3.0 Design: processing spec + ADR-007 (GPU work in short-lived worker processes); open product questions answered by the user
-- [x] F3.1 `meetings` domain: `Meeting` entity and processing state machine, `MeetingRepository` (folder + versioned `meeting.json`), FIFO queue, worker protocol and subprocess runner (timeouts, termination), resume at service start
-- [x] F3.2 `transcription` domain + faster-whisper worker stage (lazy import, CUDA preload with logging, no silent CPU fallback, params-keyed `words.json`), ML-isolation import contract
-- [x] F3.3a `speakers` domain: word assignment, utterances, numbering, transcript rendering, "Me" by per-frame energy dominance with bleed compensation, voice samples (PRs #65, #66)
-- [x] F3.3b pyannote diarization worker stage on the system channel
-- [x] F3.4a Wiring: Stop enqueues processing, recording preempts GPU work; D-Bus `Meetings1` (`List`, `Get`, `Reprocess`, processing signals); desktop notification
-- [x] F3.4b Extension shows the processing state (`Meetings1` proxy, menu line)
-- [x] F3.5 `make install` with the ML extra and model prefetch, runbook [`processing.md`](../runbooks/processing.md); real validation with the user's consent: install, opt-in GPU tests, and one real recording processed to DONE (2026-10-09)
+- [x] GTK4 + libadwaita app on system python, thin D-Bus client; presenters in pure Python (no `gi`) tested with pytest (validated by the owner on 2026-10-11)
+- [x] Audio sample playback with `Gtk.MediaFile` (validated by the owner on 2026-10-11)
+- [x] Rename and merge speakers (validated by the owner on 2026-10-11)
+- [x] Launch from the extension menu "Review last meeting" (validated by the owner on 2026-10-11)
+
+The epic stays in progress until the owner merges the tracker.
 
 ---
 
@@ -76,4 +69,5 @@ Raised after the first real recording (2026-10-09); recorded so nothing is lost,
 | 2026-10-09 | F0.3-F0.6 Docs, ADRs 001-006 and the F0 review approved | F0 |
 | 2026-10-09 | F1 Recording: `recording` domain, ffmpeg capture adapter, D-Bus `Recording1`, e2e on a private bus, systemd unit and activation file, runbook | PRs #16-#21 |
 | 2026-10-09 | F2 GNOME extension: panel indicator, D-Bus client, controller, packaging, runbook | PRs #33-#48 |
+| 2026-10-09 | F3 Processing: queued transcription and diarization after Stop, "Me" label, voice samples, D-Bus `Meetings1`, menu processing state, ML install with model prefetch, real GPU validation | tracker #52 (PRs #50-#80) |
 | 2026-10-09 | F2.5 `make install` / `make uninstall`: versioned uv tool, systemd user unit, D-Bus activation, extension enabled, idempotent, no restart while recording | F2.5 |

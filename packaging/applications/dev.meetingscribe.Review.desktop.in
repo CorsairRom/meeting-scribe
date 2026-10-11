@@ -1,0 +1,14 @@
+# Template rendered by `make install` (F4.6): the Exec placeholder becomes the stable path of the launcher
+# (<data home>/meeting-scribe/current/bin/meeting-scribe-review). The file name is the application
+# id of the review app, which GNOME Shell matches to the window for the icon and the dock grouping.
+[Desktop Entry]
+Type=Application
+Name=Meeting Scribe Review
+Comment=Name and merge the speakers of a processed meeting
+Exec=@EXEC@
+Icon=audio-input-microphone
+Terminal=false
+Categories=GNOME;GTK;Utility;
+StartupNotify=true
+StartupWMClass=dev.meetingscribe.Review
+DBusActivatable=false

@@ -470,7 +470,62 @@ own meeting, without reading its content into the repo or logs.
           content opened. User feedback recorded in the backlog "Later improvements" (storage layout,
           readable names, audio retention, DB only if needed, cross-meeting voices, legacy import) and
           F5 (menu opens the summary, not the transcript). Decision: F3 closes as is, then F4.
-### F4 Review UI — pending
+- [x] F3 docs gate: read-only audit (no P1/P2 left after #80), `make check` green, language scan clean
+      (no voseo in code, docs or commits; only neutral Spanish fixture words for non-ASCII tests).
+      Review review-9c4fa0825fe1a866 approved. Tracker #52 marked ready for the owner.
+### F4 Review app — in progress (integration `feat/review-app`, tracker #82)
+Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv run pytest` / `make check`
+(source: AGENTS.md). Route: delegated direct (one writer per task, 2+ non-trivial files each).
+- [x] F4.0a Language scan added to the "Integration PR docs gate" (#81; user rule: Spanish only in chat).
+- [x] F4.0b Design spec (delegated writer, `d6c1b72`); product decisions OQ-1..OQ-6 answered by the owner one
+      at a time: reset on reprocess; "Me" target-only, "Unknown" mergeable; duplicate names rejected with
+      merge-or-rename; unmerge included; no name suggestions; menu-only entry (notification action and name
+      suggestions moved to backlog "Later improvements").
+- [x] F4.1 `speakers`: speaker records, name rules, merge/unmerge, effective speakers, transcript rendering.
+      Delegated writer; ~1230 authored lines (split by behavior, over the heuristic). RED observed per unit.
+      Gaps resolved by the orchestrator from the owner's decisions: unmerge reverts an adopted name (kept if
+      renamed since), rejects a name clash; renaming a merged-away speaker rejected. Review
+      review-0200f4479043c15b approved with 2 warnings (chained adoption, inconsistent persisted state) fixed
+      in `57ba9b4`, review review-11be7b875a8e831a approved. Integrated #84-#86. GREEN 853 python / 108 gjs.
+      Follow-up (suggestion): validate_state does not reject a self-adoption record (unreachable by commands).
+- [x] F4.2 `meetings`: review section in meeting.json, reset on reprocess, lock, ReviewController.
+      Delegated writer; ~860 authored lines (~70% tests). RED observed (repository round trip is
+      characterization). Spec gaps accepted: GetSpeakers also requires DONE + lock; repair_stale logs id+code
+      and continues. Review review-7ca4c6939d1df53d approved (1 warning: unmapped error on the repair path,
+      fixed in `3e6a51e`), review-514d18b1ad9860ed approved. Integrated #87. GREEN 894 python / 108 gjs.
+- [x] F4.3 `Meetings1` review members + `SpeakersChanged`, api-contracts (first), error catalog, e2e.
+      Delegated writer; ~800 authored lines. RED observed per behavior. Gaps accepted: sample errors live in
+      meetings (read through a meetings port); 1 MiB sample refusal; SpeakersChanged also fires when a job
+      ends DONE. Review review-9d039d6d0c138290 approved. Integrated #88-#89. GREEN 916 python / 108 gjs.
+      Follow-ups (suggestions): bounded read instead of stat-then-read for samples; test that a FAILED job
+      emits no SpeakersChanged; repair_stale runs synchronously at start (latency grows with stale meetings).
+- [x] F4.4a `review-app/` scaffold, core models/ports, import-linter roots and contracts (A-6 verified:
+      import-linter 2.15 supports two root packages; 12 contracts kept). Review review-c8b314a2c4be0c97 (4 lenses)
+      approved; 2 warnings fixed in `885ef7e` (review-0ffd2cc283da1af3 approved). Integrated #90.
+- [x] F4.4b core presenters (list, review, rename, merge, playback). First CRITICAL finding of the project
+      (late reply applied to another meeting) fixed by one bounded correction `bb1dba3`, validated by the
+      provider targeted validator; review review-562d369f1d637d8e approved. Integrated #91-#92. GREEN 1047
+      python / 108 gjs. The `_moment` OverflowError follow-up was fixed in F4.5 (`ebcfeeb`).
+- [x] F4.5a GTK ui: application, window, sidebar, transcript, D-Bus gateway; session/signal/launch helpers in
+      core; GO-050 (ui excluded from pyrefly), GO-051 (GTK/PyGObject facts). Integrated #93.
+- [x] F4.5b GTK ui: speaker rows, dialogs, unmerge, media player, banners. Review review-b65cfc0c45f369eb
+      (4 lenses) approved with warnings (markup in names, date fallback, flaky e2e wait, weak gi probe) fixed in
+      `f413761`; review-7659042cad0c69c2 approved. Integrated #94. GREEN 1095 python / 108 gjs. Widgets and
+      playback not run on a display (manual check in F4.8). Follow-ups for F4.6 first commit: e2e client has no
+      deadline (may hang if fewer signals), no test for the gateway INVALID_REPLY path (and KeyError/
+      AttributeError not caught), sidebar timestamp() may raise before the fallback.
+- [x] F4.6 packaging: launcher (pinned /usr/bin/python3), desktop entry written only after a successful switch
+      and removed on rollback to a pre-F4 version, Exec quoted per spec, uninstall removes only what install
+      created, runbook `docs/runbooks/review-app.md`, GO-052. Integrated #95 (+ hardening in #96).
+- [x] F4.7 extension "Review last meeting" item: only in IDLE/STOPPED/FAILED, hidden while busy, failure
+      notification (GO-053). Reviews review-f12a84b35a5dde44 (4 lenses) and review-e21ff1119217dad3 approved.
+      Integrated #96. GREEN 1123 python / 122 gjs. Follow-ups (docs gate): GO-052 still says REVIEW_APP_PYTHON
+      is test-only (it is also the run-review-app override); install test comments/asserts (rollback summary
+      comment, Exec parser `%%`, rollback-keep assertion, make dry-run return code).
+- [x] F4.8 validation with the owner's go (2026-10-11): `make install` (version 20261011162806-703787, review app
+      ready, Meetings1 review methods confirmed by introspection); the owner opened the app from the menu and
+      reported it works. Docs gate: read-only audit (5 P1, 5 P2 doc drifts, no code issue) fixed in `6718079`;
+      language scan clean; `make check` green (1123 python / 122 gjs, 12 contracts). Tracker #82 marked ready.
 ### F5 Summaries — pending
 ### F6 Install — pending
 

@@ -63,7 +63,11 @@ to merge:
    (file, line, what the code does instead) and graded P1 (wrong or misleading), P2 (stale or incomplete) or
    P3 (cosmetic).
 3. Every P1 and P2 finding is fixed in a docs PR into the integration branch. P3 findings are optional.
-4. Only then is the tracker PR marked ready.
+4. A language scan finds no Spanish (including Rioplatense voseo) in code, identifiers, comments, UI strings,
+   docs, commit messages or PR text. Spanish belongs only in the conversation with the owner. Test fixtures
+   that deliberately exercise non-ASCII transcript text (for example "mañana") are allowed. A quick scan:
+   `rg -l '[áéíóúñ¿¡]'` over the repository and `git log --format=%s <base>..HEAD`, then read each hit.
+5. Only then is the tracker PR marked ready.
 
 The drift tests catch mechanical drift only; the audit catches prose that no test can check.
 

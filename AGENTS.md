@@ -54,6 +54,7 @@ import-linter, errors as `returns.Result`.
 | Package or activate the service      | `packaging/` + `docs/runbooks/record-via-gdbus.md`             |
 | Set up or debug processing and models | `docs/runbooks/processing.md`                                 |
 | Pack, try or install the extension   | `docs/runbooks/gnome-extension.md`                             |
+| Install, open or debug the review app | `docs/runbooks/review-app.md`                                 |
 | Write a doc                          | `docs/README.md` (taxonomy) and `docs/_templates/`             |
 | Know when to update docs             | `docs/project/doc-sync-protocol.md`                            |
 | See the canonical shared-kernel code | `src/meeting_scribe/base/`                                     |
@@ -65,14 +66,14 @@ import-linter, errors as `returns.Result`.
 - **Work-unit commits**: each commit is one reviewable unit with its tests and docs. Branch per phase from `main` (for example `f1/feat-recording`).
 - **No push, no PR, no merge without asking.**
 - **Doc sync**: follow `docs/project/doc-sync-protocol.md`; update docs in the same commit as the code.
-- **Docs gate**: before an integration PR is reported as ready to merge, `make check` is green and a read-only docs audit has no open P1/P2 (see "Integration PR docs gate" in `docs/project/doc-sync-protocol.md`).
-- **Current phase**: F3 Processing (in progress); the phase table in `docs/project/mvp-scope.md` is the source of truth and a drift test keeps this line in sync.
+- **Docs gate**: before an integration PR is reported as ready to merge, `make check` is green and a read-only docs audit has no open P1/P2 and a language scan finds no Spanish outside chat (see "Integration PR docs gate" in `docs/project/doc-sync-protocol.md`).
+- **Current phase**: F4 Review app (in progress); the phase table in `docs/project/mvp-scope.md` is the source of truth and a drift test keeps this line in sync.
 - **Bug fix**: do not refactor unrelated code or widen scope.
 
 ## Tooling
 
 - **Package manager**: `uv` (Python ~=3.12). Dev tools are in the `quality-assurance` extra.
-- **Make targets**: `make setup` (`uv sync --extra ml --extra quality-assurance`), `make lint` (ruff + pyrefly + import-linter), `make format` (auto-fix), `make imports` (architecture contracts), `make test` (`pytest -m 'not gpu'`; GPU tests only with `uv run pytest -m gpu`), `make test-extension` (extension logic and D-Bus client against a private `dbus-daemon`, `gjs -m`), `make check` (lint + test + test-extension), `make install` / `make uninstall` (one-command plug-and-play install of service, ML stack, models and extension; agents run them only on the user's explicit go; `meeting-scribe prefetch-models` downloads the models and follows the same rule), `make run` (development only, foreground service), `make extension-pack` (build the extension zip into `dist/`), `make extension-install` (install it, does not enable).
+- **Make targets**: `make setup` (`uv sync --extra ml --extra quality-assurance`), `make lint` (ruff + pyrefly + import-linter), `make format` (auto-fix), `make imports` (architecture contracts), `make test` (`pytest -m 'not gpu'`; GPU tests only with `uv run pytest -m gpu`), `make test-extension` (extension logic and D-Bus client against a private `dbus-daemon`, `gjs -m`), `make check` (lint + test + test-extension), `make install` / `make uninstall` (one-command plug-and-play install of service, ML stack, models and extension; agents run them only on the user's explicit go; `meeting-scribe prefetch-models` downloads the models and follows the same rule), `make run` (development only, foreground service), `make run-review-app` (opens the review app window from the working tree; only on the user's explicit go), `make extension-pack` (build the extension zip into `dist/`), `make extension-install` (install it, does not enable).
 - **Linter/formatter**: ruff (`ruff.toml`, line length 100). **Type checker**: pyrefly (`pyrefly.toml`).
 - **Search/read tools**: prefer `rg`, `fd`, `bat`, `eza` over `grep`, `find`, `cat`, `ls`.
 

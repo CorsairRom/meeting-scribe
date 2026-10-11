@@ -18,6 +18,7 @@ A spec is the behavioral contract for one feature: goal, user stories, Gherkin a
 
 | Spec | Phase | Status |
 |---|---|---|
-| [`processing.md`](processing.md) | F3 | in-progress |
+| [`processing.md`](processing.md) | F3 | done |
+| [`review-app.md`](review-app.md) | F4 | in-progress |
 
 The "Me" versus system labelling algorithm (ADR-002) is specified in `processing.md` section 2.4.

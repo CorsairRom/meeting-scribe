@@ -51,7 +51,7 @@ flowchart LR
 | Capture | ffmpeg on PipeWire, 2-channel 30 s chunks | adapter built (F1.3) and wired in `main.py` (F1.4), [ADR-002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) |
 | Transcription | faster-whisper `large-v3-turbo`, float16, CUDA, in a short-lived worker process | built (F3.2) and wired into the service (F3.4a); [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
 | Diarization | pyannote `speaker-diarization-community-1` on the system channel (the microphone in person), in a short-lived worker process; then "Me", assignment, `transcript.md` and per-speaker voice samples | worker stage implemented (F3.3b; the real model run is pending the user's consent) and wired into the service (F3.4a), [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
-| Review UI | Native GTK4 + libadwaita app on system python, thin D-Bus client | planned (F4), [ADR-005](docs/decisions/005-review-ui-native-gtk-app.md) |
+| Review UI | Native GTK4 + libadwaita app on system python, thin D-Bus client | built (F4), [ADR-005](docs/decisions/005-review-ui-native-gtk-app.md) |
 | Summaries | `SummaryProvider` port, OpenAI-compatible adapter | planned (F5), [ADR-006](docs/decisions/006-summary-provider-openai-compatible.md) |
 | Storage | folder per meeting + versioned `meeting.json` | built (F3.1) and wired into the service (F3.4a), [ADR-004](docs/decisions/004-folder-per-meeting-json-storage.md) |
 
@@ -105,7 +105,7 @@ on its own, `AudioCapture.exit_detail()` gives the exit code plus the `ffmpeg.lo
 as the session `failure_reason` (generic text only when empty). Opening `ffmpeg.log` and spawning ffmpeg fail with
 distinct messages. Wired in `main.py`.
 
-The GNOME extension lives in `gnome-extension/` (F2, done) and the GTK review app in a separate top-level directory (planned, F4), both outside the Python package. Packaging files (systemd `--user` unit template and D-Bus activation file, installed by `make install`) live in `packaging/`.
+The GNOME extension lives in `gnome-extension/` (F2, done) and the GTK review app in a separate top-level directory `review-app/` (F4), both outside the Python package. Packaging files (systemd `--user` unit template and D-Bus activation file, installed by `make install`) live in `packaging/`.
 
 Extension layout (`gnome-extension/`): the extension itself is `meeting-scribe@meetingscribe.dev/`. Presentation logic (view model, elapsed formatting, D-Bus error to message mapping) lives in pure ES modules under `lib/` with no `gi://` or `resource:///org/gnome/shell/` imports, translated through an injected `_` function, and is unit-tested with `gjs -m` (`make test-extension`, tests in `gnome-extension/tests/`). Code that touches the Shell (`extension.js`, `lib/panelIndicator.js`, `lib/glibScheduler.js`) stays thin and only wires those modules.
 
@@ -135,8 +135,8 @@ package imports `settings` or `main` (settings are injected from the composition
 
 ### Enforced contracts
 
-Defined in `pyproject.toml` under `[tool.importlinter]` (`root_package = "meeting_scribe"`,
-`include_external_packages = true`) and checked by `make imports` (part of `make lint` and `make check`):
+Defined in `pyproject.toml` under `[tool.importlinter]` (`root_packages = ["meeting_scribe", "meeting_scribe_review"]`,
+`include_external_packages = true`; `make imports` puts `review-app/src` on `PYTHONPATH` so the app package resolves) and checked by `make imports` (part of `make lint` and `make check`):
 
 | # | Name | Type | Rule |
 |---|---|---|---|
@@ -148,6 +148,10 @@ Defined in `pyproject.toml` under `[tool.importlinter]` (`root_package = "meetin
 | 6 | Domain packages do not import settings or the composition root | forbidden | `base` and all domain packages may not import `meeting_scribe.main` or `meeting_scribe.settings` |
 | 7 | The service never imports ML libraries (only the two backends do, in the worker) | forbidden | no module of `meeting_scribe` may import `faster_whisper`, `ctranslate2`, `torch`, `torchaudio` or `pyannote`, except the faster-whisper backend (`faster_whisper`, `ctranslate2`) and the pyannote backend (`torch`, `pyannote`), both loaded only in the worker |
 | 8 | The service entry point never reaches the worker or its ML backends | forbidden | `meeting_scribe.main` may not import `meeting_scribe.worker` or the faster-whisper backend, directly or indirectly |
+| 9 | The app core never imports gi | forbidden | `meeting_scribe_review.core` may not import `gi` (only `ui` does, F4.5) |
+| 10 | The app and the service are independent | independence | `meeting_scribe` and `meeting_scribe_review` never import each other; the app reaches the service over D-Bus only |
+| 11 | The app has no service-side dependencies | forbidden | `meeting_scribe_review` may not import `pydantic`, `pydantic_settings`, `returns`, `dbus_fast` or `numpy` (it runs on system Python) |
+| 12 | App layers: ui over core | layers | `meeting_scribe_review.ui` may import `core`, never the reverse |
 
 ---
 

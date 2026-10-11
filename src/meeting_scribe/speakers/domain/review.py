@@ -1,0 +1,297 @@
+"""Speaker review rules: names, merges and the effective view (review-app spec 2 and 9).
+
+Pure functions over values. Edits are stored non-destructively: a name lives on its record and a
+merge is an entry of ``merged_into``; utterances and samples are never touched, so an unmerge is
+exact. Error messages carry speaker ids only, never a name (names are private).
+"""
+
+import unicodedata
+from collections.abc import Mapping, Sequence
+
+from pydantic import BaseModel, ConfigDict, Field
+from returns.result import Failure, Result, Success
+
+from meeting_scribe.base.domain.errors import (
+    EntityNotFoundError,
+    InvalidValueError,
+    MeetingScribeError,
+)
+from meeting_scribe.speakers.domain.errors import (
+    SpeakerMergeInvalidError,
+    SpeakerNameTakenError,
+    TranscriptCorruptError,
+)
+from meeting_scribe.speakers.domain.turns import Utterance
+
+MAX_NAME_LENGTH = 64
+"""Longest name, in code points, after NFC normalisation and trimming."""
+
+_FORBIDDEN_CATEGORIES = frozenset({"Cc", "Cf"})
+
+
+class SpeakerRecord(BaseModel):
+    """A speaker as stored in ``meeting.json``: the F3 result plus the user's name."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    label: str
+    name: str = ""
+    is_me: bool = False
+    talk_seconds: float = 0.0
+    utterance_count: int = 0
+    sample: str = ""
+
+    @property
+    def display(self) -> str:
+        return self.name or self.label
+
+
+class ReviewState(BaseModel):
+    """Every speaker plus the merge map ``source id -> target id`` (never chained)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    speakers: tuple[SpeakerRecord, ...]
+    merged_into: dict[str, str]
+    name_adopted_from: dict[str, str] = Field(default_factory=dict)
+    """``target id -> source id`` while the target shows the name it took from that source."""
+
+    def find(self, speaker_id: str) -> SpeakerRecord | None:
+        return next((s for s in self.speakers if s.id == speaker_id), None)
+
+    def is_active(self, speaker_id: str) -> bool:
+        return speaker_id not in self.merged_into
+
+
+def validate_state(state: ReviewState) -> Result[ReviewState, MeetingScribeError]:
+    """Reject a state read from ``meeting.json`` that no sequence of commands could have made.
+
+    Unique speaker ids; merge sources and targets are known speakers; a target is never itself
+    merged (no chains, no cycles, no self merge); "Me" is never a source; adoption records name
+    known speakers.
+    """
+    ids = {s.id for s in state.speakers}
+    me_ids = {s.id for s in state.speakers if s.is_me}
+    merged = state.merged_into
+    consistent = (
+        len(ids) == len(state.speakers)
+        and all(
+            source in ids
+            and target in ids
+            and source != target
+            and target not in merged
+            and source not in me_ids
+            for source, target in merged.items()
+        )
+        and all(k in ids and v in ids for k, v in state.name_adopted_from.items())
+    )
+    if consistent:
+        return Success(state)
+    return Failure(TranscriptCorruptError("The speaker review state is inconsistent."))
+
+
+def validate_name(raw: str) -> Result[str, InvalidValueError]:
+    """NFC, trimmed; empty clears the name; at most 64 code points; no control or format chars."""
+    name = unicodedata.normalize("NFC", raw).strip()
+    if len(name) > MAX_NAME_LENGTH:
+        return Failure(
+            InvalidValueError(f"A speaker name has at most {MAX_NAME_LENGTH} characters.")
+        )
+    if any(unicodedata.category(char) in _FORBIDDEN_CATEGORIES for char in name):
+        return Failure(InvalidValueError("A speaker name cannot contain control characters."))
+    return Success(name)
+
+
+def rename(
+    state: ReviewState, speaker_id: str, raw_name: str
+) -> Result[ReviewState, MeetingScribeError]:
+    """Set (or, when empty, clear) the name of one speaker."""
+    return validate_state(state).bind(lambda valid: _rename(valid, speaker_id, raw_name))
+
+
+def _rename(
+    state: ReviewState, speaker_id: str, raw_name: str
+) -> Result[ReviewState, MeetingScribeError]:
+    target = state.find(speaker_id)
+    if target is None:
+        return Failure(_unknown_speaker(speaker_id))
+    if not state.is_active(speaker_id):
+        return Failure(
+            SpeakerMergeInvalidError(f"Speaker {speaker_id} is merged; unmerge it to rename it.")
+        )
+    validated = validate_name(raw_name)
+    if isinstance(validated, Failure):
+        return validated
+    name = validated.unwrap()
+    if name and _is_taken(state, speaker_id, name):
+        return Failure(SpeakerNameTakenError(f"That name is already used (speaker {speaker_id})."))
+    if name == target.name:
+        return Success(state)
+    adopted_from = {k: v for k, v in state.name_adopted_from.items() if k != speaker_id}
+    renamed = _replace(state, target.model_copy(update={"name": name}))
+    return Success(renamed.model_copy(update={"name_adopted_from": adopted_from}))
+
+
+def merge(
+    state: ReviewState, source_id: str, target_id: str
+) -> Result[ReviewState, MeetingScribeError]:
+    """Show ``source`` as ``target``. "Me" can be a target, never a source; targets never chain."""
+    return validate_state(state).bind(lambda valid: _merge(valid, source_id, target_id))
+
+
+def _merge(
+    state: ReviewState, source_id: str, target_id: str
+) -> Result[ReviewState, MeetingScribeError]:
+    source, target = state.find(source_id), state.find(target_id)
+    for speaker_id, record in ((source_id, source), (target_id, target)):
+        if record is None:
+            return Failure(_unknown_speaker(speaker_id))
+    if source is None or target is None:  # unreachable; narrows the types
+        return Failure(_unknown_speaker(source_id))
+    if source.is_me:
+        return Failure(SpeakerMergeInvalidError('"Me" cannot be merged into another speaker.'))
+    if source_id == target_id:
+        return Failure(SpeakerMergeInvalidError(f"Speaker {source_id} cannot merge into itself."))
+    if not state.is_active(source_id) or not state.is_active(target_id):
+        return Failure(SpeakerMergeInvalidError("A merged speaker cannot be a source or target."))
+    merged_into = {
+        child: (target_id if parent == source_id else parent)
+        for child, parent in state.merged_into.items()
+    }
+    merged_into[source_id] = target_id
+    adopts = not target.name and bool(source.name)
+    adopted_from = dict(state.name_adopted_from)
+    merged = state.model_copy(update={"merged_into": merged_into})
+    if adopts:
+        adopted_from[target_id] = source_id
+        merged = _replace(merged, target.model_copy(update={"name": source.name}))
+    return Success(merged.model_copy(update={"name_adopted_from": adopted_from}))
+
+
+def unmerge(state: ReviewState, speaker_id: str) -> Result[ReviewState, MeetingScribeError]:
+    """Restore the state before the merge; a no-op when the speaker is not merged.
+
+    Every speaker that took this speaker's name (directly, or through a chain of merges) gives it
+    back, unless the user renamed it since. A source whose own name now clashes with an active
+    speaker stays merged (SPEAKER_NAME_TAKEN).
+    """
+    checked = validate_state(state)
+    if isinstance(checked, Failure):
+        return checked
+    source = state.find(speaker_id)
+    if source is None:
+        return Failure(_unknown_speaker(speaker_id))
+    if speaker_id not in state.merged_into:
+        return Success(state)
+    restored = _give_back_adopted_name(state, source)
+    restored = restored.model_copy(
+        update={"merged_into": {k: v for k, v in restored.merged_into.items() if k != speaker_id}}
+    )
+    if source.name and _is_taken(restored, speaker_id, source.name):
+        return Failure(SpeakerNameTakenError(f"That name is already used (speaker {speaker_id})."))
+    return Success(restored)
+
+
+def _give_back_adopted_name(state: ReviewState, source: SpeakerRecord) -> ReviewState:
+    """Clear the name from everyone who adopted it from ``source``, following the adoption chain.
+
+    The adoption of ``source``'s own name from someone else is kept: that merge is still in force.
+    """
+    adopted_from = dict(state.name_adopted_from)
+    cleared: set[str] = set()
+    frontier = {source.id}
+    while frontier:
+        adopters = [
+            speaker
+            for speaker in state.speakers
+            if adopted_from.get(speaker.id) in frontier and speaker.name == source.name
+        ]
+        for adopter in adopters:
+            del adopted_from[adopter.id]
+            cleared.add(adopter.id)
+        frontier = {adopter.id for adopter in adopters}
+    adopted_from = {k: v for k, v in adopted_from.items() if v != source.id}
+    speakers = tuple(
+        s.model_copy(update={"name": ""}) if s.id in cleared else s for s in state.speakers
+    )
+    return state.model_copy(update={"speakers": speakers, "name_adopted_from": adopted_from})
+
+
+class EffectiveSpeaker(BaseModel):
+    """One ``GetSpeakers`` row: the speaker as the user sees it after names and merges."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    label: str
+    name: str
+    display: str
+    is_me: bool
+    talk_seconds: float
+    utterance_count: int
+    has_sample: bool
+    merged_into: str
+
+
+def effective_speakers(
+    state: ReviewState,
+) -> Result[tuple[EffectiveSpeaker, ...], MeetingScribeError]:
+    """Active speakers first ("Me", then by talk time), merged ones after; targets fold totals."""
+    checked = validate_state(state)
+    if isinstance(checked, Failure):
+        return checked
+    talk: dict[str, float] = {s.id: s.talk_seconds for s in state.speakers}
+    count: dict[str, int] = {s.id: s.utterance_count for s in state.speakers}
+    for source_id, target_id in state.merged_into.items():
+        talk[target_id] += talk[source_id]
+        count[target_id] += count[source_id]
+    ordered = sorted(
+        state.speakers,
+        key=lambda s: (not state.is_active(s.id), not s.is_me, -talk[s.id]),
+    )
+    return Success(
+        tuple(
+            EffectiveSpeaker(
+                id=s.id,
+                label=s.label,
+                name=s.name,
+                display=s.display,
+                is_me=s.is_me,
+                talk_seconds=round(talk[s.id], 3),
+                utterance_count=count[s.id],
+                has_sample=bool(s.sample),
+                merged_into=state.merged_into.get(s.id, ""),
+            )
+            for s in ordered
+        )
+    )
+
+
+def effective_utterances(
+    utterances: Sequence[Utterance], merged_into: Mapping[str, str]
+) -> tuple[Utterance, ...]:
+    """The utterances with every merged speaker shown as its target; nothing else changes."""
+    return tuple(
+        u.model_copy(update={"speaker": merged_into[u.speaker]}) if u.speaker in merged_into else u
+        for u in utterances
+    )
+
+
+def _is_taken(state: ReviewState, speaker_id: str, name: str) -> bool:
+    wanted = name.casefold()
+    for other in state.speakers:
+        if other.id == speaker_id or not state.is_active(other.id):
+            continue
+        if wanted in (other.display.casefold(), other.label.casefold()):
+            return True
+    return False
+
+
+def _replace(state: ReviewState, record: SpeakerRecord) -> ReviewState:
+    speakers = tuple(record if s.id == record.id else s for s in state.speakers)
+    return state.model_copy(update={"speakers": speakers})
+
+
+def _unknown_speaker(speaker_id: str) -> EntityNotFoundError:
+    return EntityNotFoundError(f"Unknown speaker {speaker_id}.", detail_code="SPEAKER")

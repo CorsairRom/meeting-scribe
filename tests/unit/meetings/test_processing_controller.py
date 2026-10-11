@@ -786,3 +786,25 @@ def test_an_unexpected_crash_fails_the_job_and_announces_status_and_failure() ->
     assert fx.events.finished_ids == ["m1"]
     assert fx.events.status_changes > announced  # the return to idle is announced too
     assert fx.controller.status().active_state == "IDLE"
+
+
+def test_hold_is_the_lock_the_processing_loop_saves_under() -> None:
+    controller = Fixture().controller
+    blocked = threading.Event()
+    finished = threading.Event()
+
+    def read_status() -> None:
+        blocked.set()
+        controller.status()
+        finished.set()
+
+    with controller.hold():
+        with controller.hold():  # re-entrant for the same thread
+            pass
+        thread = threading.Thread(target=read_status)
+        thread.start()
+        assert blocked.wait(2)
+        assert not finished.wait(0.2)
+    thread.join(2)
+
+    assert finished.is_set()

@@ -20,6 +20,7 @@ UNINSTALL = SCRIPTS / "uninstall.sh"
 UNIT = "meeting-scribe.service"
 ACTIVATION = "dev.meetingscribe.Service.service"
 EXTENSION = "meeting-scribe@meetingscribe.dev"
+DESKTOP_ENTRY = "dev.meetingscribe.Review.desktop"
 COREUTILS = [
     "bash",
     "env",
@@ -93,6 +94,20 @@ case "$1" in
   enable) [ "${FAKE_EXT_ENABLE_FAIL:-0}" = 1 ] && exit 2 || exit 0 ;;
 esac
 """,
+    # The review app's interpreter probe. Each probe fails when its own name is listed in
+    # FAKE_GI_MISSING (comma separated: gi, Gtk, Adw). Any other call just succeeds.
+    "python3": """
+missing=",${FAKE_GI_MISSING:-},"
+case "$*" in
+  *Adw*) [[ "$missing" == *,Adw,* ]] && exit 1 ;;
+  *Gtk*) [[ "$missing" == *,Gtk,* ]] && exit 1 ;;
+  *"import gi"*) [[ "$missing" == *,gi,* ]] && exit 1 ;;
+esac
+echo "python3-run PYTHONPATH=${PYTHONPATH:-} PYTHONDONTWRITEBYTECODE=${PYTHONDONTWRITEBYTECODE:-}" \
+     "args=$*" >> "$FAKE_LOG"
+exit 0
+""",
+    "update-desktop-database": "",
     "gdbus": """
 mode="${FAKE_GDBUS_MODE:-noowner}"
 case "$*" in
@@ -143,6 +158,10 @@ class Env:
         return self.home / ".local" / "share" / "meeting-scribe"
 
     @property
+    def desktop_entry(self) -> Path:
+        return self.home / ".local" / "share" / "applications" / DESKTOP_ENTRY
+
+    @property
     def exe(self) -> Path:
         return self.root / "current" / "bin" / "meeting-scribe"
 
@@ -159,10 +178,10 @@ class Env:
     def calls(self) -> list[str]:
         return self.log.read_text().splitlines() if self.log.exists() else []
 
-    def run(self, script: Path, **extra: str) -> subprocess.CompletedProcess[str]:
+    def run(self, script: Path, *args: str, **extra: str) -> subprocess.CompletedProcess[str]:
         env = {**self.env, **extra}
         return subprocess.run(  # noqa: S603  # fixed argv, sandboxed PATH
-            [str(self.env["BASH"]), str(script)],
+            [str(self.env["BASH"]), str(script), *args],
             env=env,
             capture_output=True,
             text=True,
@@ -193,6 +212,7 @@ def _sandbox(tmp_path: Path) -> Env:
         "PATH": str(fakes),
         "FAKE_LOG": str(log),
         "BASH": str(shutil.which("bash")),
+        "REVIEW_APP_PYTHON": str(fakes / "python3"),
     }
     return Env(home=home, log=log, env=env)
 
@@ -906,3 +926,231 @@ def test_the_legacy_install_is_the_unit_pointing_at_the_default_uv_tool_bin_dir(
     assert "uv tool dir --bin" in calls
     query_env = next(line for line in calls if line.startswith("uv-env-dir"))
     assert query_env == "uv-env-dir UV_TOOL_DIR= UV_TOOL_BIN_DIR="
+
+
+# -- the review app (F4.6) -------------------------------------------------------------------
+
+
+def _version_dir(sandbox: Env) -> Path:
+    (version,) = sandbox.versions
+    return version
+
+
+def test_install_copies_the_review_app_into_the_version_without_bytecode(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, **IDLE)
+    assert result.returncode == 0, result.stderr
+    package = _version_dir(sandbox) / "app" / "meeting_scribe_review"
+    assert (package / "__main__.py").is_file()
+    assert (package / "ui" / "window.py").is_file()
+    assert not list((_version_dir(sandbox) / "app").rglob("__pycache__"))
+
+
+def test_the_launcher_runs_the_app_with_system_python_from_its_own_version(sandbox: Env) -> None:
+    sandbox.run(INSTALL, **IDLE)
+    launcher = _version_dir(sandbox) / "bin" / "meeting-scribe-review"
+    assert launcher.stat().st_mode & 0o111
+    sandbox.log.write_text("")
+    done = sandbox.run(launcher, "--meeting", "m1")
+    assert done.returncode == 0, done.stderr
+    (call,) = [line for line in sandbox.calls() if line.startswith("python3-run")]
+    assert f"PYTHONPATH={_version_dir(sandbox)}/app" in call
+    assert "PYTHONDONTWRITEBYTECODE=1" in call
+    assert "args=-m meeting_scribe_review --meeting m1" in call
+
+
+def test_the_launcher_interpreter_is_the_system_one_by_default() -> None:
+    text = (SCRIPTS / "_common.sh").read_text()
+    assert 'REVIEW_APP_PYTHON="${REVIEW_APP_PYTHON:-/usr/bin/python3}"' in text
+
+
+def _exec_argv(entry: Path) -> list[str]:
+    """Parse the Exec line the way the Desktop Entry specification says a launcher must."""
+    line = next(x for x in entry.read_text().splitlines() if x.startswith("Exec="))
+    value = line.removeprefix("Exec=").replace("\\\\", "\x00")  # string level: \\ -> \
+    value = value.replace("\x00", "\\")
+    argv: list[str] = []
+    current, quoted, started, i = "", False, False, 0
+    while i < len(value):
+        ch = value[i]
+        if quoted and ch == "\\":
+            current += value[i + 1]
+            i += 2
+            continue
+        if ch == '"':
+            quoted, started = not quoted, True
+        elif ch == " " and not quoted:
+            if started:
+                argv.append(current)
+            current, started = "", False
+        else:
+            current, started = current + ch, True
+        i += 1
+    if started:
+        argv.append(current)
+    return argv
+
+
+def test_install_renders_the_desktop_entry_with_the_stable_current_path(sandbox: Env) -> None:
+    sandbox.run(INSTALL, **IDLE)
+    lines = sandbox.desktop_entry.read_text().splitlines()
+    launcher = sandbox.root / "current" / "bin" / "meeting-scribe-review"
+    assert _exec_argv(sandbox.desktop_entry) == [str(launcher)]
+    for expected in (
+        "Type=Application",
+        "Icon=audio-input-microphone",
+        "Categories=GNOME;GTK;Utility;",
+        "StartupNotify=true",
+        "StartupWMClass=dev.meetingscribe.Review",
+        "DBusActivatable=false",
+    ):
+        assert expected in lines
+    assert not any("@" in line for line in lines)  # every placeholder was rendered
+
+
+def test_the_exec_line_is_spec_valid_for_spaces_and_reserved_characters(
+    sandbox: Env, tmp_path: Path
+) -> None:
+    data = tmp_path / 'a b&c|d$e`f"g\\h%i' / "share"
+    result = sandbox.run(INSTALL, XDG_DATA_HOME=str(data), **IDLE)
+    assert result.returncode == 0, result.stderr
+    entry = data / "applications" / DESKTOP_ENTRY
+    expected = f"{data}/meeting-scribe/current/bin/meeting-scribe-review"
+    assert _exec_argv(entry) == [expected.replace("%", "%%")]
+    line = next(x for x in entry.read_text().splitlines() if x.startswith("Exec="))
+    assert line.startswith('Exec="') and line.endswith('"')  # one quoted argument
+
+
+def test_a_rollback_to_a_version_without_the_launcher_removes_the_entry(sandbox: Env) -> None:
+    sandbox.run(INSTALL, **IDLE)
+    (first,) = sandbox.versions
+    (first / "bin" / "meeting-scribe-review").unlink()  # stands in for a pre-F4 install
+    result = sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_SYSTEMCTL_FAIL="restart", **IDLE)
+    assert "rolled back" in result.stdout
+    assert not sandbox.desktop_entry.exists()
+    assert "review app: " in result.stdout  # the summary still reports the new, kept version
+
+
+def test_a_rollback_to_a_version_with_the_launcher_keeps_the_entry(sandbox: Env) -> None:
+    sandbox.run(INSTALL, **IDLE)
+    sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_SYSTEMCTL_FAIL="restart", **IDLE)
+    assert sandbox.desktop_entry.exists()
+
+
+def test_the_entry_is_written_only_after_the_switch_succeeded(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, FAKE_UV_FAIL="1", **IDLE)
+    assert result.returncode != 0
+    assert not sandbox.desktop_entry.exists()
+
+
+def test_a_failed_first_start_leaves_an_entry_for_the_kept_version(sandbox: Env) -> None:
+    # No previous version to roll back to: the new one stays in charge, so its entry stays.
+    sandbox.run(INSTALL, FAKE_SYSTEMCTL_FAIL="enable", **IDLE)
+    assert sandbox.desktop_entry.exists()
+
+
+def test_install_refreshes_the_desktop_database_when_the_tool_exists(sandbox: Env) -> None:
+    sandbox.run(INSTALL, **IDLE)
+    applications = sandbox.desktop_entry.parent
+    assert f"update-desktop-database {applications}" in sandbox.calls()
+
+
+def test_install_works_without_update_desktop_database(sandbox: Env) -> None:
+    (Path(sandbox.env["PATH"]) / "update-desktop-database").unlink()
+    result = sandbox.run(INSTALL, **IDLE)
+    assert result.returncode == 0, result.stderr
+    assert sandbox.desktop_entry.exists()
+
+
+def test_the_summary_says_the_review_app_is_ready(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, **IDLE)
+    summary = result.stdout.split("meeting-scribe installed")[1]
+    assert "review app: ready" in summary
+
+
+@pytest.mark.parametrize(
+    ("missing", "packages"),
+    [
+        ("gi", ["python3-gobject", "gtk4", "libadwaita"]),
+        ("Gtk", ["gtk4"]),
+        ("Adw", ["libadwaita"]),
+    ],
+)
+def test_a_missing_system_package_only_warns_and_names_the_packages(
+    sandbox: Env, missing: str, packages: list[str]
+) -> None:
+    result = sandbox.run(INSTALL, FAKE_GI_MISSING=missing, **IDLE)
+    assert result.returncode == 0, result.stderr
+    summary = result.stdout.split("meeting-scribe installed")[1]
+    line = next(x for x in summary.splitlines() if "review app:" in x)
+    assert "NOT usable" in line
+    for package in packages:
+        assert package in line
+    assert "gstreamer1-plugins-good" in summary
+    assert sandbox.desktop_entry.exists()  # still installed, only the toolkit is missing
+
+
+def test_an_absent_system_python_is_reported_the_same_way(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, REVIEW_APP_PYTHON="/nonexistent/python3", **IDLE)
+    assert result.returncode == 0, result.stderr
+    summary = result.stdout.split("meeting-scribe installed")[1]
+    assert "review app: NOT usable (missing: python3-gobject" in summary
+
+
+def test_the_review_app_never_runs_a_window_during_install(sandbox: Env) -> None:
+    sandbox.run(INSTALL, **IDLE)
+    runs = [line for line in sandbox.calls() if line.startswith("python3-run")]
+    assert all("args=-c " in line for line in runs)  # only the import probes, never the app
+    assert not any("meeting_scribe_review" in line for line in runs)
+
+
+def test_uninstall_removes_the_desktop_entry_and_the_app_but_not_other_entries(
+    sandbox: Env,
+) -> None:
+    _installed(sandbox)
+    other = sandbox.desktop_entry.parent / "other.desktop"
+    other.write_text("[Desktop Entry]\n")
+    result = sandbox.run(UNINSTALL, **IDLE)
+    assert result.returncode == 0, result.stderr
+    assert not sandbox.desktop_entry.exists()
+    assert other.exists()
+    assert not sandbox.root.exists()  # the launcher and the app went with versions/
+    assert f"update-desktop-database {other.parent}" in sandbox.calls()
+
+
+def test_uninstall_without_an_entry_is_still_clean(sandbox: Env) -> None:
+    result = sandbox.run(UNINSTALL, **IDLE)
+    assert result.returncode == 0, result.stderr
+
+
+def test_a_rolled_back_install_keeps_the_previous_launcher_reachable(sandbox: Env) -> None:
+    sandbox.run(INSTALL, **IDLE)
+    (first,) = sandbox.versions
+    sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_SYSTEMCTL_FAIL="restart", **IDLE)
+    assert (sandbox.root / "current").resolve() == first.resolve()
+    assert (sandbox.root / "current" / "bin" / "meeting-scribe-review").is_file()
+
+
+def test_make_run_review_app_uses_system_python_and_the_working_tree() -> None:
+    dry = subprocess.run(
+        ["make", "-n", "run-review-app"],  # noqa: S607  # dry run: prints, never runs
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert dry.returncode == 0, dry.stderr
+    assert "PYTHONPATH=review-app/src" in dry.stdout
+    assert "/usr/bin/python3 -m meeting_scribe_review" in dry.stdout
+    override = subprocess.run(
+        ["make", "-n", "run-review-app", "REVIEW_APP_PYTHON=/opt/py/python3"],  # noqa: S607
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert "/opt/py/python3 -m meeting_scribe_review" in override.stdout
+
+
+def test_the_desktop_template_has_exactly_one_exec_placeholder() -> None:
+    template = (ROOT / "packaging" / "applications" / f"{DESKTOP_ENTRY}.in").read_text()
+    assert template.count("@EXEC@") == 1  # the bash render splits on the first occurrence

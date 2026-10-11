@@ -1,7 +1,7 @@
 ---
 type: registry
 status: living  # ALWAYS 'living' — this doc is never "finished"
-last_updated: 2026-10-09
+last_updated: 2026-10-11
 update_frequency: on-every-decision
 ai_instructions:
   - "This is the PROJECT LOGBOOK. Rules accumulate, they are not replaced."
@@ -421,11 +421,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 46 | 0 | 0 |
+| GO | 53 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-046 — 2026-10-09
-**Next available IDs**: BR-005, CR-014, GO-047, AP-005
+**Last rule added**: GO-053 — 2026-10-11
+**Next available IDs**: BR-005, CR-014, GO-054, AP-005
 
 ---
 
@@ -447,3 +447,38 @@ with `Supersedes: <ID>`. Never delete rules.
 - **Detail**: when `enqueue` fails after Stop (storage error), `ProcessingRecordingListener` logs the code and sends one desktop notification with fixed text (no meeting id, no content): the recording is saved, its processing could not be queued, check the service log and the runbook (no retry is promised: a restart only resumes a `meeting.json` that exists). A `meeting.json` that did get written is resumed at the next start by `resume()`; a recording folder without one is not rediscovered. The GPU is released in every case (GO-045). In the extension, `MeetingsClient` forgets the last result when a job starts (`ActiveState` leaves `IDLE`) and whenever the service appears or vanishes, so a missed `ProcessingFinished` cannot resurrect a handled failure; a proxy that cannot be built is logged once through `logError` and the client stays unavailable.
 - **Source**: [processing spec](../specs/processing.md) section 8
 - **Verifiable in**: `tests/unit/test_handoff.py`, `gnome-extension/tests/meetingsClient.test.js`
+
+### GO-049 — A speaker review edit is two saves of meeting.json around the transcript write, under the processing lock
+- **Date**: 2026-10-11
+- **Status**: active
+- **Detail**: `ReviewController` saves `meeting.json` with `speaker_review.transcript_stale = true`, rewrites `transcript.md`, then saves it again with the flag cleared; the edit is never lost, a crash in between leaves the flag set and `repair_stale()` (service start) or the next call redoes the last two steps. Every call runs inside `MeetingLock.hold()` (the processing controller's condition, re-entrant) and only on a `DONE` meeting (`MEETING_NOT_PROCESSED` otherwise). `Meeting.reprocess()` and `complete()` reset `speaker_review` and the new run replaces the names (OQ-1). The speakers package's `TRANSCRIPT_CORRUPT` and `TRANSCRIPT_STORAGE_FAILED` become `MEETING_CORRUPT` and `MEETING_STORAGE_FAILED` at this boundary. Errors never quote a name. The D-Bus adapter (F4.3) serves it: `GetSpeakers`, `GetTranscript`, `GetSpeakerSample` (bytes read through the `SampleReader` port, bounded to 1 MiB, resolved inside the meeting folder, listed id only) and the three edits run in `asyncio.to_thread`; `SpeakersChanged` is emitted only when an edit changed something and when a job ends `DONE`. `create_app` wires the controller with `ProcessingController` as its lock and `serve()` calls `repair_stale()` right after `resume()`.
+- **Source**: [review app spec](../specs/review-app.md) section 2, AC-10, AC-11, F4.2
+- **Verifiable in**: `tests/unit/meetings/test_review_controller.py`, `tests/unit/meetings/test_meeting.py`
+
+### GO-050 — The review app's `ui` package is not type checked; its logic lives in `core`
+- **Date**: 2026-10-11
+- **Status**: active
+- **Detail**: `gi` has no stubs and is not installed in the project venv (Python 3.12), so pyrefly cannot resolve `gi.repository`. Decision (the fork deferred from F4.4): `pyrefly.toml` excludes `review-app/src/meeting_scribe_review/ui/**` through `project-excludes`; `core` stays fully checked, and ruff and import-linter still cover `ui`. A local stub for Gtk, Adw and Gio was rejected: it would be hand-written API knowledge that drifts from the installed typelibs, for modules that only bind presenters to widgets. The compensating controls are the import smoke test on system Python (`tests/unit/review_app/test_ui_imports_on_system_python.py`, which also asserts that importing opens no display), the variant codec test run under `/usr/bin/python3`, and `tests/e2e/meetings/test_review_app_gateway.py`, which drives `DBusGateway` against the real `MeetingsInterface` on a private bus. Keep `ui` modules declarative: anything with a branch worth testing moves to `core` (`ReviewSession`, `AvailabilityFilter`, `dispatch_signal`, `meeting_id_from_options`). `ruff.toml` ignores N802 (`do_*` virtual methods) and PLW0108 (late-bound lambdas) for `ui` only.
+- **Source**: [review app spec](../specs/review-app.md) section 6, F4.4, F4.5a
+- **Verifiable in**: `pyrefly.toml`, `tests/unit/review_app/test_ui_imports_on_system_python.py`, `tests/e2e/meetings/test_review_app_gateway.py`
+
+### GO-051 — PyGObject and libadwaita facts the review app depends on (verified on PyGObject 3.56.3, GTK 4.22, libadwaita 1.9)
+- **Date**: 2026-10-11
+- **Status**: active
+- **Detail**: (1) `GLib.Variant.unpack()` turns `ay` into a list of ints; `unpack_reply` reads it through `get_data_as_bytes()` so a sample arrives as `bytes`. `a{sv}` rows unpack to plain dicts and `a(...)` to lists of tuples, which is what the parsers take. (2) `from gi.repository import Gtk` initialises GTK on import; with no display `Gdk.Display.get_default()` is `None` and `Gtk.is_initialized()` is still `True`, so the import test runs with no display variable and asserts on the display. (3) `Adw.StatusPage` is final and cannot be subclassed (`could not create new GType`); wrap it. (4) `Gio.DBusProxy.new_for_bus` with `DO_NOT_AUTO_START_AT_CONSTRUCTION` never wakes the service by merely watching it; a method call still activates it, and an absent service answers `org.freedesktop.DBus.Error.ServiceUnknown`, read with `Gio.DBusError.get_remote_error` (never the message, which can hold private text). (5) `Gio.bus_watch_name` reports the current state of the name once at start; `AvailabilityFilter` treats that first report as a baseline so start-up does not flash a "not running" error. (6) `Gio.Application` with `HANDLES_COMMAND_LINE` takes `--meeting ID` through `add_main_option` and `do_command_line`; `command_line.get_options_dict().end().unpack()` is a plain dict. (7) `Adw.NavigationSplitView`, `Adw.Breakpoint`, `Adw.Banner`, `Adw.ToolbarView`, `Adw.NavigationPage.new(child, title)` exist with the names used in `ui/window.py` (checked on the installed typelib and in the libadwaita docs through Context7).
+- **Source**: [review app spec](../specs/review-app.md) section 6, "Library facts to verify"
+- **Verifiable in**: `tests/unit/review_app/test_dbus_codec.py`, `tests/unit/review_app/test_ui_imports_on_system_python.py`, `tests/e2e/meetings/test_review_app_gateway.py`
+
+### GO-052 — The review app installs next to the service version, on system Python, with a desktop entry
+- **Date**: 2026-10-11
+- **Status**: active
+- **Detail**: (1) `install.sh` copies the app and renders the launcher inside `versions/<id>/` before `current` moves, so a rollback restores service and app together; the launcher pins the interpreter (`REVIEW_APP_PYTHON`, default `/usr/bin/python3`) because a venv or `uv` Python has no PyGObject. `REVIEW_APP_PYTHON` is an interpreter override: tests substitute a fake, and `make run-review-app` uses it too. (2) The desktop entry is rendered by bash splitting on the first `@EXEC@`, so the template must contain that token exactly once (a mention in a comment would be rendered instead of the `Exec` line); its `Exec` uses the stable `current/` path, so it needs no rewrite on upgrade, and it is written only after the switch (a rollback removes it when the restored version has no `bin/meeting-scribe-review`, so a pre-F4 version never leaves a dangling entry); the single `Exec` argument is always double-quoted and escaped per the Desktop Entry specification (`"`, backtick, `$` and `\` escaped, `%` doubled, backslashes doubled again at file level), so data directories with spaces or reserved characters work. (3) The toolkit check is three read-only imports and only warns; the summary line is `review app: ready` or `review app: NOT usable (missing: ...)`. (4) `uninstall.sh` removes only the desktop entry itself; the launcher and the app go with `versions/`. (5) Tests substitute `python3` and `update-desktop-database` fakes; no test starts the app.
+- **Source**: [review app spec](../specs/review-app.md) section 8, F4.6
+- **Verifiable in**: `scripts/install.sh`, `scripts/uninstall.sh`, `packaging/applications/dev.meetingscribe.Review.desktop.in`, `tests/unit/test_install_scripts.py`
+
+### GO-053 — The "Review last meeting" item launches a desktop entry and never touches meeting data
+- **Date**: 2026-10-11
+- **Status**: active
+- **Detail**: (1) The item is offered whenever the service is available and the state is not `RECORDING` (`IDLE`, `STOPPED` or `FAILED`; never in an unknown state, which stays inert), because the extension cannot know whether a `DONE` meeting exists without calling `List`, which the meetings client contract forbids; the app's empty state covers it. It is hidden while a call is in flight, in every state (the menu then shows only "Working…" or the inert unknown-state line). (2) `launchReview()` is injected into the controller and implemented in `extension.js` as `Gio.DesktopAppInfo.new('dev.meetingscribe.Review.desktop')?.launch([], null) ?? false`: a missing entry (`new` returns `null`) and a failed launch both count as failure, and the controller shows one fixed notification (`launchFailureMessage`) and never the launch error, which can hold paths. (3) The launch is a short, non-blocking hand-off to the shell's app launcher, with no ML and no D-Bus call of ours, so it stays within ADR-001; it needs a check in a real shell. (4) A `desktop-entry` notification action stays out of F4 (OQ-6).
+- **Source**: [review app spec](../specs/review-app.md) section 8, AC-16, A-7, A-8; F4.7
+- **Verifiable in**: `gnome-extension/tests/indicatorModel.test.js`, `gnome-extension/tests/indicatorController.test.js`, `gnome-extension/tests/shellGlue.test.js`

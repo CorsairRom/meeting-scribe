@@ -21,6 +21,12 @@ class MeetingProcessingActiveError(InvalidStateTransitionError):
     error_code = "MEETING_PROCESSING_ACTIVE"
 
 
+class MeetingNotProcessedError(InvalidStateTransitionError):
+    """A review member was called on a meeting that is not ``DONE``."""
+
+    error_code = "MEETING_NOT_PROCESSED"
+
+
 class MeetingAudioMissingError(MeetingScribeError):
     error_code = "MEETING_AUDIO_MISSING"
 
