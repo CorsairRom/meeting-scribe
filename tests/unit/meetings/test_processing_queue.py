@@ -8,7 +8,7 @@ from returns.result import Failure
 
 from meeting_scribe.meetings.domain.errors import WorkerCancelledError
 from meeting_scribe.meetings.domain.meeting import RecordingInfo
-from tests.unit.meetings.fakes import RECORDING, T0
+from tests.unit.meetings.fakes import RECORDING, T0, transcribe_ok
 from tests.unit.meetings.test_processing_controller import Fixture
 
 WAIT = 5.0
@@ -130,3 +130,54 @@ def test_preempt_before_the_worker_spawns_never_starts_it() -> None:
 
     assert fx.controller.run_next() is False
     assert fx.runner.calls == []
+
+
+def test_no_worker_while_a_local_summary_runs(served: tuple[Fixture, threading.Thread]) -> None:
+    fx, _ = served
+    assert fx.lease.acquire("summary")  # a local summary holds the GPU
+
+    fx.controller.enqueue("m1", RECORDING).unwrap()
+    time.sleep(0.2)
+    assert fx.runner.calls == []
+    assert fx.controller.run_next() is False
+
+    fx.lease.release("summary")
+    fx.controller.wake()  # what the summary controller does when it ends
+    _wait_for(lambda: fx.events.finished_ids == ["m1"])
+
+
+def test_a_worker_holds_the_lease_for_its_job_and_frees_it_after() -> None:
+    fx = Fixture()
+    seen: list[bool] = []
+
+    def watching(job, on_event, cancel):
+        seen.append(fx.lease.available("summary"))
+        return transcribe_ok(job, on_event, cancel)
+
+    fx.runner.behaviours[("m1", "transcribe")] = watching
+    fx.controller.enqueue("m1", RECORDING).unwrap()
+
+    assert fx.controller.run_next() is True
+
+    assert seen == [False]  # a local summary is refused while a worker runs
+    assert fx.lease.available("summary")
+
+
+def test_a_recording_holds_the_lease_until_it_is_released() -> None:
+    fx = Fixture()
+
+    fx.controller.preempt()
+    assert not fx.lease.available("summary")
+
+    fx.controller.release()
+    assert fx.lease.available("summary")
+
+
+def test_a_recording_start_revokes_a_local_summary() -> None:
+    fx = Fixture()
+    cancelled = threading.Event()
+    fx.lease.acquire("summary", on_revoke=cancelled.set)
+
+    fx.controller.preempt()
+
+    assert cancelled.is_set()

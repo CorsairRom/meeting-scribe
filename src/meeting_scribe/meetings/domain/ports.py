@@ -16,6 +16,7 @@ from meeting_scribe.meetings.domain.errors import (
     MeetingSchemaUnsupportedError,
     MeetingStorageError,
     NotificationError,
+    SummaryStorageError,
 )
 from meeting_scribe.meetings.domain.meeting import Meeting
 from meeting_scribe.meetings.domain.notification import Notification
@@ -50,6 +51,44 @@ class MeetingLock(Protocol):
 
     def hold(self) -> AbstractContextManager[object]:
         """Block until the lock is free; held for the ``with`` block, re-entrant per thread."""
+        ...
+
+
+type GpuHolder = Literal["recording", "processing", "summary"]
+
+
+class GpuLease(Protocol):
+    """Who may use the single GPU (ADR-003, ADR-007). Thread-safe; never blocks.
+
+    A ``recording`` is always granted and revokes every other holder (their ``on_revoke`` is
+    called); a ``processing`` worker or a local ``summary`` is granted only when nobody holds it.
+    """
+
+    def available(self, holder: GpuHolder) -> bool:
+        """Whether ``acquire`` would succeed now (the answer can change at once)."""
+        ...
+
+    def acquire(self, holder: GpuHolder, on_revoke: Callable[[], None] | None = None) -> bool:
+        """Take the lease; ``on_revoke`` runs, once, if a recording starts while it is held."""
+        ...
+
+    def release(self, holder: GpuHolder) -> None:
+        """Give it back; a holder that does not hold it is ignored."""
+        ...
+
+
+class SummaryFiles(Protocol):
+    """``summary.md`` inside a meeting folder; the controller never builds a path itself."""
+
+    def save(self, meeting_dir: Path, markdown: str) -> Result[str, SummaryStorageError]:
+        """Replace ``summary.md`` atomically, keeping the old one as the single backup.
+
+        The file name. A failure leaves the current ``summary.md`` as it was.
+        """
+        ...
+
+    def read(self, meeting_dir: Path) -> Result[str, MeetingScribeError]:
+        """The text; ``ENTITY_NOT_FOUND_SUMMARY`` when there is no file. No path in an error."""
         ...
 
 

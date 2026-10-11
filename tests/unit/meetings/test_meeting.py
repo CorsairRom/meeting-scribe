@@ -18,6 +18,7 @@ from meeting_scribe.meetings.domain.meeting import (
     RecordingInfo,
     SpeakerEntry,
     SpeakerReview,
+    SummaryInfo,
 )
 
 T0 = datetime(2026, 10, 9, 10, 15, tzinfo=timezone(timedelta(hours=2)))
@@ -297,3 +298,93 @@ def test_complete_clears_a_review_left_by_a_previous_run() -> None:
     done = meeting.complete(T0, (), {}, "es").unwrap()
 
     assert done.speaker_review == SpeakerReview()
+
+
+def _done() -> Meeting:
+    return (
+        _at("EXTRACTING_SAMPLES")
+        .complete(T0, (SpeakerEntry(id="S1", label="Speaker 1"),), {"transcript": "t.md"}, "es")
+        .unwrap()
+    )
+
+
+def _summary_info(fingerprint: str = "sha256:aa") -> SummaryInfo:
+    return SummaryInfo(
+        file="summary.md",
+        generated_at=T0,
+        provider="local",
+        cloud=False,
+        model="fake-model",
+        language="es",
+        title="Synthetic title",
+        input_fingerprint=fingerprint,
+        chunks=1,
+        prompt_version=2,
+    )
+
+
+def test_a_meeting_has_no_summary_section_until_the_first_success() -> None:
+    meeting = _done()
+
+    assert meeting.summary is None
+    assert "summary" not in meeting.model_dump(mode="json")
+
+
+def test_with_summary_sets_the_section_and_the_file_entry_on_a_copy() -> None:
+    meeting = _done()
+
+    summarized = meeting.with_summary(_summary_info())
+
+    assert meeting.summary is None
+    assert summarized.summary == _summary_info()
+    assert summarized.files == {"transcript": "t.md", "summary": "summary.md"}
+    assert summarized.model_dump(mode="json")["summary"]["input_fingerprint"] == "sha256:aa"
+
+
+def test_a_new_success_clears_the_last_failure() -> None:
+    failed = _done().with_summary(_summary_info()).with_summary_failure("SUMMARY_TIMEOUT", T0)
+
+    assert failed.summary is not None
+    assert failed.summary.last_failure is not None
+    assert failed.summary.file == "summary.md"  # the previous summary is kept
+
+    again = failed.with_summary(_summary_info("sha256:bb"))
+
+    assert again.summary is not None
+    assert again.summary.last_failure is None
+
+
+def test_a_failure_before_any_success_records_only_the_failure() -> None:
+    failed = _done().with_summary_failure("SUMMARY_PROVIDER_UNAVAILABLE", T0)
+
+    assert failed.summary is not None
+    assert failed.summary.file == ""
+    assert failed.summary.last_failure is not None
+    assert failed.summary.last_failure.error_code == "SUMMARY_PROVIDER_UNAVAILABLE"
+    assert failed.files == {"transcript": "t.md"}
+
+
+def test_reprocess_keeps_the_summary_section() -> None:
+    summarized = _done().with_summary(_summary_info())
+
+    queued = summarized.reprocess(T0).unwrap()
+
+    assert queued.summary == _summary_info()
+    assert queued.files["summary"] == "summary.md"
+
+
+def test_complete_after_a_reprocess_keeps_the_summary_section() -> None:
+    queued = _done().with_summary(_summary_info()).reprocess(T0).unwrap()
+    done = (
+        queued.start(T0, PARAMS)
+        .unwrap()
+        .transcription_done()
+        .unwrap()
+        .diarization_done()
+        .unwrap()
+        .complete(T0, (), {"transcript": "t.md"}, "es")
+        .unwrap()
+    )
+
+    assert done.summary == _summary_info()
+    assert done.files == {"transcript": "t.md", "summary": "summary.md"}

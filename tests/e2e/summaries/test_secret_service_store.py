@@ -14,6 +14,7 @@ from dbus_fast.annotations import DBusSignature, DBusStr
 from dbus_fast.service import ServiceInterface, dbus_method
 from returns.result import Failure, Success
 
+from meeting_scribe.summaries.infrastructure import secret_service_store
 from meeting_scribe.summaries.infrastructure.secret_service_store import SecretServiceKeyStore
 
 pytestmark = pytest.mark.dbus
@@ -165,12 +166,32 @@ def test_a_stalled_secret_service_times_out_as_unavailable(bus_address: str) -> 
     assert asyncio.run(main()).failure().error_code == "SUMMARY_CLOUD_KEY_UNAVAILABLE"
 
 
-def test_the_failure_log_carries_no_secret(
-    bus_address: str, caplog: pytest.LogCaptureFixture
-) -> None:
-    lookup(bus_address, FakeSecretService(unlocked=[ITEM], locked=[], secret=b"\xff\xfe"))
+def test_an_undecodable_secret_is_key_missing(bus_address: str) -> None:
+    result = lookup(bus_address, FakeSecretService(unlocked=[ITEM], locked=[], secret=b"\xff\xfe"))
 
+    assert isinstance(result, Failure)
+    assert result.failure().error_code == "SUMMARY_CLOUD_KEY_MISSING"
+
+
+def test_the_failure_log_carries_no_secret(
+    bus_address: str, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FailingDisconnect(MessageBus):
+        def disconnect(self) -> None:
+            super().disconnect()
+            raise RuntimeError(FAKE_SECRET)  # a failure after the secret was read
+
+    monkeypatch.setattr(secret_service_store, "MessageBus", FailingDisconnect)
+    service = FakeSecretService(unlocked=[ITEM], locked=[], secret=FAKE_SECRET.encode())
+
+    result = lookup(bus_address, service)
+
+    assert isinstance(result, Failure)
+    assert result.failure().error_code == "SUMMARY_CLOUD_KEY_UNAVAILABLE"
+    assert "RuntimeError" in caplog.text
     assert FAKE_SECRET not in caplog.text
+    assert FAKE_SECRET.encode() not in caplog.text.encode()
+    assert str(FAKE_SECRET.encode()) not in caplog.text
 
 
 def test_the_lookup_works_from_a_thread_with_a_running_event_loop(bus_address: str) -> None:

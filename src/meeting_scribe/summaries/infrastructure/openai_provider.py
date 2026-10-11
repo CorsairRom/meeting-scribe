@@ -12,7 +12,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass
-from typing import cast
+from typing import Literal, cast
 
 import httpx2
 import openai
@@ -56,14 +56,18 @@ _RETRY_AFTER_MAX_SECONDS = 60.0
 @dataclass
 class _Outcome:
     result: Result[Completion, SummaryError]
-    kind: str = "final"
-    """``final``, ``transient`` (failed before the stream: retry with backoff) or ``midstream``."""
+    kind: Literal["final", "transient", "midstream"] = "final"
+    """``transient`` failed before the stream (retry with backoff); ``midstream`` broke after it."""
     delay: float | None = None
     """The provider's own ``Retry-After`` hint in seconds, when it sent one."""
 
 
 def _retry_after(response: httpx2.Response) -> float | None:
-    """The provider's ``retry-after-ms`` or ``retry-after`` (seconds) hint, within a sane bound."""
+    """The provider's ``retry-after-ms`` or ``retry-after`` (seconds) hint; ``None`` if absent.
+
+    A hint that is not a number or lies outside ``0..60`` seconds is ignored, so the caller falls
+    back to its own exponential backoff.
+    """
     for header, divisor in (("retry-after-ms", 1000.0), ("retry-after", 1.0)):
         try:
             seconds = float(response.headers[header]) / divisor
@@ -168,6 +172,8 @@ class OpenAiCompatibleProvider:
             http_client=self._http_client,
         )
         deadline = None if timeout_seconds is None else time.monotonic() + timeout_seconds
+        # ``max_retries`` is a budget per kind: up to that many transient retries, plus at most one
+        # mid-stream retry (none when it is 0), so a request can make 1 + max_retries + 1 attempts.
         transient_retries = 0
         midstream_retried = False
         while True:

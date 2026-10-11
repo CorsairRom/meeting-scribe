@@ -22,6 +22,7 @@ from meeting_scribe.meetings.domain.meeting import (
     RecordingInfo,
     SpeakerEntry,
     SpeakerReview,
+    SummaryInfo,
 )
 from meeting_scribe.meetings.infrastructure.filesystem_meeting_repository import (
     FilesystemMeetingRepository,
@@ -318,3 +319,22 @@ def test_the_speaker_review_round_trips_and_stays_on_schema_v1(tmp_path: Path) -
     assert document["schema_version"] == 1
     assert document["speaker_review"]["transcript_stale"] is True
     assert repo.get(meeting.id).unwrap() == meeting
+
+
+def test_the_summary_section_round_trips_and_is_absent_before_a_summary(tmp_path: Path) -> None:
+    repo = FilesystemMeetingRepository(tmp_path)
+    meeting = _meeting(tmp_path)
+    repo.save(meeting).unwrap()
+    assert "summary" not in json.loads((meeting.directory / "meeting.json").read_text())
+
+    summarized = meeting.with_summary(
+        SummaryInfo(
+            file="summary.md", generated_at=T0, input_fingerprint="sha256:aa", language="es"
+        )
+    ).with_summary_failure("SUMMARY_TIMEOUT", T0)
+    repo.save(summarized).unwrap()
+
+    assert repo.get(meeting.id).unwrap() == summarized
+    stored = json.loads((meeting.directory / "meeting.json").read_text())
+    assert stored["summary"]["last_failure"]["error_code"] == "SUMMARY_TIMEOUT"
+    assert stored["files"]["summary"] == "summary.md"
