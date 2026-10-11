@@ -529,7 +529,21 @@ Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv 
 ### F5 Summaries — in progress (integration `feat/summaries`)
 TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: delegated direct.
 - [x] F5.0a Phase start: F4 done, F5 in progress (mvp-scope, AGENTS, backlog, README, spec statuses).
-- [ ] F5.0b Design spec `docs/specs/summaries.md` and the owner's product decisions (one question at a time).
+- [x] F5.0b Design spec `docs/specs/summaries.md` (approved) + ADR-008 (Decisions section). Owner decisions
+      OQ-1..OQ-8 (2026-10-11): Decisions section; manual button only; names sent as written to the cloud;
+      meeting language, technical terms never translated; one backup on regenerate, stale on reprocess; default
+      `qwen3.5:9b`; menu opens summary.md in the default app; ONE button with SUMMARIES_PROVIDER, "(cloud)"
+      label and per-request confirmation when the provider is the cloud (safety rule 3).
+- [ ] F5.1 `summaries` domain: request, ports, chunker, prompt builder, renderer, fingerprint, errors (~350)
+- [ ] F5.2 `GenerateSummary` use case: single pass / map-reduce, cancel, progress, validation (~300)
+- [ ] F5.3 settings + OpenAI-compatible provider + Ollama model release + `openai` dependency (~400)
+- [ ] F5.4 `meetings`: SummaryInfo, SummaryController, GpuLease, backups, stale (~400)
+- [ ] F5.5 `Summaries1` D-Bus + wiring + api-contracts + e2e (~400)
+- [ ] F5.6a review app core: summaries gateway, presenters (~400)
+- [ ] F5.6b review app ui: summary view, button, confirmation, progress (~350)
+- [ ] F5.7 extension "Open last summary (date)" (~250)
+- [ ] F5.8 install Ollama/model check (warn only), runbook (~250)
+- [ ] F5.9 validation with consent (local run; cloud only on explicit go), docs gate
 ### F6 Install — pending
 
 ## Route log
