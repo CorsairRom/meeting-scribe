@@ -1,5 +1,8 @@
 project-includes = ["src/**/*.py", "tests/**/*.py", "review-app/src/**/*.py"]
 project-excludes = [
+    # `gi` has no stubs in the project venv (system Python only): the ui package is not type
+    # checked here; its logic lives in core, which is (rules registry GO-ui-typing).
+    "review-app/src/meeting_scribe_review/ui/**",
     "**/node_modules",
     "**/__pycache__",
     "**/*venv/**",

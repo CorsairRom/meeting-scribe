@@ -1,6 +1,10 @@
 """Display helpers and the transcript rows shown with speaker names (AC-8)."""
 
-from meeting_scribe_review.core.formatting import format_duration, format_timestamp
+from meeting_scribe_review.core.formatting import (
+    format_duration,
+    format_speaker_count,
+    format_timestamp,
+)
 from meeting_scribe_review.core.models import Utterance
 from meeting_scribe_review.core.transcript import TranscriptLine, build_transcript
 from tests.unit.review_app.fakes import speaker
@@ -42,3 +46,9 @@ def test_an_unknown_speaker_id_falls_back_to_the_id() -> None:
 
 def test_no_utterances_gives_no_lines() -> None:
     assert build_transcript([speaker("S1")], []) == []
+
+
+def test_speaker_counts_are_pluralised() -> None:
+    assert format_speaker_count(0) == "0 speakers"
+    assert format_speaker_count(1) == "1 speaker"
+    assert format_speaker_count(3) == "3 speakers"

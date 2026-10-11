@@ -1,1 +1,12 @@
-"""The only code of the review app that imports ``gi`` (views and adapters, F4.5)."""
+"""The only package that imports ``gi``: thin views and adapters over the presenters in ``core``.
+
+The toolkit versions are pinned here once, so every module below can import from
+``gi.repository`` directly.
+"""
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+gi.require_version("Gio", "2.0")
+gi.require_version("GLib", "2.0")

@@ -73,6 +73,10 @@ lint.ignore = [
 "tests/unit/meetings/test_worker_diarize_stage.py" = ["E402"]
 "tests/unit/speakers/test_filesystem_transcript_files.py" = ["E402"]
 
+# GObject virtual methods are named ``do_*`` (N802); a lambda that reads ``self._session`` late is
+# needed in the window because the widgets are built before the session exists (PLW0108).
+"review-app/src/meeting_scribe_review/ui/*.py" = ["N802", "PLW0108"]
+
 # D-Bus member names are PascalCase by convention (api-contracts.md).
 "src/**/infrastructure/dbus/*_interface.py" = ["N802"]
 
