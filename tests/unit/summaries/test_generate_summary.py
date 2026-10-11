@@ -24,9 +24,11 @@ from meeting_scribe.summaries.domain.prompts import PROMPT_VERSION
 from meeting_scribe.summaries.domain.request import SummaryRequest
 from tests.unit.summaries.factories import line, request
 from tests.unit.summaries.fakes import (
+    LOCALIZED_OUTPUT,
     VALID_OUTPUT,
     FakeCancel,
     FakeClock,
+    FakeHeadingCatalog,
     FakeProvider,
     FakeReleaser,
     by_prompt_kind,
@@ -50,8 +52,9 @@ def _use_case(
     provider: FakeProvider,
     releaser: FakeReleaser | None = None,
     clock: Callable[[], float] = time.monotonic,
+    catalog: FakeHeadingCatalog | None = None,
 ) -> GenerateSummary:
-    return GenerateSummary(provider, releaser or FakeReleaser(), clock)
+    return GenerateSummary(provider, releaser or FakeReleaser(), clock, catalog)
 
 
 def _progress() -> tuple[list[tuple[int, int]], Callable[[int, int], None]]:
@@ -355,3 +358,47 @@ def test_the_per_call_time_is_never_below_the_minimum() -> None:
     assert len(provider.timeouts) == 2
     assert provider.timeouts[1] is not None
     assert provider.timeouts[1] >= MIN_CALL_SECONDS
+
+
+def test_localized_headings_are_asked_for_validated_and_rendered() -> None:
+    catalog = FakeHeadingCatalog()
+    provider = FakeProvider(by_prompt_kind(final=LOCALIZED_OUTPUT))
+
+    summary = (
+        _use_case(provider, catalog=catalog).run(request(language="zz"), FakeCancel()).unwrap()
+    )
+
+    assert "zz" in catalog.asked
+    assert "## Alpha topics" in summary.text.markdown
+    assert "## Delta questions" in summary.text.markdown
+    assert "## Alpha topics" in provider.requests[0][0].content
+
+
+def test_output_with_headings_of_another_language_is_repaired_once() -> None:
+    provider = FakeProvider(by_prompt_kind(final=VALID_OUTPUT))
+
+    result = _use_case(provider, catalog=FakeHeadingCatalog()).run(
+        request(language="zz"), FakeCancel()
+    )
+
+    assert isinstance(result.failure(), SummaryOutputInvalidError)
+    assert len(provider.requests) == 2
+
+
+def test_an_unlisted_language_gets_english_headings_and_a_body_language_request() -> None:
+    provider = FakeProvider()
+
+    summary = (
+        _use_case(provider, catalog=FakeHeadingCatalog())
+        .run(request(language="xx"), FakeCancel())
+        .unwrap()
+    )
+
+    assert "## Topics" in summary.text.markdown
+    assert "xx" in provider.requests[0][0].content
+
+
+def test_the_default_catalog_is_english() -> None:
+    summary = _use_case(FakeProvider()).run(request(language="es"), FakeCancel()).unwrap()
+
+    assert "## Topics" in summary.text.markdown

@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict
 from returns.result import Failure, Result, Success
 
 from meeting_scribe.summaries.domain.errors import SummaryOutputInvalidError
-from meeting_scribe.summaries.domain.headings import Headings, headings_for
+from meeting_scribe.summaries.domain.headings import Headings
 from meeting_scribe.summaries.domain.request import SummaryRequest
 
 SECTION_COUNT = 4
@@ -53,9 +53,8 @@ def parse_body(output: str, headings: Headings) -> Result[SummaryBody, SummaryOu
     )
 
 
-def render_summary(request: SummaryRequest, body: SummaryBody) -> SummaryText:
+def render_summary(request: SummaryRequest, body: SummaryBody, h: Headings) -> SummaryText:
     """Compose the file: the facts come from the request, never from the model."""
-    h = headings_for(request.language)
     minutes = max(1, round(request.duration_seconds / 60))
     started = request.started_at
     header = [

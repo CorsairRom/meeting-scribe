@@ -594,7 +594,7 @@ It uses the official `openai` Python client (new dependency, assumption A-5):
   "title": "<model-written short title>",
   "input_fingerprint": "sha256:<hex>",
   "chunks": 3,
-  "prompt_version": 1,
+  "prompt_version": 2,
   "last_failure": {"error_code": "SUMMARY_TIMEOUT", "at": "2026-10-11T10:40:00+00:00"}
 }
 ```

@@ -2,11 +2,11 @@
 
 from collections.abc import Sequence
 
-from meeting_scribe.summaries.domain.headings import Headings, headings_for, language_name
+from meeting_scribe.summaries.domain.headings import Headings, language_name
 from meeting_scribe.summaries.domain.ports import Message
 from meeting_scribe.summaries.domain.request import SummaryRequest
 
-PROMPT_VERSION = 1
+PROMPT_VERSION = 2
 """Stored with each summary; bump it when the prompt text changes."""
 
 _NOTES_SEPARATOR = "\n\n---\n\n"
@@ -15,9 +15,9 @@ _NOTES_SEPARATOR = "\n\n---\n\n"
 class PromptBuilder:
     """Builds the messages of every request kind of one summary."""
 
-    def __init__(self, request: SummaryRequest) -> None:
+    def __init__(self, request: SummaryRequest, headings: Headings) -> None:
         self._request = request
-        self._headings = headings_for(request.language)
+        self._headings = headings
         self._language = language_name(request.language)
 
     def single_pass(self, transcript: str) -> list[Message]:
@@ -95,7 +95,8 @@ class PromptBuilder:
         return (
             "You write meeting minutes.\n"
             f"{self._rules()}\n"
-            f"Write the headings in {self._language} too; use exactly this output format:\n"
+            "Use exactly this output format. Copy the headings and labels exactly as shown (do not"
+            f" translate the headings); write everything else in {self._language}:\n"
             "# <short title, one line>\n"
             f"## {h.topics}\n### 1. <topic>\n- <point>\n"
             f"## {h.decisions}\n- <decision>\n"
