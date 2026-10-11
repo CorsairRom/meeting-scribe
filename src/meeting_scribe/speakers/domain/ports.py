@@ -84,3 +84,19 @@ class TranscriptFiles(Protocol):
     def discard(self, meeting_dir: Path) -> None:
         """Drop the staging area, keeping the previous run. Never fails."""
         ...
+
+
+class UtterancesStore(Protocol):
+    """Reads the stored utterances and rewrites the derived ``transcript.md`` (review edits)."""
+
+    def load(self, meeting_dir: Path) -> Result[tuple[Utterance, ...], MeetingScribeError]:
+        """The utterances in time order, each under its stable speaker id.
+
+        ``ENTITY_NOT_FOUND_TRANSCRIPT`` when the file is absent, ``TRANSCRIPT_CORRUPT`` when it is
+        damaged. Never raises and never quotes the content in an error.
+        """
+        ...
+
+    def write_transcript(self, meeting_dir: Path, text: str) -> Result[str, MeetingScribeError]:
+        """Replace ``transcript.md`` atomically; the file name, or ``TRANSCRIPT_STORAGE_FAILED``."""
+        ...

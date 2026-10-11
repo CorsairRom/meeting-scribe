@@ -229,3 +229,29 @@ class FakeTranscriptFiles:
 
     def discard(self, meeting_dir: Path) -> None:
         self.calls.append("discard")
+
+
+class InMemoryUtterancesStore:
+    """``UtterancesStore`` without files; records every transcript written."""
+
+    def __init__(
+        self,
+        utterances: Sequence[Utterance] = (),
+        load_failure: MeetingScribeError | None = None,
+        write_failure: MeetingScribeError | None = None,
+    ) -> None:
+        self._utterances = tuple(utterances)
+        self._load_failure = load_failure
+        self._write_failure = write_failure
+        self.written: list[tuple[Path, str]] = []
+
+    def load(self, meeting_dir: Path) -> Result[tuple[Utterance, ...], MeetingScribeError]:
+        if self._load_failure is not None:
+            return Failure(self._load_failure)
+        return Success(self._utterances)
+
+    def write_transcript(self, meeting_dir: Path, text: str) -> Result[str, MeetingScribeError]:
+        if self._write_failure is not None:
+            return Failure(self._write_failure)
+        self.written.append((meeting_dir, text))
+        return Success("transcript.md")

@@ -21,11 +21,10 @@ from returns.result import Failure, Result, Success
 from meeting_scribe.base.domain.audio import SAMPLE_RATE, Samples
 from meeting_scribe.speakers.domain.errors import DiarizationError
 from meeting_scribe.speakers.domain.samples import Clip
+from meeting_scribe.speakers.domain.transcript import TRANSCRIPT_FILE, UTTERANCES_FILE
 from meeting_scribe.speakers.domain.turns import SpeakerLabel, Utterance
 
 SAMPLES_DIR = "samples"
-UTTERANCES_FILE = "utterances.json"
-TRANSCRIPT_FILE = "transcript.md"
 STAGING_DIR = ".assembling"
 BACKUP_DIR = ".commit.old"
 DONE_DIR = ".commit.done"

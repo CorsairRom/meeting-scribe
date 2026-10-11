@@ -23,3 +23,18 @@ class SpeakerMergeInvalidError(InvalidValueError):
     """Self merge, a merged-away source or target, or "Me" as the source."""
 
     error_code = "SPEAKER_MERGE_INVALID"
+
+
+class TranscriptCorruptError(MeetingScribeError):
+    """``utterances.json`` exists but is damaged; the message never quotes its content.
+
+    ``meetings`` maps it to ``MEETING_CORRUPT`` at the boundary (domains do not import each other).
+    """
+
+    error_code = "TRANSCRIPT_CORRUPT"
+
+
+class TranscriptStorageError(MeetingScribeError):
+    """``transcript.md`` could not be written; ``meetings`` maps it to a storage failure."""
+
+    error_code = "TRANSCRIPT_STORAGE_FAILED"
