@@ -60,7 +60,7 @@ def test_confirming_merges_source_into_target_and_reports_the_rows() -> None:
     presenter, _, applied = _presenter(gateway)
     presenter.start("m1", "S2", SPEAKERS)
     presenter.confirm("S1")
-    assert gateway.names_of("merge_speakers") == [("m1", "S2", "S1")]
+    assert gateway.args_of("merge_speakers") == [("m1", "S2", "S1")]
     assert applied == [("m1", rows)]
     assert presenter.state.status is MergeStatus.IDLE
 
@@ -77,7 +77,7 @@ def test_merging_directly_is_used_by_the_duplicate_name_flow() -> None:
     gateway = FakeGateway()
     presenter, _, applied = _presenter(gateway)
     presenter.merge("m1", "S2", "S1")
-    assert gateway.names_of("merge_speakers") == [("m1", "S2", "S1")]
+    assert gateway.args_of("merge_speakers") == [("m1", "S2", "S1")]
     assert len(applied) == 1
 
 
@@ -88,7 +88,7 @@ def test_a_second_press_while_busy_is_ignored() -> None:
     presenter.confirm("S1")
     assert presenter.state.status is MergeStatus.BUSY
     presenter.confirm("ME")
-    assert len(gateway.names_of("merge_speakers")) == 1
+    assert len(gateway.args_of("merge_speakers")) == 1
 
 
 def test_a_service_refusal_shows_its_message_and_applies_nothing() -> None:
@@ -102,6 +102,15 @@ def test_a_service_refusal_shows_its_message_and_applies_nothing() -> None:
     assert applied == []
 
 
+def test_invalid_value_on_a_merge_gets_the_generic_message() -> None:
+    gateway = FakeGateway()
+    gateway.fail("merge_speakers", "INVALID_VALUE")
+    presenter, _, _ = _presenter(gateway)
+    presenter.start("m1", "S2", SPEAKERS)
+    presenter.confirm("S1")
+    assert presenter.state.message == "The request was not valid."
+
+
 def test_cancel_closes_the_dialog() -> None:
     presenter, _, _ = _presenter(FakeGateway())
     presenter.start("m1", "S2", SPEAKERS)
@@ -113,7 +122,7 @@ def test_unmerge_restores_the_speaker_and_reports_the_rows() -> None:
     gateway = FakeGateway()
     presenter, _, applied = _presenter(gateway)
     presenter.unmerge("m1", "S3")
-    assert gateway.names_of("unmerge_speaker") == [("m1", "S3")]
+    assert gateway.args_of("unmerge_speaker") == [("m1", "S3")]
     assert len(applied) == 1
 
 

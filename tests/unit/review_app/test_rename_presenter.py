@@ -56,7 +56,7 @@ def test_submit_sends_the_trimmed_name_and_reports_the_rows() -> None:
     rig = _Rig(gateway)
     rig.presenter.start("m1", "S2", SPEAKERS)
     rig.presenter.submit("  Fake Bea  ")
-    assert gateway.names_of("rename_speaker") == [("m1", "S2", "Fake Bea")]
+    assert gateway.args_of("rename_speaker") == [("m1", "S2", "Fake Bea")]
     assert rig.applied == [("m1", rows)]
     assert rig.state.status is RenameStatus.IDLE
 
@@ -82,7 +82,7 @@ def test_an_empty_name_clears_the_name() -> None:
     rig = _Rig(FakeGateway())
     rig.presenter.start("m1", "S1", SPEAKERS)
     rig.presenter.submit("   ")
-    assert rig.gateway.names_of("rename_speaker") == [("m1", "S1", "")]
+    assert rig.gateway.args_of("rename_speaker") == [("m1", "S1", "")]
 
 
 def test_a_taken_name_offers_to_merge_or_to_edit() -> None:
@@ -144,6 +144,15 @@ def test_another_service_error_shows_its_message_and_keeps_editing() -> None:
     assert rig.applied == []
 
 
+def test_invalid_value_from_the_service_is_worded_as_a_name_problem() -> None:
+    gateway = FakeGateway()
+    gateway.fail("rename_speaker", "INVALID_VALUE")
+    rig = _Rig(gateway)
+    rig.presenter.start("m1", "S2", SPEAKERS)
+    rig.presenter.submit("Fake Bea")
+    assert rig.state.problem == "That name is not valid."
+
+
 def test_a_second_submit_while_busy_is_ignored() -> None:
     gateway = FakeGateway(deferred=True)
     rig = _Rig(gateway)
@@ -151,7 +160,7 @@ def test_a_second_submit_while_busy_is_ignored() -> None:
     rig.presenter.submit("Fake Bea")
     assert rig.state.status is RenameStatus.BUSY
     rig.presenter.submit("Fake Cy")
-    assert len(gateway.names_of("rename_speaker")) == 1
+    assert len(gateway.args_of("rename_speaker")) == 1
 
 
 def test_cancel_closes_the_dialog() -> None:

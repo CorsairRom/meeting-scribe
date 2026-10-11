@@ -1,6 +1,6 @@
 """Parsers turn the plain values of the Meetings1 replies into models (AC-1, AC-8, AC-13)."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from meeting_scribe_review.core.errors import INVALID_REPLY
 from meeting_scribe_review.core.models import MeetingSummary, Speaker, Utterance
@@ -34,20 +34,35 @@ def test_parse_meeting_summaries() -> None:
         [
             MeetingSummary(
                 id="m1",
-                started_at=datetime.fromisoformat("2026-10-09T10:15:00+00:00"),
+                started_at=datetime(2026, 10, 9, 10, 15, tzinfo=UTC),
                 duration_seconds=61.5,
                 state="DONE",
                 active_speaker_count=2,
             ),
             MeetingSummary(
                 id="m0",
-                started_at=datetime.fromisoformat("2026-10-08T09:00:00"),
+                started_at=datetime(2026, 10, 8, 9, 0).astimezone(UTC),
                 duration_seconds=0.0,
                 state="QUEUED",
                 active_speaker_count=0,
             ),
         ]
     )
+
+
+def test_timestamps_are_normalised_to_utc_so_they_always_compare() -> None:
+    result = parse_meeting_summaries(
+        [
+            ("a", "2026-10-09T12:00:00+02:00", 1.0, "DONE", 1),
+            ("b", "2026-10-09T09:30:00", 1.0, "DONE", 1),  # naive: local time
+            ("c", "2026-10-09T09:00:00+00:00", 1.0, "DONE", 1),
+        ]
+    )
+    assert isinstance(result, Ok)
+    assert all(m.started_at.utcoffset() == UTC.utcoffset(None) for m in result.value)
+    assert result.value[0].started_at == datetime(2026, 10, 9, 10, 0, tzinfo=UTC)
+    assert result.value[1].started_at == datetime(2026, 10, 9, 9, 30).astimezone(UTC)
+    assert len(sorted(result.value, key=lambda m: m.started_at)) == 3
 
 
 def test_parse_meeting_summaries_rejects_a_bad_date() -> None:

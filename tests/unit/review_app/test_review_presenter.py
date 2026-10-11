@@ -158,7 +158,7 @@ def test_a_late_reply_for_a_previous_meeting_is_dropped() -> None:
     presenter.open("m1", "DONE")
     presenter.open("m2", "DONE")
     gateway.release(0)  # the speakers of m1 arrive after m2 was opened
-    assert gateway.names_of("get_transcript") == []
+    assert gateway.args_of("get_transcript") == []
     gateway.release(0)  # the speakers of m2
     gateway.release(0)  # the transcript of m2
     assert presenter.state.meeting_id == "m2" and presenter.state.status is ReviewStatus.READY
@@ -214,6 +214,6 @@ def test_a_late_reply_cannot_ready_a_read_only_meeting_opened_after_it() -> None
     presenter.open("m1", "DONE")
     presenter.open("m2", "TRANSCRIBING")
     gateway.release(0)  # the speakers of m1 arrive after m2 was opened
-    assert gateway.names_of("get_transcript") == []
+    assert gateway.args_of("get_transcript") == []
     assert presenter.state.meeting_id == "m2"
     assert presenter.state.status is ReviewStatus.READ_ONLY and not presenter.state.editable

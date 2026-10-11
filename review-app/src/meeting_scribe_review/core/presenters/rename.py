@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
-from meeting_scribe_review.core.errors import ServiceError, message_for
+from meeting_scribe_review.core.errors import RENAME_CALL, ServiceError, message_for
 from meeting_scribe_review.core.gateway import MeetingsGateway
 from meeting_scribe_review.core.models import Speaker
 from meeting_scribe_review.core.names import NameProblemKind, check_name, problem_message
@@ -122,7 +122,7 @@ class RenamePresenter:
     def _finished(self, name: str, result: Result[list[Speaker], ServiceError]) -> None:
         state = self._state
         if isinstance(result, Err):
-            self._publish(self._editing(name, message_for(result.error).text))
+            self._publish(self._editing(name, message_for(result.error, call=RENAME_CALL).text))
             return
         self._publish(RenameState())
         self._on_applied(state.meeting_id, result.value)

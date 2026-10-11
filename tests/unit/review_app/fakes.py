@@ -99,7 +99,7 @@ class FakeGateway:
     def watch(self, listener: GatewayListener) -> None:
         self.listeners.append(listener)
 
-    def names_of(self, method: str) -> list[tuple[Any, ...]]:
+    def args_of(self, method: str) -> list[tuple[Any, ...]]:
         return [args for name, args in self.calls if name == method]
 
 

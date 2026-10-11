@@ -5,7 +5,7 @@ which may hold private names or transcript text.
 """
 
 from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from meeting_scribe_review.core.errors import INVALID_REPLY, ServiceError
@@ -47,9 +47,12 @@ def _seconds(value: Any) -> float:
 
 def _moment(value: Any) -> datetime:
     try:
-        return datetime.fromisoformat(_text(value))
+        moment = datetime.fromisoformat(_text(value))
     except ValueError as error:
         raise _InvalidReplyError from error
+    # The service sends aware timestamps; a naive one is read as local time. Always UTC, so
+    # moments compare and sort without a naive/aware TypeError.
+    return moment.astimezone(UTC)
 
 
 def _tuple(row: Any, size: int) -> Sequence[Any]:

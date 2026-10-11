@@ -125,7 +125,7 @@ def test_service_events_refresh_the_list_and_keep_the_selection() -> None:
         lambda: presenter.on_speakers_changed("m3"),
     ):
         event()
-    assert len(gateway.names_of("list_meetings")) == 4
+    assert len(gateway.args_of("list_meetings")) == 4
 
 
 def test_a_meeting_that_finishes_is_selected_when_nothing_was() -> None:

@@ -40,9 +40,9 @@ def test_a_duplicate_name_can_be_resolved_by_merging_into_that_speaker() -> None
     rename.submit("fake alex")
     assert rename.state.status is RenameStatus.CONFLICT
     rename.merge_into_conflict()
-    assert gateway.names_of("merge_speakers") == [("m1", "S2", "S1")]
+    assert gateway.args_of("merge_speakers") == [("m1", "S2", "S1")]
     assert [row.id for row in review.state.merged] == ["S2"]
-    assert gateway.names_of("rename_speaker") == []
+    assert gateway.args_of("rename_speaker") == []
     assert player.events == []
 
 

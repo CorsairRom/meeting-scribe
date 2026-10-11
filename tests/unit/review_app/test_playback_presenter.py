@@ -30,7 +30,7 @@ def test_nothing_plays_until_the_user_presses_play() -> None:
 def test_pressing_play_fetches_the_sample_and_plays_it() -> None:
     presenter, gateway, player, _ = _rig()
     presenter.press("m1", "S1")
-    assert gateway.names_of("get_speaker_sample") == [("m1", "S1")]
+    assert gateway.args_of("get_speaker_sample") == [("m1", "S1")]
     assert player.played == [b"WAV-S1"]
     assert presenter.state.status_of("S1") is PlaybackStatus.PLAYING
 
@@ -66,7 +66,7 @@ def test_a_second_press_reuses_the_sample_kept_in_memory() -> None:
     presenter.press("m1", "S1")
     presenter.press("m1", "S1")  # stop
     presenter.press("m1", "S1")
-    assert len(gateway.names_of("get_speaker_sample")) == 1
+    assert len(gateway.args_of("get_speaker_sample")) == 1
     assert len(player.played) == 2
 
 
@@ -129,7 +129,7 @@ def test_switching_meeting_stops_playback_and_forgets_the_other_samples() -> Non
     assert player.events[-1] == ("stop", None)
     assert presenter.state.status_of("S1") is PlaybackStatus.IDLE
     presenter.press("m1", "S1")
-    assert len(gateway.names_of("get_speaker_sample")) == 2
+    assert len(gateway.args_of("get_speaker_sample")) == 2
 
 
 def test_pressing_in_another_meeting_stops_the_old_one_first() -> None:
@@ -145,7 +145,7 @@ def test_closing_the_window_stops_playback_and_drops_the_samples() -> None:
     presenter.close()
     assert player.events[-1] == ("stop", None)
     presenter.press("m1", "S1")
-    assert len(gateway.names_of("get_speaker_sample")) == 2
+    assert len(gateway.args_of("get_speaker_sample")) == 2
 
 
 def test_closing_while_idle_does_not_touch_the_player() -> None:
@@ -160,4 +160,4 @@ def test_forgetting_a_meeting_drops_its_samples_after_a_reprocess() -> None:
     presenter.stop()
     presenter.forget("m1")
     presenter.press("m1", "S1")
-    assert len(gateway.names_of("get_speaker_sample")) == 2
+    assert len(gateway.args_of("get_speaker_sample")) == 2
