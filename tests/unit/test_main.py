@@ -11,24 +11,32 @@ from meeting_scribe.main import (
     Application,
     ProcessingAdapters,
     RecordingAdapters,
+    SummaryAdapters,
     _real_processing_adapters,
+    _real_summary_adapters,
     build_processing_config,
     create_app,
     run,
 )
 from meeting_scribe.meetings.application.processing_controller import ProcessingController
+from meeting_scribe.meetings.infrastructure.filesystem_summary_files import FilesystemSummaryFiles
 from meeting_scribe.meetings.infrastructure.processing_settings import ProcessingSettings
 from meeting_scribe.meetings.infrastructure.subprocess_worker_runner import SubprocessWorkerRunner
 from meeting_scribe.recording.application.recording_controller import RecordingController
 from meeting_scribe.settings import Settings, StorageSettings, get_settings
 from meeting_scribe.speakers.domain.params import AssemblyParams, DiarizationParams
 from meeting_scribe.speakers.infrastructure.speakers_settings import SpeakersSettings
+from meeting_scribe.summaries.domain.headings import EnglishHeadingCatalog
+from meeting_scribe.summaries.infrastructure.openai_provider import OpenAiCompatibleProvider
+from meeting_scribe.summaries.infrastructure.secret_service_store import SecretServiceKeyStore
+from meeting_scribe.summaries.infrastructure.summaries_settings import SummariesSettings
 from meeting_scribe.transcription.domain.params import TranscriptionParams
 from meeting_scribe.transcription.infrastructure.transcription_settings import (
     TranscriptionSettings,
 )
 from tests.unit.meetings.fakes import (
     FakeAudioInspector,
+    FakeKeyStore,
     FakeNotifier,
     InMemoryMeetingRepository,
     ScriptedRunner,
@@ -42,6 +50,7 @@ from tests.unit.recording.fakes import (
     FakeDeviceResolver,
     FakeRecordingStorage,
 )
+from tests.unit.summaries.fakes import FakeProvider, FakeReleaser
 
 
 @pytest.fixture(autouse=True)
@@ -328,3 +337,81 @@ def test_a_processing_loop_that_outlives_the_shutdown_bound_is_logged_not_fatal(
     assert any(
         r.levelno == logging.ERROR and "did not stop within" in r.getMessage() for r in main_records
     )
+
+
+def test_stop_summaries_reports_whether_the_job_ended_within_the_bound(
+    main_records: list[logging.LogRecord],
+) -> None:
+    app = create_app(Settings())
+    assert asyncio.run(main_module._stop_summaries(app.summaries, 0.05)) is True
+
+    class Stuck:
+        def shutdown(self, timeout: float | None = None) -> bool:
+            threading.Event().wait(min(timeout or 0, 0.01))
+            return False
+
+    assert asyncio.run(main_module._stop_summaries(Stuck(), 0.05)) is False  # type: ignore[arg-type]
+    assert any(r.levelno == logging.ERROR for r in main_records)
+
+
+def test_exit_code_four_covers_a_summary_that_outlived_the_bound() -> None:
+    assert main_module._exit_code(False, False, True, False) == main_module.EXIT_PROCESSING_STUCK
+    assert main_module._exit_code(False, False, True, True) == main_module.EXIT_OK
+    assert main_module._exit_code(True, False, True, False) == main_module.EXIT_BUS_DISCONNECTED
+
+
+# -- summaries wiring (F5.5) --
+
+
+def test_the_real_summary_adapters_are_built_from_the_settings_without_any_call() -> None:
+    adapters = _real_summary_adapters(Settings())
+
+    assert isinstance(adapters.files, FilesystemSummaryFiles)
+    assert isinstance(adapters.keys, SecretServiceKeyStore)
+    assert isinstance(adapters.local_provider, OpenAiCompatibleProvider)
+    assert isinstance(adapters.cloud_provider, OpenAiCompatibleProvider)
+
+
+def test_the_summary_controller_gets_its_providers_and_labels_from_the_settings() -> None:
+    app = create_app(Settings(summaries=SummariesSettings(local_model="m-local")))
+
+    local, cloud = app.summaries.providers()
+
+    assert (local.label, local.cloud, local.available, local.default) == (
+        "Local (m-local)",
+        False,
+        True,
+        True,
+    )
+    assert cloud.label == "cloud: OpenCode Go, deepseek-v4-pro"  # the service owns the label
+    assert (cloud.cloud, cloud.available, cloud.reason) == (True, False, "SUMMARY_CLOUD_DISABLED")
+
+
+def test_recording_processing_and_summaries_share_one_gpu_lease() -> None:
+    app = create_app(Settings())
+
+    assert app.summaries._lease is app.processing._lease
+    assert app.summaries._on_gpu_free == app.processing.wake  # a freed GPU wakes the queue
+
+
+def test_injected_summary_adapters_replace_the_real_ones(tmp_path: Path) -> None:
+    provider = FakeProvider()
+    keys = FakeKeyStore()
+    app = create_app(
+        Settings(
+            storage=StorageSettings(meetings_dir=tmp_path),
+            summaries=SummariesSettings(cloud_enabled=True),
+        ),
+        summary_adapters=SummaryAdapters(
+            files=FilesystemSummaryFiles(),
+            keys=keys,
+            local_provider=provider,
+            cloud_provider=provider,
+            local_releaser=FakeReleaser(),
+            cloud_releaser=FakeReleaser(),
+            headings=EnglishHeadingCatalog(),
+        ),
+    )
+
+    assert app.summaries.providers()[1].available is True
+    assert keys.reads == 0  # building the app never reads the key

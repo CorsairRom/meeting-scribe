@@ -58,6 +58,13 @@ class ModelReleaser(Protocol):
         ...
 
 
+class NullModelReleaser:
+    """Nothing to free: the cloud model is not on this GPU, or unloading is switched off."""
+
+    def release(self) -> None:
+        return None
+
+
 class CloudKeyStore(Protocol):
     def get_key(self) -> Result[SecretStr, SummaryError]:
         """The cloud API key, read on demand and held by the caller for one request only.

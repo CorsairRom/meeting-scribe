@@ -198,7 +198,7 @@ Target GPU: RTX 5060 Laptop, 8 GB.
 
 ---
 
-## 6. D-Bus API (`Recording1` and `Meetings1` implemented, others planned)
+## 6. D-Bus API (`Recording1`, `Meetings1` and `Summaries1` implemented, others planned)
 
 All clients (extension, review app, e2e tests) use the session bus; there is no HTTP server ([ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md)).
 Names are proposed and renamable until F6. The contract lives in [`docs/architecture/api-contracts.md`](docs/architecture/api-contracts.md).
@@ -210,7 +210,7 @@ Names are proposed and renamable until F6. The contract lives in [`docs/architec
 | `dev.meetingscribe.Recording1` (implemented, F1.4) | `Start`, `Stop`; properties `State`, `SessionId`, `ElapsedSeconds`, `Directory`, `FailureReason`; signal `StateChanged` |
 | `dev.meetingscribe.Meetings1` (implemented, F3.4a) | `List`, `Get`, `Reprocess`; properties `ActiveMeetingId`, `ActiveState`, `QueuedCount`; signals `ProcessingStateChanged`, `ProcessingFinished` ([spec](docs/specs/processing.md) section 8) |
 | `dev.meetingscribe.Speakers1` | rename, merge, sample path |
-| `dev.meetingscribe.Summaries1` | generate/read summary |
+| `dev.meetingscribe.Summaries1` (implemented, F5.5) | `Providers`, `Summarize`, `CancelSummary`, `GetSummaryStatus`, `GetSummary`, `LastSummary`; property `ActiveSummaryMeetingId`; signals `SummaryProgress`, `SummaryFinished` ([spec](docs/specs/summaries.md) section 10) |
 | Errors | `dev.meetingscribe.Error.<ERROR_CODE>` (see [error codes](docs/architecture/error-codes-catalog.md)) |
 | Activation | `systemd --user` unit plus D-Bus session activation file, installed by `make install` |
 

@@ -11,6 +11,7 @@ summary text or the cloud key.
 
 import logging
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -255,16 +256,33 @@ class SummaryController:
             self._job.cancel.set()
             return Success(True)
 
-    def shutdown(self) -> None:
-        """Abort the running summary and wait for its thread; nothing is persisted."""
+    def shutdown(self, timeout: float | None = None) -> bool:
+        """Abort the running summary and wait for its thread; nothing is persisted.
+
+        ``timeout`` bounds the whole wait (seconds, ``None`` waits for ever). Returns ``True`` when
+        no job thread is left; ``False`` (logged with the meeting id, never content) when the job
+        ignored the cancel for that long. The job thread is a daemon, so it cannot block exit.
+        """
+        deadline = None if timeout is None else time.monotonic() + timeout
         with self._slot:
             self._stopping = True
-            if self._job is not None:
-                self._job.cancel.set()
-            self._slot.wait_for(lambda: not self._spawning)  # a claimed job is spawned or refused
+            job = self._job
+            if job is not None:
+                job.cancel.set()
+            if not self._slot.wait_for(lambda: not self._spawning, timeout):
+                logger.error("A summary job was still starting at shutdown.")
+                return False
             thread = self._thread
         if isinstance(thread, threading.Thread) and thread is not threading.current_thread():
-            thread.join()
+            left = None if deadline is None else max(deadline - time.monotonic(), 0.0)
+            thread.join(left)
+            if thread.is_alive():
+                logger.error(
+                    "The summary of meeting %s did not stop within the shutdown bound.",
+                    job.meeting_id if job else "?",
+                )
+                return False
+        return True
 
     # -- reads --
 
