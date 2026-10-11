@@ -1,6 +1,7 @@
 import json
 
 import httpx2
+import pytest
 
 from meeting_scribe.summaries.infrastructure.ollama_releaser import OllamaModelReleaser
 
@@ -42,3 +43,12 @@ def test_an_error_status_is_swallowed_too(caplog) -> None:
     make(lambda _r: httpx2.Response(500, text="x"), []).release()
 
     assert "500" in caplog.text
+
+
+def test_the_releaser_never_trusts_the_proxy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ALL_PROXY", "http://proxy.invalid:3128")
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.invalid:3128")
+
+    releaser = OllamaModelReleaser(base_url="http://127.0.0.1:11434/v1", model="model-x")
+
+    assert releaser._client._mounts == {}

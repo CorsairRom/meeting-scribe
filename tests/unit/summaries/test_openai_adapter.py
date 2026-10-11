@@ -501,3 +501,43 @@ def test_no_failure_quotes_content_or_the_key() -> None:
         assert isinstance(failure, Exception)
         assert KEY not in str(failure)
         assert BODY_MARKER not in str(failure)
+
+
+def _with_proxy_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+    ):
+        monkeypatch.setenv(name, "http://proxy.invalid:3128")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+
+
+def test_the_local_provider_never_trusts_the_proxy_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _with_proxy_env(monkeypatch)
+
+    provider = OpenAiCompatibleProvider(
+        base_url=LOCAL_URL, cloud=False, max_retries=0, read_timeout_seconds=1.0
+    )
+
+    assert provider._http_client._mounts == {}
+
+
+def test_the_cloud_provider_keeps_the_proxy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    _with_proxy_env(monkeypatch)
+
+    provider = OpenAiCompatibleProvider(
+        base_url=CLOUD_URL,
+        cloud=True,
+        max_retries=0,
+        read_timeout_seconds=1.0,
+        key_store=FakeKeyStore(),
+    )
+
+    assert provider._http_client._mounts

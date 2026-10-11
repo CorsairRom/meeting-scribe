@@ -125,7 +125,10 @@ class OpenAiCompatibleProvider:
         self._max_retries = max_retries
         self._read_timeout = read_timeout_seconds
         self._key_store = key_store
-        self._http_client = http_client or openai.DefaultHttpx2Client()
+        # Local transcripts must never go through HTTP_PROXY/ALL_PROXY, so the local client ignores
+        # the proxy environment (trust_env=False). The cloud client keeps it: a user proxy to
+        # reach the gateway may be legitimate, and the traffic is HTTPS anyway.
+        self._http_client = http_client or openai.DefaultHttpx2Client(trust_env=cloud)
 
     def complete(
         self,

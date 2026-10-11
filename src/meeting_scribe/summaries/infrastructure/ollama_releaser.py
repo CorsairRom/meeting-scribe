@@ -27,18 +27,13 @@ class OllamaModelReleaser:
         parts = urlsplit(base_url)
         self._url = f"{parts.scheme}://{parts.netloc}/api/generate"
         self._model = model
-        self._client = http_client
-        self._timeout = timeout_seconds
+        # trust_env=False: a loopback call must never be routed through HTTP_PROXY/ALL_PROXY.
+        self._client = http_client or httpx2.Client(timeout=timeout_seconds, trust_env=False)
 
     def release(self) -> None:
         """Ask Ollama to unload the model now. Never raises."""
         try:
-            client = self._client or httpx2.Client(timeout=self._timeout)
-            try:
-                response = client.post(self._url, json={"model": self._model, "keep_alive": 0})
-            finally:
-                if self._client is None:
-                    client.close()
+            response = self._client.post(self._url, json={"model": self._model, "keep_alive": 0})
         except Exception as error:  # best effort: a stopped Ollama has nothing to release
             logger.warning("Ollama model release failed: %s", type(error).__name__)
             return
