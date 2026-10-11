@@ -505,10 +505,15 @@ Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv 
 - [x] F4.4b core presenters (list, review, rename, merge, playback). First CRITICAL finding of the project
       (late reply applied to another meeting) fixed by one bounded correction `bb1dba3`, validated by the
       provider targeted validator; review review-562d369f1d637d8e approved. Integrated #91-#92. GREEN 1047
-      python / 108 gjs. Follow-up: `_moment` astimezone outside the try can raise OverflowError on an extreme
-      malformed timestamp (fix first in F4.5).
-- [ ] F4.5a GTK ui: application, window, sidebar, transcript, D-Bus gateway (~400)
-- [ ] F4.5b GTK ui: speaker rows, dialogs, unmerge, media player, banners (~400)
+      python / 108 gjs. The `_moment` OverflowError follow-up was fixed in F4.5 (`ebcfeeb`).
+- [x] F4.5a GTK ui: application, window, sidebar, transcript, D-Bus gateway; session/signal/launch helpers in
+      core; GO-050 (ui excluded from pyrefly), GO-051 (GTK/PyGObject facts). Integrated #93.
+- [x] F4.5b GTK ui: speaker rows, dialogs, unmerge, media player, banners. Review review-b65cfc0c45f369eb
+      (4 lenses) approved with warnings (markup in names, date fallback, flaky e2e wait, weak gi probe) fixed in
+      `f413761`; review-7659042cad0c69c2 approved. Integrated #94. GREEN 1095 python / 108 gjs. Widgets and
+      playback not run on a display (manual check in F4.8). Follow-ups for F4.6 first commit: e2e client has no
+      deadline (may hang if fewer signals), no test for the gateway INVALID_REPLY path (and KeyError/
+      AttributeError not caught), sidebar timestamp() may raise before the fallback.
 - [ ] F4.6 packaging: launcher, desktop entry, install/uninstall, runbook (~300)
 - [ ] F4.7 extension "Review last meeting" item (~200)
 - [ ] F4.8 validation with consent, docs closure, docs gate (~150)
