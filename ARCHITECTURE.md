@@ -152,6 +152,7 @@ Defined in `pyproject.toml` under `[tool.importlinter]` (`root_packages = ["meet
 | 10 | The app and the service are independent | independence | `meeting_scribe` and `meeting_scribe_review` never import each other; the app reaches the service over D-Bus only |
 | 11 | The app has no service-side dependencies | forbidden | `meeting_scribe_review` may not import `pydantic`, `pydantic_settings`, `returns`, `dbus_fast` or `numpy` (it runs on system Python) |
 | 12 | App layers: ui over core | layers | `meeting_scribe_review.ui` may import `core`, never the reverse |
+| 13 | Summaries domain and application stay free of HTTP and settings libraries | forbidden | `summaries.domain` and `summaries.application` may not import `httpx`, `openai`, `pydantic_settings` or `dbus_fast`; `openai` is confined to `summaries.infrastructure` by its own contract in F5.3 |
 
 ---
 
