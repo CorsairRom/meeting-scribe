@@ -16,6 +16,7 @@ from meeting_scribe.meetings.domain.errors import (
     MeetingSchemaUnsupportedError,
     MeetingStorageError,
     NotificationError,
+    SummaryStorageError,
 )
 from meeting_scribe.meetings.domain.meeting import Meeting
 from meeting_scribe.meetings.domain.notification import Notification
@@ -73,6 +74,21 @@ class GpuLease(Protocol):
 
     def release(self, holder: GpuHolder) -> None:
         """Give it back; a holder that does not hold it is ignored."""
+        ...
+
+
+class SummaryFiles(Protocol):
+    """``summary.md`` inside a meeting folder; the controller never builds a path itself."""
+
+    def save(self, meeting_dir: Path, markdown: str) -> Result[str, SummaryStorageError]:
+        """Replace ``summary.md`` atomically, keeping the old one as the single backup.
+
+        The file name. A failure leaves the current ``summary.md`` as it was.
+        """
+        ...
+
+    def read(self, meeting_dir: Path) -> Result[str, MeetingScribeError]:
+        """The text; ``ENTITY_NOT_FOUND_SUMMARY`` when there is no file. No path in an error."""
         ...
 
 
