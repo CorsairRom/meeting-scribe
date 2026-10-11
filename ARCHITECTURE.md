@@ -284,5 +284,6 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | [005](docs/decisions/005-review-ui-native-gtk-app.md) | Review UI as a native GTK4 + libadwaita app |
 | [006](docs/decisions/006-summary-provider-openai-compatible.md) | `SummaryProvider` port, OpenAI-compatible adapter |
 | [007](docs/decisions/007-gpu-worker-subprocess.md) | GPU work in short-lived worker processes, one per GPU stage |
+| [008](docs/decisions/008-summary-sections.md) | The summary has a Decisions section |
 
 Related: [error codes](docs/architecture/error-codes-catalog.md) · [rules registry](docs/project/rules-registry.md) · [scope](docs/project/mvp-scope.md).

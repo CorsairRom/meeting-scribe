@@ -4,7 +4,7 @@ status: living
 last_updated: 2026-10-09
 ai_instructions:
   - "This tracks pending and completed work. The per-task checklist lives in odd/tasks/meeting-scribe.md."
-  - "Before implementing, check that the matching ADR is 'active' (not 'proposed'). ADRs 001-007 are active."
+  - "Before implementing, check that the matching ADR is 'active' (not 'proposed'). ADRs 001-008 are active."
   - "When you complete a task: mark it done, add the date, and update mvp-scope.md if it applies."
   - "When you add tasks for an epic: follow the existing format and reference the ADR."
 ---
