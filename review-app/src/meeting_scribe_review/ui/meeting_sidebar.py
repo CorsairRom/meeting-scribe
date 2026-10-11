@@ -19,7 +19,10 @@ _STATUS = "status"
 
 def _when(row: MeetingRow) -> str:
     """The start time in the user's locale and time zone; never fails on an odd value."""
-    moment = GLib.DateTime.new_from_unix_utc(int(row.started_at.timestamp()))
+    try:
+        moment = GLib.DateTime.new_from_unix_utc(int(row.started_at.timestamp()))
+    except (OverflowError, OSError, ValueError):
+        return UNKNOWN_DATE
     local = moment.to_local() if moment else None
     text = local.format("%x %R") if local else None
     return text or UNKNOWN_DATE

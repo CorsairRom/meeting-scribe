@@ -1,7 +1,7 @@
 ---
 type: registry
 status: living  # ALWAYS 'living' — this doc is never "finished"
-last_updated: 2026-10-09
+last_updated: 2026-10-11
 update_frequency: on-every-decision
 ai_instructions:
   - "This is the PROJECT LOGBOOK. Rules accumulate, they are not replaced."
@@ -468,3 +468,10 @@ with `Supersedes: <ID>`. Never delete rules.
 - **Detail**: (1) `GLib.Variant.unpack()` turns `ay` into a list of ints; `unpack_reply` reads it through `get_data_as_bytes()` so a sample arrives as `bytes`. `a{sv}` rows unpack to plain dicts and `a(...)` to lists of tuples, which is what the parsers take. (2) `from gi.repository import Gtk` initialises GTK on import; with no display `Gdk.Display.get_default()` is `None` and `Gtk.is_initialized()` is still `True`, so the import test runs with no display variable and asserts on the display. (3) `Adw.StatusPage` is final and cannot be subclassed (`could not create new GType`); wrap it. (4) `Gio.DBusProxy.new_for_bus` with `DO_NOT_AUTO_START_AT_CONSTRUCTION` never wakes the service by merely watching it; a method call still activates it, and an absent service answers `org.freedesktop.DBus.Error.ServiceUnknown`, read with `Gio.DBusError.get_remote_error` (never the message, which can hold private text). (5) `Gio.bus_watch_name` reports the current state of the name once at start; `AvailabilityFilter` treats that first report as a baseline so start-up does not flash a "not running" error. (6) `Gio.Application` with `HANDLES_COMMAND_LINE` takes `--meeting ID` through `add_main_option` and `do_command_line`; `command_line.get_options_dict().end().unpack()` is a plain dict. (7) `Adw.NavigationSplitView`, `Adw.Breakpoint`, `Adw.Banner`, `Adw.ToolbarView`, `Adw.NavigationPage.new(child, title)` exist with the names used in `ui/window.py` (checked on the installed typelib and in the libadwaita docs through Context7).
 - **Source**: [review app spec](../specs/review-app.md) section 6, "Library facts to verify"
 - **Verifiable in**: `tests/unit/review_app/test_dbus_codec.py`, `tests/unit/review_app/test_ui_imports_on_system_python.py`, `tests/e2e/meetings/test_review_app_gateway.py`
+
+### GO-052 — The review app installs next to the service version, on system Python, with a desktop entry
+- **Date**: 2026-10-11
+- **Status**: active
+- **Detail**: (1) `install.sh` copies the app and renders the launcher inside `versions/<id>/` before `current` moves, so a rollback restores service and app together; the launcher pins the interpreter (`REVIEW_APP_PYTHON`, default `/usr/bin/python3`) because a venv or `uv` Python has no PyGObject. `REVIEW_APP_PYTHON` exists only so tests can substitute a fake. (2) The desktop entry is rendered by bash splitting on the first `@EXEC@`, so the template must contain that token exactly once (a mention in a comment would be rendered instead of the `Exec` line); its `Exec` uses the stable `current/` path, so it needs no rewrite on upgrade, and it is not quoted: a data directory with spaces or Desktop Entry reserved characters is unsupported. (3) The toolkit check is three read-only imports and only warns; the summary line is `review app: ready` or `review app: NOT usable (missing: ...)`. (4) `uninstall.sh` removes only the desktop entry itself; the launcher and the app go with `versions/`. (5) Tests substitute `python3` and `update-desktop-database` fakes; no test starts the app.
+- **Source**: [review app spec](../specs/review-app.md) section 8, F4.6
+- **Verifiable in**: `scripts/install.sh`, `scripts/uninstall.sh`, `packaging/applications/dev.meetingscribe.Review.desktop.in`, `tests/unit/test_install_scripts.py`

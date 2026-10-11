@@ -15,6 +15,21 @@ VERSIONS_DIR="$INSTALL_ROOT/versions"
 CURRENT_LINK="$INSTALL_ROOT/current"
 EXEC_START="$CURRENT_LINK/bin/meeting-scribe"
 
+# The review app (GTK4 + libadwaita) runs on the system Python, never on the uv tool's Python:
+# PyGObject comes from the distribution. REVIEW_APP_PYTHON exists so tests can substitute a fake.
+REVIEW_APP_PYTHON="${REVIEW_APP_PYTHON:-/usr/bin/python3}"
+APPLICATIONS_DIR="$DATA_HOME/applications"
+DESKTOP_ENTRY_NAME="dev.meetingscribe.Review.desktop"
+DESKTOP_ENTRY_PATH="$APPLICATIONS_DIR/$DESKTOP_ENTRY_NAME"
+REVIEW_LAUNCHER_NAME="meeting-scribe-review"
+
+# Best effort: refresh the desktop entry cache when the tool and the directory exist.
+refresh_desktop_database() {
+  if [[ -d "$APPLICATIONS_DIR" ]] && command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$APPLICATIONS_DIR" >/dev/null 2>&1 || true
+  fi
+}
+
 # Seconds before a bus call is abandoned (a hung service must not hang the installer).
 GDBUS_TIMEOUT=5
 
