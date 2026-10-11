@@ -144,3 +144,7 @@ def test_a_failed_backup_replace_restores_the_older_backup(
         "# Synthetic summary zero\n"
     )
     assert _names(tmp_path) == ["summary.md", "summary.previous.md"]
+
+
+def test_path_is_the_fixed_file_name_inside_the_folder(tmp_path: Path) -> None:
+    assert FilesystemSummaryFiles().path(tmp_path) == tmp_path / "summary.md"

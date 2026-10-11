@@ -14,6 +14,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Literal
 
 from returns.result import Failure, Result, Success
@@ -123,6 +124,16 @@ class SummaryDocument:
     model: str
     language: str
     stale: bool
+
+
+@dataclass(frozen=True)
+class LastSummary:
+    """The newest saved summary, for the panel menu: ids and times, never content."""
+
+    meeting_id: str
+    started_at: datetime
+    generated_at: datetime
+    path: Path
 
 
 class _Job:
@@ -256,6 +267,35 @@ class SummaryController:
             thread.join()
 
     # -- reads --
+
+    def last_summary(self) -> Result[LastSummary, MeetingScribeError]:
+        """The newest summary by ``generated_at`` whose ``summary.md`` still exists."""
+        with self._lock.hold():
+            listed = self._repository.list_all()
+            if isinstance(listed, Failure):
+                return listed
+            newest: tuple[datetime, Meeting] | None = None
+            for meeting in listed.unwrap():
+                info = meeting.summary
+                if info is None or not info.file or info.generated_at is None:
+                    continue
+                if not self._files.exists(meeting.directory):
+                    continue
+                if newest is None or info.generated_at > newest[0]:
+                    newest = (info.generated_at, meeting)
+            if newest is None:
+                return Failure(
+                    EntityNotFoundError("No meeting has a summary yet.", detail_code="SUMMARY")
+                )
+            generated_at, meeting = newest
+            return Success(
+                LastSummary(
+                    meeting_id=meeting.id,
+                    started_at=meeting.recording.started_at,
+                    generated_at=generated_at,
+                    path=self._files.path(meeting.directory),
+                )
+            )
 
     def get_status(self, meeting_id: str) -> Result[SummaryStatus, MeetingScribeError]:
         with self._lock.hold():

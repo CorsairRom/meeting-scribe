@@ -91,6 +91,10 @@ class SummaryFiles(Protocol):
         """Whether ``summary.md`` is there (the user may have deleted it)."""
         ...
 
+    def path(self, meeting_dir: Path) -> Path:
+        """The absolute location of ``summary.md`` (for clients that open it; no name from JSON)."""
+        ...
+
     def read(self, meeting_dir: Path) -> Result[str, MeetingScribeError]:
         """The text; ``ENTITY_NOT_FOUND_SUMMARY`` when there is no file. No path in an error."""
         ...

@@ -760,3 +760,35 @@ def test_a_shutdown_between_claim_and_spawn_refuses_and_frees_everything(rig: Ri
     assert rig.controller.active_meeting_id == ""
     assert rig.lease.available("processing")
     assert rig.gpu_free_calls == 1
+
+
+# -- LastSummary --
+
+
+def test_last_summary_is_the_newest_with_its_file_and_an_absolute_path(rig: Rig) -> None:
+    rig.add("m2")
+    rig.summarize_and_run("m1")
+    rig.summarize_and_run("m2")
+
+    last = rig.controller.last_summary().unwrap()
+
+    assert last.meeting_id == "m2"
+    assert last.started_at == rig.stored("m2").recording.started_at
+    assert last.generated_at == rig.stored("m2").summary.generated_at  # type: ignore[union-attr]
+    assert last.path == ROOT / "m2" / "summary.md"
+
+
+def test_last_summary_skips_a_deleted_file_and_a_failed_only_section(rig: Rig) -> None:
+    rig.add("m2")
+    rig.summarize_and_run("m1")
+    rig.summarize_and_run("m2")
+    del rig.files.texts["m2"]  # the user deleted it
+    rig.add("m3")
+    rig.local_provider.responder = lambda _m: SummaryProviderUnavailableError("down")
+    rig.summarize_and_run("m3")  # only a recorded failure, no file
+
+    assert rig.controller.last_summary().unwrap().meeting_id == "m1"
+
+
+def test_last_summary_without_any_summary_is_entity_not_found(rig: Rig) -> None:
+    assert _code(rig.controller.last_summary()) == "ENTITY_NOT_FOUND_SUMMARY"

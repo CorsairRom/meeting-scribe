@@ -1,13 +1,15 @@
 ---
 type: architecture
 status: active
-last_updated: 2026-10-09
+last_updated: 2026-10-11
 mvp: true
 verifiable_by:
   - src/meeting_scribe/recording/infrastructure/dbus/recording_interface.py
   - src/meeting_scribe/meetings/infrastructure/dbus/meetings_interface.py
   - tests/e2e/recording/test_recording_over_dbus.py
   - tests/e2e/meetings/test_meetings_over_dbus.py
+  - src/meeting_scribe/meetings/infrastructure/dbus/summaries_interface.py
+  - tests/e2e/meetings/test_summaries_over_dbus.py
   - "busctl --user introspect dev.meetingscribe.Service /dev/meetingscribe/Service"
 ai_instructions:
   - "This doc is the SOURCE OF TRUTH for D-Bus contracts. If a method, property or signal changes, update THIS file in the same commit."
@@ -134,11 +136,46 @@ gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meeting
 
 ---
 
+### `dev.meetingscribe.Summaries1`
+
+Summarizes a finished meeting with the configured provider (local Ollama, or the opt-in cloud gateway), one summary at
+a time. Same bus name and object path as `Recording1`. A summary never starts by itself: only `Summarize` starts one.
+Spec: [summaries](../specs/summaries.md) section 10.
+
+| Member | Kind | Signature | Description | Errors |
+|---|---|---|---|---|
+| `Providers` | method | `() -> aa{sv}` | One row per configured provider: `id` (s, `local` or `cloud`), `label` (s, `Local (<model>)` or `cloud: <name>, <model>`; the cloud label always contains the word "cloud"), `cloud` (b), `model` (s), `available` (b), `reason` (s, empty or an error code such as `SUMMARY_CLOUD_DISABLED`), `default` (b, the row chosen by `SUMMARIES_PROVIDER`). Local availability is not probed and the key is not read. The cloud URL and the key are never returned | none |
+| `Summarize` | method | `(ssb) -> s` | `(meeting_id, provider_id, cloud_confirmed)`: start a summary and return `RUNNING` at once; the model runs on a job thread. A saved summary is replaced only on success | `MEETING_NOT_PROCESSED`; `SUMMARY_NO_SPEECH`; `SUMMARY_CLOUD_DISABLED`; `SUMMARY_CLOUD_NOT_CONFIRMED`; `SUMMARY_CLOUD_KEY_MISSING`, `SUMMARY_CLOUD_KEY_LOCKED`, `SUMMARY_CLOUD_KEY_UNAVAILABLE`; `SUMMARY_GPU_BUSY`; `SUMMARY_ALREADY_RUNNING`; `SUMMARY_BUSY`; `INVALID_VALUE` (unknown provider); `ENTITY_NOT_FOUND_MEETING`; `MEETING_SCHEMA_UNSUPPORTED`; `MEETING_CORRUPT`; `MEETING_STORAGE_FAILED` |
+| `CancelSummary` | method | `(s) -> b` | Cancel the running summary of the meeting: `true` when one was running, `false` otherwise (not an error). The outcome arrives as `SummaryFinished` with `CANCELLED` | `ENTITY_NOT_FOUND_MEETING` |
+| `GetSummaryStatus` | method | `(s) -> a{sv}` | No content. `state` (s: `NONE`, `RUNNING`, `DONE`, `FAILED`), `stale` (b), `cloud` (b), `provider_label` (s), `generated_at` (s, empty when none), `step` (i), `total_steps` (i), `failure_code` (s, empty when none). `FAILED` means the last attempt failed; a previous `summary.md` may still exist (`generated_at` non-empty) | `ENTITY_NOT_FOUND_MEETING`; `MEETING_SCHEMA_UNSUPPORTED`; `MEETING_CORRUPT`; `MEETING_STORAGE_FAILED` |
+| `GetSummary` | method | `(s) -> a{sv}` | The text and facts: `markdown` (s), `title` (s), `generated_at` (s), `provider_label` (s), `cloud` (b), `model` (s), `language` (s), `stale` (b). No path | `ENTITY_NOT_FOUND_SUMMARY`; `ENTITY_NOT_FOUND_MEETING`; `SUMMARY_STORAGE_FAILED` (unreadable file); the lookup errors of `GetSummaryStatus` |
+| `LastSummary` | method | `() -> a{sv}` | The newest summary by `generated_at` whose `summary.md` still exists: `meeting_id` (s), `started_at` (s, the meeting's start), `generated_at` (s), `path` (s, absolute). For the panel menu, which opens the file with the system handler and never builds a path | `ENTITY_NOT_FOUND_SUMMARY` (none); `MEETING_STORAGE_FAILED` |
+| `ActiveSummaryMeetingId` | property | `s` (read) | The meeting being summarized; empty when idle | n/a |
+| `SummaryProgress` | signal | `(sii)` | `(meeting_id, step, total_steps)` after a step, at most one per second (the last step of a run is always sent) | n/a |
+| `SummaryFinished` | signal | `(sss)` | `(meeting_id, state, error_code)` when a summary ends, `state` `DONE`, `FAILED` or `CANCELLED`; sent after the result is saved and the slot is free | n/a |
+
+`PropertiesChanged` is emitted with `ActiveSummaryMeetingId` when it changes. Error messages carry ids and setting
+names, never transcript text, speaker names, summary text or keys. Clients refresh `GetSummaryStatus` on
+`SummaryFinished` and on `SpeakersChanged` (a rename may make the summary stale). The cloud label comes from the service
+(`Providers`); no client builds it. A service shutdown cancels a running summary without a `SummaryFinished` guarantee.
+
+Example calls (documentation only, run them against your own session bus; `Summarize` with `local` sends the transcript
+to the local model only, with `cloud` it needs `true` as the last argument and sends it off this computer):
+
+```bash
+gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service \
+  --method dev.meetingscribe.Summaries1.Providers
+gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service \
+  --method dev.meetingscribe.Summaries1.GetSummaryStatus "2026-10-09_101500"
+```
+
+---
+
 ## Out-of-scope members (documented for visibility)
 
 | Member | Status | Reason |
 |---|---|---|
-| `dev.meetingscribe.Speakers1`, `Summaries1` | planned (F4+) | The domains exist; only their D-Bus adapters are missing |
+| `dev.meetingscribe.Speakers1` | planned | The domain exists; only its D-Bus adapter is missing (the review members live in `Meetings1`) |
 
 ---
 
