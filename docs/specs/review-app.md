@@ -715,7 +715,7 @@ its tests and docs.
 |---|---|---|
 | `Gtk.MediaFile.new_for_input_stream` accepts a `Gio.MemoryInputStream` and plays WAV through the GStreamer backend | F4.5b | Not verified (A-3) |
 | `Adw.NavigationSplitView`, `Adw.Application`, `Adw.AlertDialog` (1.9) API names and signals | F4.5a, F4.5b | Not verified |
-| `Gio.DBusProxy.new_for_bus` / `call` with `a{sv}` and `ay` reply unpacking in PyGObject | F4.5a | Not verified |
+| `Gio.DBusProxy.new_for_bus` / `call` with `a{sv}` and `ay` reply unpacking in PyGObject | F4.5a | Verified (F4.5a, GO-051; `ay` needs `get_data_as_bytes`) |
 | import-linter `root_packages` with two roots and the `independence` contract across them | F4.4a | Not verified (A-6) |
 | GNOME Shell activates the app named by a notification's `desktop-entry` hint on click | Not needed in F4 (OQ-6: menu only) | Not verified (A-5) |
 

@@ -23,3 +23,7 @@ def format_duration(seconds: float) -> str:
         return f"{total // _MINUTE} min"
     hours, rest = divmod(total, _HOUR)
     return f"{hours} h {rest // _MINUTE:02d} min"
+
+
+def format_speaker_count(count: int) -> str:
+    return f"{count} speaker" if count == 1 else f"{count} speakers"

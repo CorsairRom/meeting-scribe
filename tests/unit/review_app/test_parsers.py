@@ -70,6 +70,12 @@ def test_parse_meeting_summaries_rejects_a_bad_date() -> None:
     assert isinstance(result, Err) and result.error.code == INVALID_REPLY
 
 
+def test_parse_meeting_summaries_rejects_an_out_of_range_timestamp() -> None:
+    # Year 1 at +14:00 is year 0 in UTC: astimezone raises OverflowError, not ValueError.
+    result = parse_meeting_summaries([("m1", "0001-01-01T00:00:00+14:00", 1.0, "DONE", 1)])
+    assert isinstance(result, Err) and result.error.code == INVALID_REPLY
+
+
 def test_parse_meeting_summaries_rejects_a_short_row() -> None:
     result = parse_meeting_summaries([("m1", "2026-10-09T10:15:00", 1.0)])
     assert isinstance(result, Err) and result.error.code == INVALID_REPLY

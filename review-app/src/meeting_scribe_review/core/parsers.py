@@ -48,11 +48,12 @@ def _seconds(value: Any) -> float:
 def _moment(value: Any) -> datetime:
     try:
         moment = datetime.fromisoformat(_text(value))
-    except ValueError as error:
+        # The service sends aware timestamps; a naive one is read as local time. Always UTC, so
+        # moments compare and sort without a naive/aware TypeError. An extreme offset can leave
+        # the representable range (OverflowError).
+        return moment.astimezone(UTC)
+    except (ValueError, OverflowError) as error:
         raise _InvalidReplyError from error
-    # The service sends aware timestamps; a naive one is read as local time. Always UTC, so
-    # moments compare and sort without a naive/aware TypeError.
-    return moment.astimezone(UTC)
 
 
 def _tuple(row: Any, size: int) -> Sequence[Any]:
