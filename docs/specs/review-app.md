@@ -764,8 +764,8 @@ All six questions were answered by the owner (OQ-1 on 2026-10-09, OQ-2 to OQ-6 o
 - [x] Traceability for FR-5 filled in `project/mvp-scope.md`; `README.md`, `ARCHITECTURE.md` and the backlog updated
 - [x] New gotchas and rules (Python version split, bytes over D-Bus, merge storage, the write order) in `project/rules-registry.md`
 - [x] Manual validation with the user's consent: real window, real playback of a sample, a review of a real meeting (nothing recorded in the repo)
-- [ ] Open product questions answered by the user before the task that depends on each one
-- [ ] Docs gate before the integration PR is reported ready (`project/doc-sync-protocol.md`)
+- [x] Open product questions answered by the user before the task that depends on each one
+- [x] Docs gate before the integration PR is reported ready (`project/doc-sync-protocol.md`)
 
 ---
 

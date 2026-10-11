@@ -522,7 +522,10 @@ Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv 
       Integrated #96. GREEN 1123 python / 122 gjs. Follow-ups (docs gate): GO-052 still says REVIEW_APP_PYTHON
       is test-only (it is also the run-review-app override); install test comments/asserts (rollback summary
       comment, Exec parser `%%`, rollback-keep assertion, make dry-run return code).
-- [ ] F4.8 validation with consent, docs closure, docs gate (~150)
+- [x] F4.8 validation with the owner's go (2026-10-11): `make install` (version 20261011162806-703787, review app
+      ready, Meetings1 review methods confirmed by introspection); the owner opened the app from the menu and
+      reported it works. Docs gate: read-only audit (5 P1, 5 P2 doc drifts, no code issue) fixed in `6718079`;
+      language scan clean; `make check` green (1123 python / 122 gjs, 12 contracts). Tracker #82 marked ready.
 ### F5 Summaries — pending
 ### F6 Install — pending
 
