@@ -63,10 +63,10 @@ class SummaryView(Gtk.Box):
 
     def update(self, state: SummaryState) -> None:
         loading = state.phase is SummaryPhase.LOADING
-        idle = state.phase in {SummaryPhase.IDLE, SummaryPhase.LOADING, SummaryPhase.ERROR}
+        hide_generate = state.phase in {SummaryPhase.IDLE, SummaryPhase.LOADING, SummaryPhase.ERROR}
         self._generate.set_label(state.button_label)
         self._generate.set_sensitive(state.can_generate)
-        self._generate.set_visible(not idle)
+        self._generate.set_visible(not hide_generate)
         self._cancel.set_visible(state.can_cancel)
         self._set_key.set_visible(state.can_set_key)
         if state.needs_api_key:

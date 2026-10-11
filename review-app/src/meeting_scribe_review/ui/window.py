@@ -102,7 +102,7 @@ class ReviewWindow(Adw.ApplicationWindow):
         self.set_content(split)
         self.connect("close-request", self._on_close_request)
 
-        self._session = ReviewSession(gateway, player, self, gateway, keys)
+        self._session = ReviewSession(gateway, player, self, summaries=gateway, keys=keys)
         self._dialogs = SpeakerDialogs(self, self._session)
         self._summary_dialogs = SummaryDialogs(self, self._session)
         self._export = SummaryExport(self, self._toast)

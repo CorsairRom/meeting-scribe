@@ -117,6 +117,11 @@ class SummaryPresenter:
         row = self._default
         if request.meeting_id != self._meeting_id or not self._state.can_generate or row is None:
             return
+        if not row.cloud:
+            return  # the default is no longer the cloud: there is nothing to confirm
+        if row.id != request.provider_id:  # the choice changed: the user confirmed another one
+            self._on_confirm(ConfirmationRequest(self._meeting_id, row.id, row.label))
+            return
         self._start(request.provider_id, cloud_confirmed=True)
 
     def cancel(self) -> None:
@@ -159,6 +164,9 @@ class SummaryPresenter:
         else:
             self._publish()
 
+    def on_processing_finished(self, meeting_id: str, state: str) -> None:
+        self.on_processing_state_changed(meeting_id, state)
+
     def on_speakers_changed(self, meeting_id: str) -> None:
         if meeting_id == self._meeting_id and self._done:
             self._refresh(finished=False)
@@ -166,7 +174,7 @@ class SummaryPresenter:
     def on_summary_progress(self, meeting_id: str, step: int, total_steps: int) -> None:
         if meeting_id != self._meeting_id or not self._done:
             return
-        self._starting = True
+        self._in_progress = True
         self._step, self._total = step, total_steps
         self._publish()
 
@@ -185,7 +193,12 @@ class SummaryPresenter:
         self._document: SummaryDocument | None = None
         self._load_error: ServiceError | None = None
         self._error: ServiceError | None = None
-        self._starting = False
+        self._reset_run()
+
+    def _reset_run(self) -> None:
+        """Forget what this app believes about a run; the service says what is really running."""
+        self._requesting = False  # a press whose reply has not arrived yet
+        self._in_progress = False  # a run known to be going (progress or an accepted start)
         self._cancelling = False
         self._step = 0
         self._total = 0
@@ -196,6 +209,7 @@ class SummaryPresenter:
 
     def _load(self) -> None:
         self._loading = True
+        self._reset_run()
         self._load_error = None
         self._error = None
         self._document = None
@@ -226,8 +240,7 @@ class SummaryPresenter:
             if generation != self._generation:
                 return
             if finished:
-                self._starting = self._cancelling = False
-                self._step = self._total = 0
+                self._reset_run()
             if isinstance(result, Err):
                 if self._info is None:
                     self._fail_load(result.error)
@@ -271,16 +284,20 @@ class SummaryPresenter:
     # -- starting --------------------------------------------------------------------------
 
     def _start(self, provider_id: str, *, cloud_confirmed: bool) -> None:
-        self._starting = True
+        self._requesting = True
         self._error = None
         self._step = self._total = 0
         self._publish()
         generation = self._generation
 
         def started(result: Result[str, ServiceError]) -> None:
-            if generation != self._generation or not isinstance(result, Err):
+            if generation != self._generation:
                 return
-            self._starting = False
+            self._requesting = False
+            if not isinstance(result, Err):
+                self._in_progress = True
+                self._publish()
+                return
             if result.error.code == ALREADY_RUNNING_CODE:
                 self._refresh(finished=False)
                 return
@@ -321,7 +338,11 @@ class SummaryPresenter:
             )
         if self._loading:
             return SummaryState(self._meeting_id, SummaryPhase.LOADING, label)
-        running = self._starting or (self._info is not None and self._info.state == _RUNNING)
+        running = (
+            self._requesting
+            or self._in_progress
+            or (self._info is not None and self._info.state == _RUNNING)
+        )
         return self._loaded(label, row, running=running)
 
     def _loaded(self, label: str, row: ProviderRow | None, *, running: bool) -> SummaryState:
