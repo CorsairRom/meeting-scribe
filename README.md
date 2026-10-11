@@ -48,6 +48,9 @@ as NOT active and exits non-zero. A failing extension step is reported in the su
    `${XDG_DATA_HOME:-~/.local/share}/applications/`. The summary says `review app: ready` or names the missing system
    packages (`python3-gobject`, `gtk4`, `libadwaita`); a missing package never fails the install. See
    [`review-app.md`](docs/runbooks/review-app.md). `make uninstall` removes the desktop entry and the version tree.
+6. Checks Ollama and the local summary model, read-only (`ollama list`). The summary has an `ollama:` line; a missing or
+   stopped Ollama or a missing model only warns with the command to fix it. The install never starts Ollama, never pulls
+   a model and never sends a prompt. See [`summaries.md`](docs/runbooks/summaries.md).
 
 Upgrading from an install made before versioned installs (the service ran from `~/.local/bin/meeting-scribe`): the first
 `make install` rewrites the unit to the `current/` path and, only after the service is active on it, runs
@@ -87,6 +90,7 @@ stops the recording first.
 | [`docs/runbooks/record-via-gdbus.md`](docs/runbooks/record-via-gdbus.md) | Record and stop a meeting by hand over D-Bus (records real audio) |
 | [`docs/runbooks/processing.md`](docs/runbooks/processing.md) | Hugging Face login, models downloaded by `make install`, first run, troubleshooting by error code |
 | [`docs/runbooks/review-app.md`](docs/runbooks/review-app.md) | Install, open and troubleshoot the review app (system GTK 4 and libadwaita) |
+| [`docs/runbooks/summaries.md`](docs/runbooks/summaries.md) | Set up and troubleshoot summaries: Ollama, context size, model choice, the cloud and its key |
 | [`docs/runbooks/gnome-extension.md`](docs/runbooks/gnome-extension.md) | Try the panel indicator in a nested shell and install it in your session |
 | [`docs/`](docs/README.md) | Taxonomy: project scope and rules, architecture, ADRs, specs, runbooks, ideas |
 

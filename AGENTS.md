@@ -55,6 +55,7 @@ import-linter, errors as `returns.Result`.
 | Set up or debug processing and models | `docs/runbooks/processing.md`                                 |
 | Pack, try or install the extension   | `docs/runbooks/gnome-extension.md`                             |
 | Install, open or debug the review app | `docs/runbooks/review-app.md`                                 |
+| Set up or debug summaries (Ollama, cloud key) | `docs/runbooks/summaries.md`                          |
 | Write a doc                          | `docs/README.md` (taxonomy) and `docs/_templates/`             |
 | Know when to update docs             | `docs/project/doc-sync-protocol.md`                            |
 | See the canonical shared-kernel code | `src/meeting_scribe/base/`                                     |

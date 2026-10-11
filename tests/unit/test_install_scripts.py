@@ -107,6 +107,24 @@ echo "python3-run PYTHONPATH=${PYTHONPATH:-} PYTHONDONTWRITEBYTECODE=${PYTHONDON
      "args=$*" >> "$FAKE_LOG"
 exit 0
 """,
+    # Read-only stand-in: only `list` is expected. FAKE_OLLAMA_MODE: ok (default), missing-model,
+    # down (server unreachable), hang. Anything else is logged and fails, so a pull, run or serve
+    # by the installer is visible in the log.
+    "ollama": """
+case "$1" in
+  list)
+    case "${FAKE_OLLAMA_MODE:-ok}" in
+      down) echo "Error: could not connect to ollama server" >&2; exit 1 ;;
+      hang) exec sleep 30 ;;
+    esac
+    echo "NAME                ID              SIZE      MODIFIED"
+    echo "llama3.2:latest     aaaaaaaaaaaa    2.0 GB    2 days ago"
+    [ "${FAKE_OLLAMA_MODE:-ok}" = missing-model ] || {
+      echo "${FAKE_OLLAMA_MODEL:-qwen3.5:9b}     bbbbbbbbbbbb    6.6 GB    1 day ago"
+    } ;;
+  *) echo "ollama: unexpected call" >&2; exit 9 ;;
+esac
+""",
     "update-desktop-database": "",
     "gdbus": """
 mode="${FAKE_GDBUS_MODE:-noowner}"
@@ -1154,3 +1172,101 @@ def test_make_run_review_app_uses_system_python_and_the_working_tree() -> None:
 def test_the_desktop_template_has_exactly_one_exec_placeholder() -> None:
     template = (ROOT / "packaging" / "applications" / f"{DESKTOP_ENTRY}.in").read_text()
     assert template.count("@EXEC@") == 1  # the bash render splits on the first occurrence
+
+
+# -- Ollama and the local summary model (F5.8, AC-20): read-only, warns, never fails the install --
+
+
+def _summary(result: subprocess.CompletedProcess[str]) -> str:
+    return result.stdout.split("meeting-scribe installed")[1]
+
+
+def _ollama_calls(sandbox: Env) -> list[str]:
+    return [line for line in sandbox.calls() if line.startswith("ollama")]
+
+
+def test_install_reports_a_reachable_ollama_with_the_default_model(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, **IDLE)
+    assert result.returncode == 0, result.stderr
+    assert "  ollama:    reachable; model qwen3.5:9b present" in _summary(result)
+    assert _ollama_calls(sandbox) == ["ollama list"]  # read-only: no pull, run, serve or create
+
+
+def test_a_missing_model_only_warns_with_the_pull_command_and_never_pulls(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, FAKE_OLLAMA_MODE="missing-model", **IDLE)
+    assert result.returncode == 0, result.stderr
+    summary = _summary(result)
+    assert "  ollama:    reachable; model qwen3.5:9b NOT found" in summary
+    assert "ollama pull qwen3.5:9b" in summary
+    assert _ollama_calls(sandbox) == ["ollama list"]
+
+
+def test_a_stopped_ollama_only_warns_and_the_install_still_succeeds(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, FAKE_OLLAMA_MODE="down", **IDLE)
+    assert result.returncode == 0, result.stderr
+    summary = _summary(result)
+    assert "  ollama:    found but not reachable" in summary
+    assert "systemctl start ollama" in summary
+    assert sandbox.exe.exists()
+    assert _ollama_calls(sandbox) == ["ollama list"]
+
+
+def test_an_ollama_that_is_not_installed_only_warns(sandbox: Env) -> None:
+    (Path(sandbox.env["PATH"]) / "ollama").unlink()
+    result = sandbox.run(INSTALL, **IDLE)
+    assert result.returncode == 0, result.stderr
+    summary = _summary(result)
+    assert "  ollama:    NOT found" in summary
+    assert "ollama pull qwen3.5:9b" in summary
+    assert _ollama_calls(sandbox) == []
+
+
+def test_a_hung_ollama_is_cut_off_and_the_install_still_finishes(sandbox: Env) -> None:
+    result = sandbox.run(
+        INSTALL, FAKE_OLLAMA_MODE="hang", MEETING_SCRIBE_OLLAMA_TIMEOUT="1", **IDLE
+    )
+    assert result.returncode == 0, result.stderr
+    assert "  ollama:    found but not reachable" in _summary(result)
+
+
+def test_the_configured_model_comes_from_the_environment(sandbox: Env) -> None:
+    result = sandbox.run(
+        INSTALL, SUMMARIES_LOCAL_MODEL="mistral:7b", FAKE_OLLAMA_MODEL="mistral:7b", **IDLE
+    )
+    assert "model mistral:7b present" in _summary(result)
+
+
+def test_the_configured_model_comes_from_the_settings_file_and_nothing_else_is_read(
+    sandbox: Env,
+) -> None:
+    config = sandbox.home / ".config" / "meeting-scribe"
+    config.mkdir(parents=True)
+    (config / ".env").write_text('HF_TOKEN=not-a-real-token\nSUMMARIES_LOCAL_MODEL="gemma3:4b"  \n')
+    result = sandbox.run(INSTALL, FAKE_OLLAMA_MODEL="gemma3:4b", **IDLE)
+    assert "model gemma3:4b present" in _summary(result)
+    assert "not-a-real-token" not in result.stdout + result.stderr
+
+
+def test_a_model_name_without_a_tag_matches_its_latest_tag(sandbox: Env) -> None:
+    result = sandbox.run(
+        INSTALL, SUMMARIES_LOCAL_MODEL="llama3.2", **IDLE
+    )  # the fake lists llama3.2:latest
+    assert "model llama3.2 present" in _summary(result)
+
+
+def test_a_model_name_is_matched_whole_not_as_a_prefix(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, SUMMARIES_LOCAL_MODEL="llama3", **IDLE)
+    assert "model llama3 NOT found" in _summary(result)
+
+
+def test_ollama_is_not_checked_when_the_install_is_refused_or_uv_fails(sandbox: Env) -> None:
+    sandbox.run(INSTALL, FAKE_GDBUS_MODE="recording")
+    sandbox.run(INSTALL, FAKE_UV_FAIL="1", **IDLE)
+    assert _ollama_calls(sandbox) == []
+
+
+def test_uninstall_never_touches_ollama(sandbox: Env) -> None:
+    sandbox.run(INSTALL, **IDLE)
+    sandbox.log.write_text("")
+    sandbox.run(UNINSTALL, **IDLE)
+    assert _ollama_calls(sandbox) == []
