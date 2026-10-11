@@ -199,11 +199,19 @@ GIVEN the provider sends nothing for SUMMARIES_TIMEOUT_SECONDS
 THEN the step fails with SUMMARY_TIMEOUT
 GIVEN the whole summary exceeds SUMMARIES_TOTAL_TIMEOUT_SECONDS
 THEN it fails with SUMMARY_TIMEOUT
+GIVEN a user cancel and an expired total deadline hold at the same time
+THEN the user's cancel wins (SUMMARY_CANCELLED)
+GIVEN no time is left of the total bound
+THEN the run fails with SUMMARY_TIMEOUT without calling the provider
+AND every provider call receives a positive time left, never below a small minimum
 GIVEN the service shuts down during a summary
 THEN the request is aborted and nothing is persisted (a summary is never resumed)
 ```
 
-**Test**: `tests/unit/summaries/test_generate_summary.py::test_cancel_between_and_during_requests`, `tests/unit/meetings/test_summary_controller.py::test_shutdown_aborts`
+**Time sources**: the injected clock (monotonic by default) decides the deadline and the time left per call; a
+real-time timer only wakes a stalled provider call, since only real time can interrupt a blocked call.
+
+**Test**: `tests/unit/summaries/test_generate_summary.py::test_cancel_between_and_during_requests`, `test_a_user_cancel_wins_over_an_expired_deadline`, `test_an_exhausted_budget_times_out_before_calling_the_provider`, `test_the_per_call_time_is_never_below_the_minimum`, `tests/unit/meetings/test_summary_controller.py::test_shutdown_aborts`
 
 ### AC-11: One summary at a time
 
@@ -371,7 +379,7 @@ AND meetings reaches summaries only through summaries.application
 
 ```gherkin
 GIVEN SUMMARIES_LANGUAGE is auto and the meeting language is detected as X
-THEN the prompt asks for body and headings in X
+THEN the prompt asks for the body in X and carries the headings of X (or the English ones, AC-23)
 GIVEN SUMMARIES_LANGUAGE is an ISO code
 THEN that code wins over the detected language
 AND in every case the prompt contains the rule that technical terms are kept as spoken and never translated
@@ -379,6 +387,22 @@ AND the map and reduce prompts carry the same rule
 ```
 
 **Test**: `tests/unit/summaries/test_prompt_builder.py::test_language_and_technical_terms_rule`
+
+### AC-23: Localized headings through a catalog
+
+```gherkin
+GIVEN the meeting language is Spanish
+THEN the prompt states the Spanish headings, the model output is validated against them
+AND summary.md is rendered with them (Temas, Decisiones, Tareas, Preguntas abiertas and the fixed labels)
+GIVEN the meeting language has no catalog (or the code is not a plain lowercase code)
+THEN the headings and labels are English and the body is still written in the meeting language
+AND the model is told to copy the headings as shown and not to translate them
+GIVEN a catalog is missing, unreadable or broken
+THEN the headings are English and nothing fails
+AND no Spanish text exists in code or tests: only in the Spanish catalog file
+```
+
+**Test**: `tests/unit/summaries/test_gettext_headings.py`, `tests/unit/summaries/test_generate_summary.py::test_localized_headings_are_asked_for_validated_and_rendered`, `::test_an_unlisted_language_gets_english_headings_and_a_body_language_request`
 
 ---
 
@@ -480,9 +504,9 @@ Layout under `src/meeting_scribe/summaries/`:
 
 | Layer | Content |
 |---|---|
-| `domain/` | `SummaryRequest` (plain input: header facts, participants, utterance lines, language, budget), `SummaryText`, `SummaryProvider` port, `ModelReleaser` port, `TranscriptChunker`, `PromptBuilder` and the per-language heading table, `SummaryRenderer` (header computed locally plus the model body), `InputFingerprint`, errors (section 9) |
+| `domain/` | `SummaryRequest` (plain input: header facts, participants, utterance lines, language, budget), `SummaryText`, `SummaryProvider` port, `ModelReleaser` port, `TranscriptChunker`, `PromptBuilder`, the `Headings` value with its English texts (the message ids) and the `HeadingCatalog` port, `SummaryRenderer` (header computed locally plus the model body), `InputFingerprint`, errors (section 9) |
 | `application/` | `GenerateSummary` use case: one pass or map-reduce, cancel and progress callbacks, output validation with one repair request, release of the model |
-| `infrastructure/` | `SummariesSettings` (`SUMMARIES_` prefix, section 8), `OpenAiCompatibleProvider` (one class for Ollama and DeepSeek), `OllamaModelReleaser`, `FilesystemSummaryFiles` (atomic write, backup rotation, read) |
+| `infrastructure/` | `SummariesSettings` (`SUMMARIES_` prefix, section 8), `OpenAiCompatibleProvider` (one class for Ollama and DeepSeek), `OllamaModelReleaser`, `FilesystemSummaryFiles` (atomic write, backup rotation, read), `GettextHeadingCatalog` (reads the `locale/` catalogs, see section 11) |
 
 **Port** (shape, not code to copy):
 
@@ -586,7 +610,7 @@ It uses the official `openai` Python client (new dependency, assumption A-5):
   "title": "<model-written short title>",
   "input_fingerprint": "sha256:<hex>",
   "chunks": 3,
-  "prompt_version": 1,
+  "prompt_version": 2,
   "last_failure": {"error_code": "SUMMARY_TIMEOUT", "at": "2026-10-11T10:40:00+00:00"}
 }
 ```
@@ -739,8 +763,14 @@ a Decisions section (product decision 1, [ADR-008](../decisions/008-summary-sect
   note. **Written by the model**: the title (a single short line), Topics, Decisions, Action items, Open questions.
   This keeps names and facts exact and makes the header cacheable and testable.
 - **Language** (product decision 4): body and headings follow the meeting language, `processing.detected_language` when set, else
-  `TRANSCRIPTION_LANGUAGE`, unless `SUMMARIES_LANGUAGE` overrides. A small per-language table holds the section
-  headings (a few languages first; any other language gets English headings with a body in the meeting language).
+  `TRANSCRIPTION_LANGUAGE`, unless `SUMMARIES_LANGUAGE` overrides. Headings come from a **gettext-style catalog**,
+  not from literals in code: the English headings in the domain are the message ids, and
+  `src/meeting_scribe/summaries/locale/<language>/LC_MESSAGES/meeting_scribe.po` maps them to a language (Spanish is
+  shipped; English is the identity). The adapter `GettextHeadingCatalog` reads the `.po` source at run time with
+  `importlib.resources` (no compile step, so it ships as plain package data; verified in the built wheel). A language
+  without a catalog, or an unreadable catalog, gets English headings and labels with a body still written in the meeting
+  language. To add a language, add one `.po` file and a test; no code changes. The model is told to copy the headings
+  as shown, and output validation accepts only those headings.
   Action item owners use the speaker display names. Technical terms stay as spoken (section 3).
 - Empty sections are kept with "None" in the language of the summary, so the structure is always the same.
 - **Cloud and names** (product decision 3): names are sent to the cloud as written, like the rest of the transcript;
@@ -836,6 +866,9 @@ The owner answered all eight questions on 2026-10-11.
 4. **OQ-4** Language: **the meeting language**, overridable by `SUMMARIES_LANGUAGE`, plus: **technical terms are never
    translated** (kept as spoken, for example "deploy", "pull request"). It is part of the prompt contract (section 3)
    and AC-22.
+   **Refined 2026-10-11**: the summary (headings and body) is written in the language detected for the meeting, the
+   `SUMMARIES_LANGUAGE` override still wins; headings come from a gettext-style catalog with Spanish shipped and English
+   as the fallback for any other language (AC-23). No Spanish text in code, only in the catalog file.
 5. **OQ-5** Regenerate and Reprocess: **regenerate overwrites, keeping one backup** (`summary.previous.md`);
    **Reprocess keeps the summary and marks it out of date** (option b).
 6. **OQ-6** Default local model: **`qwen3.5:9b`**, already installed on the owner's machine (6.6 GB, fits the 8 GB

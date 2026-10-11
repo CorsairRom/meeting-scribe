@@ -1,8 +1,11 @@
-"""Per-language section headings and fixed labels (spec 11).
+"""Section headings and fixed labels per language (spec 11).
 
-Only English is shipped: every other language gets English headings with a body written in the
-meeting language. A language is added by adding one entry to ``_TABLE``.
+The English texts below are the message ids: a ``HeadingCatalog`` adapter translates them and any
+language it does not know gets English headings, with the body still written in the meeting
+language.
 """
+
+from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict
 
@@ -39,7 +42,19 @@ ENGLISH = Headings(
     note="Note: the transcript may contain recognition errors in names and technical terms.",
 )
 
-_TABLE = {"en": ENGLISH}
+
+class HeadingCatalog(Protocol):
+    def headings_for(self, language: str) -> Headings:
+        """The headings for a language code; English when the language is not translated."""
+        ...
+
+
+class EnglishHeadingCatalog:
+    """The default catalog: English for every language."""
+
+    def headings_for(self, language: str) -> Headings:  # noqa: ARG002
+        return ENGLISH
+
 
 _LANGUAGE_NAMES = {
     "en": "English",
@@ -49,10 +64,6 @@ _LANGUAGE_NAMES = {
     "pt": "Portuguese",
     "it": "Italian",
 }
-
-
-def headings_for(language: str) -> Headings:
-    return _TABLE.get(language, ENGLISH)
 
 
 def language_name(language: str) -> str:

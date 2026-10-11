@@ -45,8 +45,9 @@ class SummaryProvider(Protocol):
     ) -> Result[Completion, SummaryError]:
         """One chat completion. Never raises; aborts promptly when ``cancel`` is set.
 
-        ``timeout_seconds`` is the most this call may take (the time left of the total bound);
-        ``None`` means no bound beyond the provider's own.
+        ``timeout_seconds`` is the most this call may take (the time left of the total bound); it
+        is always positive (at least a small minimum), because the caller times out itself when
+        nothing is left. ``None`` means no bound beyond the provider's own.
         """
         ...
 
