@@ -1,7 +1,7 @@
 ---
 type: spec
 feature: review-app
-status: draft  # draft | approved | in-progress | done | blocked
+status: approved  # draft | approved | in-progress | done | blocked
 mvp: true
 prd_ref: FR-5, NFR-1, NFR-2, NFR-6, safety requirements 1-3
 depends_on:
@@ -292,7 +292,7 @@ THEN the app, launcher and desktop entry are removed and meetings are untouched
 - Not deleting meetings or audio (retention is a later improvement).
 - Not an HTTP surface, not direct reads of meeting files by the app (ADR-001, ADR-005).
 - Not Flatpak or a distribution package: the app runs from the install directory with system Python.
-- Not opening itself after processing: the notification and the menu are the only entry points; a window never steals focus.
+- Not opening itself after processing, and not opened from the notification (OQ-6): the extension menu is the only desktop entry point; a window never steals focus.
 
 ---
 
@@ -347,7 +347,7 @@ Decisions in one line each (details in the sections that follow):
 2. **Edits are stored non-destructively in `meeting.json`**: names in `speakers[].name` (a field F3 already reserved), merges as a `merged_into` map. `utterances.json` and `samples/` are never modified, so Unmerge is exact and Reprocess is a clean reset.
 3. **The app never learns a path**: the transcript is returned as rows, a sample as WAV bytes. This is what keeps the app valid when the storage layout changes (backlog "Later improvements").
 4. **The app is stdlib plus PyGObject only**, in a top-level `review-app/` directory outside the `meeting_scribe` package, installed next to the service version and run by `/usr/bin/python3`.
-5. **The entry points are the extension menu and the notification click**; the app is a single-instance `Adw.Application`.
+5. **The entry point is the extension menu** (OQ-6); the app is a single-instance `Adw.Application`.
 
 ### 2. Who writes names and merges
 
@@ -587,7 +587,6 @@ unchanged and keep covering the new `speakers` and `meetings` modules, which nee
 | Entry | Mechanism | Scope |
 |---|---|---|
 | Panel menu "Review last meeting" | New menu action `review`; the controller calls an injected `launchReview()`; `extension.js` implements it with `Gio.DesktopAppInfo.new('dev.meetingscribe.Review.desktop').launch([], null)` (thin glue, CR-012) | F4.7 |
-| Notification click | The service adds the notification hint `desktop-entry = "dev.meetingscribe.Review"` so GNOME Shell activates that app when the user clicks the banner; the service starts no process (OQ-6) | F4.7, assumption A-5 |
 | Command line | `meeting-scribe-review [--meeting ID]`; no argument opens the newest `DONE` meeting | F4.5 |
 
 The extension does not pass a meeting id: it never calls `List` or `Get` (the meetings client contract), and the
@@ -645,7 +644,8 @@ go, because it opens a window and the service it talks to may hold private meeti
 - At most 64 code points; no Unicode control (`Cc`) or format (`Cf`) characters, which rules out line breaks that
   would corrupt `transcript.md`.
 - Unique, case-insensitively, among the other **active** speakers' display names and default labels
-  (`SPEAKER_NAME_TAKEN`, OQ-3). The app offers "Merge into <that speaker>?" on that error.
+  (`SPEAKER_NAME_TAKEN`, OQ-3). On that error the app tells the user the name is already used and offers two
+  ways out: merge into that speaker (same person), or edit the name to tell them apart (for example a surname).
 - Markdown-significant characters are accepted and escaped by the transcript renderer.
 
 **Privacy.** Names and transcript text are private meeting data (BR-002). Neither the service nor the app logs
@@ -696,7 +696,7 @@ its tests and docs.
 | F4.5a | `ui`: application and command line, single instance, window with split view, meeting sidebar, transcript list, `dbus_gateway`, import smoke test | ~400 |
 | F4.5b | `ui`: speaker rows, rename and merge dialogs, unmerge, `media_player`, "service not running" and read-only banners | ~400 |
 | F4.6 | Packaging: launcher, desktop entry template, `install.sh` and `uninstall.sh` changes with the system-package check and summary, `make run-review-app`, install tests, runbook `docs/runbooks/review-app.md` | ~300 plus docs |
-| F4.7 | Extension: "Review last meeting" item, `launchReview` glue, failure notification, `gjs` tests; notification `desktop-entry` hint in the service notifier with its test | ~250 |
+| F4.7 | Extension: "Review last meeting" item, `launchReview` glue, failure notification, `gjs` tests | ~200 |
 | F4.8 | Validation with the user's consent (window, playback, a real meeting), rules-registry entries, `mvp-scope.md` traceability for FR-5, README, backlog, docs gate | ~150 plus docs |
 
 ---
@@ -709,7 +709,7 @@ its tests and docs.
 | `Adw.NavigationSplitView`, `Adw.Application`, `Adw.AlertDialog` (1.9) API names and signals | F4.5a, F4.5b | Not verified |
 | `Gio.DBusProxy.new_for_bus` / `call` with `a{sv}` and `ay` reply unpacking in PyGObject | F4.5a | Not verified |
 | import-linter `root_packages` with two roots and the `independence` contract across them | F4.4a | Not verified (A-6) |
-| GNOME Shell activates the app named by a notification's `desktop-entry` hint on click | F4.7 | Not verified (A-5) |
+| GNOME Shell activates the app named by a notification's `desktop-entry` hint on click | Not needed in F4 (OQ-6: menu only) | Not verified (A-5) |
 
 ## Assumptions to confirm
 
@@ -719,43 +719,29 @@ its tests and docs.
 | A-2 | The `Gtk.MediaFile` GStreamer backend is available without an extra package. **Partly confirmed (2026-10-09)**: `libgtk-4.so` links `libgstplay`; no module directory exists; playback itself was not tried (no audio without the user's go) | F4.8 with consent |
 | A-3 | `Gtk.MediaFile.new_for_input_stream` plays a `Gio.MemoryInputStream` of WAV bytes (seekable). If not, use the `$XDG_RUNTIME_DIR` temp file fallback | F4.5b, a synthetic tone, with consent |
 | A-4 | A sample is small enough to return as `ay`: at most 15 s of 16 kHz 16-bit mono, about 0.5 MB, far below the D-Bus message limit | F4.3 test with a generated maximum-size sample |
-| A-5 | Setting `desktop-entry` on the service's notification makes a click activate the app | F4.7, manual check in the real shell |
+| A-5 | Setting `desktop-entry` on the service's notification makes a click activate the app | Deferred with OQ-6 (backlog); not needed in F4 |
 | A-6 | import-linter allows two `root_packages` and an `independence` contract between them | F4.4a |
 | A-7 | `Gio.DesktopAppInfo.launch` from the shell process is acceptable for a short-lived launch (no blocking, no ML) and stays within ADR-001 | F4.7 |
 | A-8 | The extension can hide or show the item from state it already has (service available, not recording) without calling `List` | F4.7 |
 | A-9 | Speaker ids `S1..SN` are unique per meeting and never contain path characters (they are `ME`, `UNKNOWN`, `S<digits>`); `GetSpeakerSample` still checks the id against `meeting.json` | F4.1 |
 
-## Open product questions
+## Product decisions
 
-None of these is decided. Each has a recommendation; the owner confirms or changes it before the task that
-depends on it starts.
+All six questions were answered by the owner (OQ-1 on 2026-10-09, OQ-2 to OQ-6 on 2026-10-11).
 
-1. **OQ-1** Reprocess of a meeting that has names or merges: reset the review, keep it, or refuse?
-   Options: (a) reset (names and merges cleared), (b) keep by speaker id when the diarization result is
-   unchanged and reset otherwise, (c) refuse Reprocess unless the user confirms discarding the edits.
-   [Recommend (a): ids are only stable while diarization is unchanged, a wrong name attached to another person is
-   worse than a lost name, and the app offers no Reprocess; (b) can be added later with a diarization fingerprint.]
-2. **OQ-2** Which speakers can be merged or renamed: "Me" and "Unknown" included?
-   Options: (a) "Me" can be a merge target but never a source, "Unknown" is a normal source, both can be renamed,
-   (b) neither "Me" nor "Unknown" can be merged, (c) everything is allowed.
-   [Recommend (a): the spec records that leftover clusters and "Unknown" are meant to be merged in F4, "Me" must
-   keep meaning "the user", and a real name in the transcript helps the summary.]
-3. **OQ-3** Two active speakers with the same name: reject, allow or warn?
-   Options: (a) reject with `SPEAKER_NAME_TAKEN` and offer a merge, (b) allow duplicates, (c) allow with a warning.
-   [Recommend (a): identical names make the transcript ambiguous and usually mean a merge was intended.]
-4. **OQ-4** Undo of a merge: include `UnmergeSpeaker` in F4?
-   Options: (a) include it (cheap: the merge is stored non-destructively), (b) no undo, the user reprocesses.
-   [Recommend (a): a wrong merge would otherwise cost a full reprocess, and the merged speaker's sample stays so
-   the user can check.]
-5. **OQ-5** Name suggestions from earlier meetings (autocomplete of names already used)?
-   Options: (a) none in F4, (b) suggest names from the user's previous meetings.
-   [Recommend (a): it reads other meetings' private data, edges toward cross-meeting identity (out of the MVP) and
-   is easy to add later.]
-6. **OQ-6** Open the review from the "Meeting processed" notification?
-   Options: (a) a `desktop-entry` hint so a click opens the app, service starts nothing, (b) a notification action
-   that makes the service launch the app, (c) menu only.
-   [Recommend (a) if assumption A-5 holds, otherwise (c); (b) makes the service spawn GUI processes, which ADR-001
-   avoids.]
+1. **OQ-1** Reprocess of a meeting that has names or merges: **reset** (option a). Names and merges are cleared,
+   because speaker ids are only stable while diarization is unchanged and a name attached to the wrong person is
+   worse than a lost one. Keeping them by a diarization fingerprint can be added later.
+2. **OQ-2** Merge and rename rules: **"Me" can be a merge target but never a source**; "Unknown" is a normal
+   source and can be merged into "Me" (it is mic speech that was not clearly the user, often the user speaking
+   softly) or into another speaker; both can be renamed (for example "Unknown" was a colleague in the room).
+3. **OQ-3** Duplicate names: **rejected** with `SPEAKER_NAME_TAKEN`. The app says the name is already used and
+   offers to merge into that speaker or to edit the name to tell them apart (for example a surname).
+4. **OQ-4** Undo of a merge: **included** (`UnmergeSpeaker`); a merge is stored non-destructively.
+5. **OQ-5** Name suggestions from earlier meetings: **none in F4**; names are typed by hand. Recorded in the
+   backlog as a later improvement, to be designed with cross-meeting voice recognition.
+6. **OQ-6** Opening the review from the notification: **no, menu only** in F4 ("Review last meeting"). A
+   notification action is recorded in the backlog as a later improvement.
 
 ## Definition of Done
 
