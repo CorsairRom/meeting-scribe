@@ -19,5 +19,3 @@ METHODS = (
     "UnmergeSpeaker",
 )
 SIGNALS = ("ProcessingStateChanged", "ProcessingFinished", "SpeakersChanged")
-
-STATE_DONE = "DONE"

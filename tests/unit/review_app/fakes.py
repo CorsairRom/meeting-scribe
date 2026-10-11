@@ -3,7 +3,9 @@
 Nothing here touches D-Bus, GTK or an audio device (BR-001).
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from meeting_scribe_review.core.errors import ServiceError
@@ -48,11 +50,21 @@ class FakeGateway:
     replies: dict[str, Any] = field(default_factory=dict)
     calls: list[tuple[str, tuple[Any, ...]]] = field(default_factory=list)
     listeners: list[GatewayListener] = field(default_factory=list)
+    deferred: bool = False
+    pending: list[Callable[[], None]] = field(default_factory=list)
+
+    def release(self, index: int = 0) -> None:
+        """Deliver one held reply (``deferred`` mode), to test replies that arrive late."""
+        self.pending.pop(index)()
 
     def _answer[T](self, method: str, args: tuple[Any, ...], default: T, done: Callback[T]) -> None:
         self.calls.append((method, args))
         reply = self.replies.get(method, Ok(default))
-        done(reply(*args) if callable(reply) else reply)
+        result = reply(*args) if callable(reply) else reply
+        if self.deferred:
+            self.pending.append(lambda: done(result))
+        else:
+            done(result)
 
     def fail(self, method: str, code: str) -> None:
         self.replies[method] = Err(ServiceError(code))
@@ -118,3 +130,15 @@ class FakePlayer:
     @property
     def played(self) -> list[bytes]:
         return [data for kind, data in self.events if kind == "play" and data is not None]
+
+
+def meeting(
+    meeting_id: str, state: str = "DONE", *, day: int = 9, speakers: int = 2
+) -> MeetingSummary:
+    return MeetingSummary(
+        id=meeting_id,
+        started_at=datetime(2026, 10, day, 10, 15, tzinfo=UTC),
+        duration_seconds=754.0,
+        state=state,
+        active_speaker_count=speakers,
+    )
