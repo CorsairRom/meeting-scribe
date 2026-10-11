@@ -128,6 +128,7 @@ class ReviewPresenter:
 
     def open(self, meeting_id: str, meeting_state: str) -> None:
         """Show a meeting: its review when DONE, else a read-only banner for its state."""
+        self._generation += 1  # replies still in flight belong to the previous meeting
         self._state = ReviewState(meeting_id=meeting_id)
         self._meeting_state = meeting_state
         if meeting_state == STATE_DONE:
@@ -189,11 +190,11 @@ class ReviewPresenter:
         if show_loading:
             self._publish(ReviewState(meeting_id=meeting_id, status=ReviewStatus.LOADING))
         self._gateway.get_speakers(
-            meeting_id, lambda result: self._speakers_loaded(generation, result)
+            meeting_id, lambda result: self._speakers_loaded(generation, meeting_id, result)
         )
 
     def _speakers_loaded(
-        self, generation: int, result: Result[list[Speaker], ServiceError]
+        self, generation: int, meeting_id: str, result: Result[list[Speaker], ServiceError]
     ) -> None:
         if generation != self._generation:
             return
@@ -202,7 +203,7 @@ class ReviewPresenter:
             return
         speakers = tuple(result.value)
         self._gateway.get_transcript(
-            self._state.meeting_id,
+            meeting_id,
             lambda transcript: self._transcript_loaded(generation, speakers, transcript),
         )
 

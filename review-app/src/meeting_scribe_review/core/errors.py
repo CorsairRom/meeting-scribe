@@ -11,6 +11,7 @@ UNKNOWN_ERROR = "UNKNOWN_ERROR"
 
 _DBUS_PREFIX = "org.freedesktop.DBus.Error."
 _NOT_RUNNING_NAMES = frozenset({"ServiceUnknown", "NameHasNoOwner", "NoServer"})
+RENAME_CALL = "rename_speaker"
 START_COMMAND = "systemctl --user start meeting-scribe.service"
 
 
@@ -59,14 +60,19 @@ _MESSAGES: dict[str, UserMessage] = {
     ),
     "MEETING_CORRUPT": UserMessage("This meeting's transcript is damaged. Reprocess it."),
     "MEETING_STORAGE_FAILED": UserMessage("The meeting files could not be read or written."),
-    "INVALID_VALUE": UserMessage("That name is not valid."),
+    "INVALID_VALUE": UserMessage("The request was not valid."),
     "SPEAKER_NAME_TAKEN": UserMessage("That name is already used by another speaker."),
     "SPEAKER_MERGE_INVALID": UserMessage("These speakers cannot be merged."),
 }
 
 
-def message_for(error: ServiceError) -> UserMessage:
-    """The message for a code; an unmapped code gets a generic message that names the code."""
+def message_for(error: ServiceError, call: str = "") -> UserMessage:
+    """The message for a code, worded for the failed ``call`` when that matters.
+
+    An unmapped code gets a generic message that names the code.
+    """
+    if error.code == "INVALID_VALUE" and call == RENAME_CALL:
+        return UserMessage("That name is not valid.")
     known = _MESSAGES.get(error.code)
     if known is not None:
         return known

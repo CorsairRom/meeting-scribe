@@ -3,8 +3,10 @@
 import re
 from pathlib import Path
 
+from meeting_scribe_review.core.constants import METHODS
 from meeting_scribe_review.core.errors import (
     INVALID_REPLY,
+    RENAME_CALL,
     SERVICE_NOT_RUNNING,
     SERVICE_OUTDATED,
     ServiceError,
@@ -15,16 +17,7 @@ from meeting_scribe_review.core.errors import (
 ROOT = Path(__file__).resolve().parents[3]
 API_CONTRACTS = ROOT / "docs" / "architecture" / "api-contracts.md"
 CATALOG = ROOT / "docs" / "architecture" / "error-codes-catalog.md"
-CALLS = (
-    "List",
-    "Get",
-    "GetSpeakers",
-    "GetTranscript",
-    "GetSpeakerSample",
-    "RenameSpeaker",
-    "MergeSpeakers",
-    "UnmergeSpeaker",
-)
+CALLS = ("Get", *METHODS)
 
 
 def _codes_a_review_call_can_return() -> set[str]:
@@ -55,6 +48,13 @@ def test_every_code_a_review_call_can_return_has_a_message() -> None:
     for code in sorted(codes):
         text = message_for(ServiceError(code)).text
         assert code not in text, f"{code} has no specific message in core/errors.py"
+
+
+def test_invalid_value_is_worded_for_the_call_that_failed() -> None:
+    error = ServiceError("INVALID_VALUE")
+    assert message_for(error, call=RENAME_CALL).text == "That name is not valid."
+    assert message_for(error, call="merge_speakers").text == "The request was not valid."
+    assert message_for(error).text == "The request was not valid."
 
 
 def test_service_error_names_become_codes() -> None:
