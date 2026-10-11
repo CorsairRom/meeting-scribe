@@ -101,6 +101,34 @@ class SpeakerReview(_Section):
         return self.model_copy(update={"transcript_stale": False})
 
 
+class SummaryFailure(_Section):
+    """The last failed attempt: a stable code and when; never content."""
+
+    error_code: str
+    at: AwareDatetime
+
+
+class SummaryInfo(_Section):
+    """What ``meeting.json`` knows about ``summary.md`` (spec 7).
+
+    ``file`` is empty while only a failure was recorded (no summary was ever saved).
+    ``input_fingerprint`` is that of the transcript the summary used: staleness is computed
+    against the current one, never stored.
+    """
+
+    file: str = ""
+    generated_at: AwareDatetime | None = None
+    provider: str = ""
+    cloud: bool = False
+    model: str = ""
+    language: str = ""
+    title: str = ""
+    input_fingerprint: str = ""
+    chunks: int = 0
+    prompt_version: int = 0
+    last_failure: SummaryFailure | None = None
+
+
 class Processing(_Section):
     state: ProcessingState
     queued_at: AwareDatetime | None = None
@@ -131,6 +159,7 @@ class Meeting(BaseEntity):
     speakers: tuple[SpeakerEntry, ...] = ()
     speaker_review: SpeakerReview = Field(default_factory=SpeakerReview)
     files: dict[str, str] = Field(default_factory=dict)
+    summary: SummaryInfo | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @property
     def active_speaker_count(self) -> int:
@@ -188,9 +217,14 @@ class Meeting(BaseEntity):
             "DONE",
             {"finished_at": now, "failure": None, "detected_language": detected_language},
         )
+        kept = {"summary": self.summary.file} if self.summary and self.summary.file else {}
         return result.map(
             lambda done: done.model_copy(
-                update={"speakers": speakers, "files": files, "speaker_review": SpeakerReview()}
+                update={
+                    "speakers": speakers,
+                    "files": {**files, **kept},
+                    "speaker_review": SpeakerReview(),
+                }
             )
         )
 
@@ -226,6 +260,18 @@ class Meeting(BaseEntity):
     ) -> Self:
         """A copy with the reviewed speakers (names) and the review state; not a state change."""
         return self.model_copy(update={"speakers": speakers, "speaker_review": review})
+
+    def with_summary(self, info: SummaryInfo) -> Self:
+        """A copy with a freshly saved summary; clears the last failure. Not a state change."""
+        return self.model_copy(
+            update={"summary": info, "files": {**self.files, "summary": info.file}}
+        )
+
+    def with_summary_failure(self, error_code: str, at: datetime) -> Self:
+        """A copy that remembers the last failed attempt; a saved summary stays as it was."""
+        failure = SummaryFailure(error_code=error_code, at=at)
+        info = (self.summary or SummaryInfo()).model_copy(update={"last_failure": failure})
+        return self.model_copy(update={"summary": info})
 
     def with_audio(self, audio: AudioInfo) -> Self:
         return self._with_processing({"audio": audio})
