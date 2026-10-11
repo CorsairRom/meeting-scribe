@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from returns.result import Failure, Result, Success
 
 from meeting_scribe.base.domain.errors import EntityNotFoundError, InvalidValueError
-from meeting_scribe.speakers.domain.errors import SpeakerNameTakenError
+from meeting_scribe.speakers.domain.errors import SpeakerMergeInvalidError, SpeakerNameTakenError
 
 MAX_NAME_LENGTH = 64
 """Longest name, in code points, after NFC normalisation and trimming."""
@@ -78,6 +78,86 @@ def rename(
     if name and _is_taken(state, speaker_id, name):
         return Failure(SpeakerNameTakenError(f"That name is already used (speaker {speaker_id})."))
     return Success(_replace(state, target.model_copy(update={"name": name})))
+
+
+def merge(
+    state: ReviewState, source_id: str, target_id: str
+) -> Result[ReviewState, SpeakerMergeInvalidError | EntityNotFoundError]:
+    """Show ``source`` as ``target``. "Me" can be a target, never a source; targets never chain."""
+    source, target = state.find(source_id), state.find(target_id)
+    for speaker_id, record in ((source_id, source), (target_id, target)):
+        if record is None:
+            return Failure(_unknown_speaker(speaker_id))
+    if source is None or target is None:  # unreachable; narrows the types
+        return Failure(_unknown_speaker(source_id))
+    if source.is_me:
+        return Failure(SpeakerMergeInvalidError('"Me" cannot be merged into another speaker.'))
+    if source_id == target_id:
+        return Failure(SpeakerMergeInvalidError(f"Speaker {source_id} cannot merge into itself."))
+    if not state.is_active(source_id) or not state.is_active(target_id):
+        return Failure(SpeakerMergeInvalidError("A merged speaker cannot be a source or target."))
+    merged_into = {
+        child: (target_id if parent == source_id else parent)
+        for child, parent in state.merged_into.items()
+    }
+    merged_into[source_id] = target_id
+    adopted = (
+        target
+        if target.name or not source.name
+        else target.model_copy(update={"name": source.name})
+    )
+    return Success(_replace(state.model_copy(update={"merged_into": merged_into}), adopted))
+
+
+def unmerge(state: ReviewState, speaker_id: str) -> Result[ReviewState, EntityNotFoundError]:
+    """Make a merged speaker active again with its own record; a no-op when it is not merged."""
+    if state.find(speaker_id) is None:
+        return Failure(_unknown_speaker(speaker_id))
+    merged_into = {k: v for k, v in state.merged_into.items() if k != speaker_id}
+    return Success(state.model_copy(update={"merged_into": merged_into}))
+
+
+class EffectiveSpeaker(BaseModel):
+    """One ``GetSpeakers`` row: the speaker as the user sees it after names and merges."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    label: str
+    name: str
+    display: str
+    is_me: bool
+    talk_seconds: float
+    utterance_count: int
+    has_sample: bool
+    merged_into: str
+
+
+def effective_speakers(state: ReviewState) -> tuple[EffectiveSpeaker, ...]:
+    """Active speakers first ("Me", then by talk time), merged ones after; targets fold totals."""
+    talk: dict[str, float] = {s.id: s.talk_seconds for s in state.speakers}
+    count: dict[str, int] = {s.id: s.utterance_count for s in state.speakers}
+    for source_id, target_id in state.merged_into.items():
+        talk[target_id] += talk[source_id]
+        count[target_id] += count[source_id]
+    ordered = sorted(
+        state.speakers,
+        key=lambda s: (not state.is_active(s.id), not s.is_me, -talk[s.id]),
+    )
+    return tuple(
+        EffectiveSpeaker(
+            id=s.id,
+            label=s.label,
+            name=s.name,
+            display=s.display,
+            is_me=s.is_me,
+            talk_seconds=round(talk[s.id], 3),
+            utterance_count=count[s.id],
+            has_sample=bool(s.sample),
+            merged_into=state.merged_into.get(s.id, ""),
+        )
+        for s in ordered
+    )
 
 
 def _is_taken(state: ReviewState, speaker_id: str, name: str) -> bool:
