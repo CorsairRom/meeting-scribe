@@ -43,4 +43,12 @@ def render_transcript(utterances: Sequence[Utterance], labels: Mapping[str, Spea
 
 def _display(speaker: str, labels: Mapping[str, SpeakerLabel]) -> str:
     label = labels.get(speaker)
-    return label.display if label else speaker
+    return escape_markdown(label.display if label else speaker)
+
+
+_MARKDOWN_SPECIAL = frozenset("\\`*_[]<>|~&")
+
+
+def escape_markdown(text: str) -> str:
+    """Backslash-escape what could turn a name into markup; the utterance text is left as spoken."""
+    return "".join(f"\\{char}" if char in _MARKDOWN_SPECIAL else char for char in text)

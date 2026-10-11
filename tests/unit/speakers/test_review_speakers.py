@@ -12,11 +12,13 @@ from meeting_scribe.speakers.domain.review import (
     ReviewState,
     SpeakerRecord,
     effective_speakers,
+    effective_utterances,
     merge,
     rename,
     unmerge,
     validate_name,
 )
+from meeting_scribe.speakers.domain.turns import Utterance
 
 
 def _record(speaker_id: str, label: str, name: str = "", *, is_me: bool = False) -> SpeakerRecord:
@@ -192,3 +194,20 @@ def test_unmerge_after_the_target_was_merged_further_keeps_the_other_children() 
     restored = unmerge(state, "S3").unwrap()
 
     assert restored.merged_into == {"S1": "S2"}
+
+
+def test_effective_utterances_show_merged_speakers_as_their_target() -> None:
+    state = merge(_team(), "S3", "S1").unwrap()
+    utterances = (
+        Utterance(speaker="S3", start=1.0, end=2.0, text="first"),
+        Utterance(speaker="S1", start=2.0, end=3.0, text="second"),
+        Utterance(speaker="ME", start=3.0, end=4.0, text="third"),
+    )
+
+    shown = effective_utterances(utterances, state.merged_into)
+
+    assert [u.speaker for u in shown] == ["S1", "S1", "ME"]
+    assert [(u.start, u.end, u.text) for u in shown] == [
+        (u.start, u.end, u.text) for u in utterances
+    ]
+    assert utterances[0].speaker == "S3"  # the stored utterances are never changed

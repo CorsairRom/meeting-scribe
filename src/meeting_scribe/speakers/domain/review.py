@@ -6,12 +6,14 @@ exact. Error messages carry speaker ids only, never a name (names are private).
 """
 
 import unicodedata
+from collections.abc import Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict
 from returns.result import Failure, Result, Success
 
 from meeting_scribe.base.domain.errors import EntityNotFoundError, InvalidValueError
 from meeting_scribe.speakers.domain.errors import SpeakerMergeInvalidError, SpeakerNameTakenError
+from meeting_scribe.speakers.domain.turns import Utterance
 
 MAX_NAME_LENGTH = 64
 """Longest name, in code points, after NFC normalisation and trimming."""
@@ -157,6 +159,16 @@ def effective_speakers(state: ReviewState) -> tuple[EffectiveSpeaker, ...]:
             merged_into=state.merged_into.get(s.id, ""),
         )
         for s in ordered
+    )
+
+
+def effective_utterances(
+    utterances: Sequence[Utterance], merged_into: Mapping[str, str]
+) -> tuple[Utterance, ...]:
+    """The utterances with every merged speaker shown as its target; nothing else changes."""
+    return tuple(
+        u.model_copy(update={"speaker": merged_into[u.speaker]}) if u.speaker in merged_into else u
+        for u in utterances
     )
 
 
