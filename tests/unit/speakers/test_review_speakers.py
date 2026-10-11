@@ -122,7 +122,7 @@ def test_effective_speakers_fold_merged_totals_into_the_target() -> None:
     state = rename(_team(), "S1", "Alex").unwrap()
     state = merge(state, "S2", "S1").unwrap()
 
-    rows = {row.id: row for row in effective_speakers(state)}
+    rows = {row.id: row for row in effective_speakers(state).unwrap()}
 
     assert rows["S1"].display == "Alex"
     assert rows["S1"].talk_seconds == pytest.approx(28.0)
@@ -138,7 +138,7 @@ def test_effective_speakers_fold_merged_totals_into_the_target() -> None:
 def test_effective_speakers_list_me_first_then_by_talk_and_merged_last() -> None:
     state = merge(_team(), "S2", "S3").unwrap()
 
-    ids = [row.id for row in effective_speakers(state)]
+    ids = [row.id for row in effective_speakers(state).unwrap()]
 
     assert ids == ["ME", "S1", "S3", "UNKNOWN", "S2"]
 
@@ -179,7 +179,7 @@ def test_unmerge_restores_the_speaker() -> None:
 
     assert restored.merged_into == {}
     assert restored.find("S3") == _team().find("S3")  # its own name, totals and sample
-    rows = {row.id: row for row in effective_speakers(restored)}
+    rows = {row.id: row for row in effective_speakers(restored).unwrap()}
     assert rows["S1"].talk_seconds == pytest.approx(20.0)
     assert rows["S3"].merged_into == ""
 
@@ -269,3 +269,81 @@ def test_rename_of_a_merged_away_speaker_is_rejected() -> None:
 
     assert type(failure) is SpeakerMergeInvalidError
     assert state.find("S3").name == "Carol"  # type: ignore[union-attr]
+
+
+def _chain() -> ReviewState:
+    """S3 (Carol) merged into S1, then S1 merged into S2: both targets adopted "Carol"."""
+    state = merge(_team(), "S3", "S1").unwrap()
+    return merge(state, "S1", "S2").unwrap()
+
+
+def _names(state: ReviewState) -> dict[str, str]:
+    return {s.id: s.name for s in state.speakers}
+
+
+def test_a_chained_merge_flattens_and_both_targets_adopt_the_name() -> None:
+    chained = _chain()
+
+    assert chained.merged_into == {"S3": "S2", "S1": "S2"}
+    assert _names(chained)["S1"] == _names(chained)["S2"] == "Carol"
+
+
+def test_chained_merges_unmerge_the_original_owner_first() -> None:
+    restored = unmerge(_chain(), "S3").unwrap()
+
+    assert restored.merged_into == {"S1": "S2"}
+    assert _names(restored) == {"ME": "", "UNKNOWN": "", "S1": "", "S2": "", "S3": "Carol"}
+    assert unmerge(restored, "S1").unwrap() == _team()
+
+
+def test_chained_merges_unmerge_the_intermediate_speaker_first() -> None:
+    restored = unmerge(_chain(), "S1").unwrap()
+
+    assert restored.merged_into == {"S3": "S2"}
+    assert _names(restored)["S2"] == ""  # S2 gives back what it took from S1
+    assert _names(restored)["S1"] == "Carol"  # S1 still shows what it took from S3
+    assert unmerge(restored, "S3").unwrap() == _team()
+
+
+def test_a_user_rename_after_a_chained_merge_is_kept_on_unmerge() -> None:
+    state = rename(_chain(), "S2", "Dave").unwrap()
+
+    restored = unmerge(state, "S3").unwrap()
+
+    assert _names(restored)["S2"] == "Dave"
+    assert _names(restored)["S1"] == ""
+
+
+_BAD_STATES = {
+    "unknown source": {"S9": "S1"},
+    "unknown target": {"S1": "S9"},
+    "self merge": {"S1": "S1"},
+    "cycle": {"S1": "S2", "S2": "S1"},
+    "chain": {"S1": "S2", "S2": "S3"},
+    "me as source": {"ME": "S1"},
+}
+
+
+@pytest.mark.parametrize("merged_into", list(_BAD_STATES.values()), ids=list(_BAD_STATES))
+def test_an_inconsistent_state_is_a_typed_failure_never_an_exception(
+    merged_into: dict[str, str],
+) -> None:
+    state = ReviewState(speakers=_team().speakers, merged_into=merged_into)
+
+    for result in (
+        effective_speakers(state),
+        rename(state, "S1", "Dave"),
+        merge(state, "S2", "S3"),
+        unmerge(state, "S1"),
+    ):
+        assert _failure(result).error_code == "TRANSCRIPT_CORRUPT"
+
+
+def test_a_state_with_unknown_adoption_ids_or_duplicate_speakers_is_corrupt() -> None:
+    unknown = ReviewState(speakers=_team().speakers, merged_into={}, name_adopted_from={"S9": "S1"})
+    duplicate = ReviewState(
+        speakers=(*_team().speakers, _record("S1", "Speaker 1")), merged_into={}
+    )
+
+    assert _failure(effective_speakers(unknown)).error_code == "TRANSCRIPT_CORRUPT"
+    assert _failure(effective_speakers(duplicate)).error_code == "TRANSCRIPT_CORRUPT"

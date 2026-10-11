@@ -41,7 +41,9 @@ class ReviewSpeakers:
     ) -> Result[ReviewOutcome, MeetingScribeError]:
         return _outcome(state, unmerge(state, speaker_id))
 
-    def speakers(self, state: ReviewState) -> tuple[EffectiveSpeaker, ...]:
+    def speakers(
+        self, state: ReviewState
+    ) -> Result[tuple[EffectiveSpeaker, ...], MeetingScribeError]:
         return effective_speakers(state)
 
 
