@@ -493,7 +493,12 @@ Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv 
       characterization). Spec gaps accepted: GetSpeakers also requires DONE + lock; repair_stale logs id+code
       and continues. Review review-7ca4c6939d1df53d approved (1 warning: unmapped error on the repair path,
       fixed in `3e6a51e`), review-514d18b1ad9860ed approved. Integrated #87. GREEN 894 python / 108 gjs.
-- [ ] F4.3 `Meetings1` review members + `SpeakersChanged`, api-contracts, error catalog, e2e (~400)
+- [x] F4.3 `Meetings1` review members + `SpeakersChanged`, api-contracts (first), error catalog, e2e.
+      Delegated writer; ~800 authored lines. RED observed per behavior. Gaps accepted: sample errors live in
+      meetings (read through a meetings port); 1 MiB sample refusal; SpeakersChanged also fires when a job
+      ends DONE. Review review-9d039d6d0c138290 approved. Integrated #88-#89. GREEN 916 python / 108 gjs.
+      Follow-ups (suggestions): bounded read instead of stat-then-read for samples; test that a FAILED job
+      emits no SpeakersChanged; repair_stale runs synchronously at start (latency grows with stale meetings).
 - [ ] F4.4a `review-app/` scaffold, core models/ports, import-linter roots and contracts (~350)
 - [ ] F4.4b core presenters (list, review, rename, merge, playback) (~400)
 - [ ] F4.5a GTK ui: application, window, sidebar, transcript, D-Bus gateway (~400)
