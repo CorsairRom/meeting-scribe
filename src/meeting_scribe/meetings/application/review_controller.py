@@ -84,15 +84,10 @@ class ReviewController:
     def transcript(self, meeting_id: str) -> Result[tuple[Utterance, ...], MeetingScribeError]:
         """The utterances with merges applied; repairs a stale ``transcript.md`` first."""
         with self._lock.hold():
-            done = self._done(meeting_id).bind(self._repaired)
-            if isinstance(done, Failure):
-                return done
-            meeting = done.unwrap()
             return (
-                self._state(meeting)
-                .bind(
-                    lambda state: self._transcripts.effective_utterances(meeting.directory, state)
-                )
+                self._done(meeting_id)
+                .bind(self._repaired)
+                .bind(self._shown)
                 .alt(self._at_boundary(meeting_id))
             )
 
@@ -106,7 +101,9 @@ class ReviewController:
             if meeting.processing.state != "DONE" or not meeting.speaker_review.transcript_stale:
                 continue
             with self._lock.hold():
-                outcome = self._done(meeting.id).bind(self._repaired)
+                outcome = (
+                    self._done(meeting.id).bind(self._repaired).alt(self._at_boundary(meeting.id))
+                )
             if isinstance(outcome, Failure):
                 logger.warning(
                     "Could not repair the transcript of meeting %s: %s",

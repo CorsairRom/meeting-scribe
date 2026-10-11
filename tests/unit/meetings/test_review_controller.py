@@ -1,7 +1,13 @@
+import logging
+
 import pytest
 from returns.result import Failure
 
-from meeting_scribe.base.domain.errors import EntityNotFoundError, InvalidStateTransitionError
+from meeting_scribe.base.domain.errors import (
+    EntityNotFoundError,
+    InvalidStateTransitionError,
+    MeetingScribeError,
+)
 from meeting_scribe.meetings.application.review_controller import ReviewController
 from meeting_scribe.meetings.domain.errors import (
     MeetingCorruptError,
@@ -340,3 +346,33 @@ def test_get_speakers_needs_a_done_meeting(rig: Rig) -> None:
     )
 
     assert isinstance(rig.controller.speakers(MEETING_ID).failure(), MeetingNotProcessedError)
+
+
+@pytest.mark.parametrize(
+    ("failure", "code"),
+    [
+        (TranscriptStorageError("io"), "MEETING_STORAGE_FAILED"),
+        (TranscriptCorruptError("damaged"), "MEETING_CORRUPT"),
+    ],
+)
+def test_get_transcript_maps_a_failed_repair_at_the_boundary(
+    rig: Rig, failure: MeetingScribeError, code: str
+) -> None:
+    rig.add(review=SpeakerReview(transcript_stale=True))
+    rig.store.write_failure = failure
+    rig.store.load_failure = failure if isinstance(failure, TranscriptCorruptError) else None
+
+    assert rig.controller.transcript(MEETING_ID).failure().error_code == code  # type: ignore[union-attr]
+
+
+def test_repair_logs_the_mapped_code_and_never_a_name(
+    rig: Rig, caplog: pytest.LogCaptureFixture
+) -> None:
+    rig.add(review=SpeakerReview(transcript_stale=True))
+    rig.store.write_failure = TranscriptStorageError("io")
+
+    with caplog.at_level(logging.WARNING):
+        rig.controller.repair_stale().unwrap()
+
+    assert "MEETING_STORAGE_FAILED" in caplog.text
+    assert "TRANSCRIPT_STORAGE_FAILED" not in caplog.text
