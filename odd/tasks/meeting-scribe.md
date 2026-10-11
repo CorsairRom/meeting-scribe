@@ -559,8 +559,18 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
       provider call) failed in the clean publish worktree; fixed `c9c5cd3` (15/15 green). Integrated #109-#110.
       GREEN 1452 python / 122 gjs. Follow-up: assert the summary job thread is a daemon (it is,
       summary_controller.py:155); e2e exit-4 test should assert the summary-specific log.
-- [ ] F5.6a review app core: summaries gateway, presenters (~400)
-- [ ] F5.6b review app ui: summary view, button, confirmation, progress (~350)
+- [x] F5.6a review app core: Summaries1 models/parsers/gateway, summary, cloud confirmation and api key
+      presenters. Integrated #111.
+- [x] F5.6b review app ui: Summary tab, one Generate button ("Generate summary: <label>"), confirmation,
+      progress/cancel, stale banner, copy, Save a copy, Set API key via libsecret into the GNOME Keyring.
+      Reviews review-6843a9a67c7d1793 (4 lenses), review-b84280bd0e924176, review-cc04d7693e8e5c89,
+      review-193c0b3104f96d54 approved. A load-dependent e2e race (processing of the stopped recording takes
+      the GPU before the summary) failed in the publish worktree; test fixed to retry only on
+      SUMMARY_GPU_BUSY (`53ca355`, `13760b6`), suite green 3/3. Integrated #112. GREEN 1523 python / 122 gjs.
+      Follow-ups for F5.7 first commit: a keyring write that succeeds after cancel is dropped by the presenter
+      (key stored but UI says none); attempt-token path untested; re-confirm completion untested; comment the
+      on_processing_finished alias and the skip code 77; assert the summary thread is a daemon; e2e exit-4
+      test should assert the summary log.
 - [ ] F5.7 extension "Open last summary (date)" (~250)
 - [ ] F5.8 install Ollama/model check (warn only), runbook (~250)
 - [ ] F5.9 validation with consent (local run; cloud only on explicit go), docs gate

@@ -87,7 +87,7 @@ class _SlowStore:
         self.pending.append(done)
 
 
-def test_a_late_store_result_after_cancel_is_ignored() -> None:
+def test_a_late_successful_store_after_cancel_is_published_as_saved() -> None:
     store = _SlowStore()
     states: list[ApiKeyState] = []
     presenter = ApiKeyPresenter(store, states.append)  # type: ignore[arg-type]
@@ -95,7 +95,7 @@ def test_a_late_store_result_after_cancel_is_ignored() -> None:
     presenter.submit(FAKE_KEY)
     presenter.cancel()
     store.pending[0](Ok(None))  # type: ignore[operator]
-    assert presenter.state.status is ApiKeyStatus.IDLE
+    assert presenter.state.status is ApiKeyStatus.SAVED
 
 
 def test_a_late_store_result_of_an_earlier_attempt_is_ignored() -> None:
@@ -107,3 +107,44 @@ def test_a_late_store_result_of_an_earlier_attempt_is_ignored() -> None:
     presenter.edit()
     store.pending[0](Err(ServiceError(KEYRING_UNAVAILABLE)))  # type: ignore[operator]
     assert presenter.state == ApiKeyState(ApiKeyStatus.EDITING)
+
+
+def test_a_successful_store_after_cancel_is_not_dropped_silently() -> None:
+    """The key IS in the keyring, so the user hears about it even if the editor was closed."""
+    store = _SlowStore()
+    states: list[ApiKeyState] = []
+    presenter = ApiKeyPresenter(store, states.append)  # type: ignore[arg-type]
+    presenter.edit()
+    presenter.submit(FAKE_KEY)
+    presenter.cancel()
+    store.pending[0](Ok(None))  # type: ignore[operator]
+    assert presenter.state == ApiKeyState(ApiKeyStatus.SAVED, message=SAVED_TEXT)
+
+
+def test_submit_cancel_edit_submit_with_out_of_order_completions() -> None:
+    store = _SlowStore()
+    presenter = ApiKeyPresenter(store, lambda _state: None)  # type: ignore[arg-type]
+    presenter.edit()
+    presenter.submit(FAKE_KEY)  # attempt 1
+    presenter.cancel()
+    presenter.edit()
+    presenter.submit(FAKE_KEY)  # attempt 2
+    assert presenter.state.status is ApiKeyStatus.SAVING
+    store.pending[1](Ok(None))  # type: ignore[operator]  # the newer one finishes first
+    assert presenter.state.status is ApiKeyStatus.SAVED
+    store.pending[0](Err(ServiceError(KEYRING_UNAVAILABLE)))  # type: ignore[operator]
+    assert presenter.state.status is ApiKeyStatus.SAVED  # a stale failure changes nothing
+
+
+def test_a_stale_success_while_a_newer_attempt_is_saving_does_not_end_it() -> None:
+    store = _SlowStore()
+    presenter = ApiKeyPresenter(store, lambda _state: None)  # type: ignore[arg-type]
+    presenter.edit()
+    presenter.submit(FAKE_KEY)
+    presenter.cancel()
+    presenter.edit()
+    presenter.submit(FAKE_KEY)
+    store.pending[0](Ok(None))  # type: ignore[operator]
+    assert presenter.state.status is ApiKeyStatus.SAVED  # the key is stored either way
+    store.pending[1](Err(ServiceError(KEYRING_UNAVAILABLE)))  # type: ignore[operator]
+    assert presenter.state.status is ApiKeyStatus.SAVED

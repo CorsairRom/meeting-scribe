@@ -67,6 +67,13 @@ entry (`dev.meetingscribe.Review.desktop`, installed by `make install`), with no
 picks the newest `DONE` meeting itself, and shows an empty state when there is none. If the launch fails, one
 notification says to run `make install`. Steps and troubleshooting: [`review-app.md`](review-app.md).
 
+**Open last summary (date)** (F5.7) follows the same visibility as the review item. It shows the start of the most
+recent summarized meeting as a readable date and time in your locale (no title, no path) and opens its `summary.md`
+with the default app for Markdown files (Sublime Text on the owner's machine). It is hidden when there is no summary
+yet or the service is older. The menu asks the service again each time it opens and after every `SummaryFinished`. If no
+app opens it, one notification says to check the app set for Markdown files; fix it with
+`xdg-mime default <app>.desktop text/markdown`.
+
 The last result is kept until a job starts or the service restarts; a successful Reprocess forgets a `FAILED` result so
 the action cannot fire twice. The service already sends the desktop notification; the extension sends none.
 

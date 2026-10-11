@@ -62,6 +62,38 @@ export function launchFailureMessage(_ = s => s) {
     return _('Could not open the review app. Run `make install` to install it.');
 }
 
+/**
+ * The notification shown when the last summary cannot be opened. Fixed text: the launch error
+ * may carry a private path and is never shown.
+ *
+ * @param {Function} [_] - translation function (identity by default)
+ * @returns {string} the message to show
+ */
+export function summaryOpenFailureMessage(_ = s => s) {
+    return _('Could not open the summary. Check that an app is set for Markdown files.');
+}
+
+/**
+ * A readable weekday, date and 24-hour time for the start of a meeting, in the user's locale.
+ *
+ * @param {string} startedAt - ISO 8601 start time from the service
+ * @param {object} [options]
+ * @param {string} [options.locale] - BCP 47 tag; the system locale by default
+ * @param {string} [options.timeZone] - IANA zone; the system zone by default
+ * @returns {string} the text, or '' when the date is missing or invalid
+ */
+export function formatStartedAt(startedAt, {locale, timeZone} = {}) {
+    if (typeof startedAt !== 'string' || startedAt === '')
+        return '';
+    const date = new Date(startedAt);
+    if (Number.isNaN(date.getTime()))
+        return '';
+    return date.toLocaleString(locale, {
+        weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+        hour12: false, timeZone,
+    });
+}
+
 export const ICON_IDLE = '●';
 export const ICON_RECORDING = '■';
 export const ICON_FAILED = '⚠';
@@ -204,6 +236,19 @@ function withReview(model, input, _) {
     return {...model, menuItems: [...model.menuItems, action(_('Review last meeting'), 'review')]};
 }
 
+// "Open last summary (date)" opens summary.md in the default app; the path stays in the client
+// and never enters the model. Offered with the review item (same states), only for a valid date.
+function withSummary(model, input, _) {
+    const when = formatStartedAt(input.processing?.lastSummary?.startedAt);
+    if (!input.processing?.available || when === ''
+        || !REVIEWABLE_STATES.includes(input.state) || input.busy)
+        return model;
+    return {
+        ...model,
+        menuItems: [...model.menuItems, action(fill(_('Open last summary (%s)'), when), 'summary')],
+    };
+}
+
 function withProcessing(model, processing, _) {
     if (!processing?.available)
         return model;
@@ -230,7 +275,8 @@ function withProcessing(model, processing, _) {
  * @param {number} input.elapsedSeconds - seconds since the recording started
  * @param {string} input.failureReason - why the session failed
  * @param {object} [input.processing] - Meetings1 snapshot: `available`, `activeState`,
- *     `queuedCount` and `last` ({meetingId, state, speakerCount}); omitted when unknown
+ *     `queuedCount`, `last` ({meetingId, state, speakerCount}) and `lastSummary` ({startedAt});
+ *     omitted when unknown
  * @param {Function} [_] - translation function (identity by default)
  * @returns {{icon: string, label: string, clickAction: 'start'|'open-menu'|'none',
  *     menuItems: object[], tooltip: string, dimmed: boolean}} the view model
@@ -239,7 +285,8 @@ export function viewModel(input, _ = s => s) {
     if (!input.available)
         return unavailableModel(_);
 
-    const model = withProcessing(withReview(stateModel(input, _), input, _), input.processing, _);
+    const base = withSummary(withReview(stateModel(input, _), input, _), input, _);
+    const model = withProcessing(base, input.processing, _);
     if (input.busy && model.clickAction !== 'none') {
         return {
             ...model,

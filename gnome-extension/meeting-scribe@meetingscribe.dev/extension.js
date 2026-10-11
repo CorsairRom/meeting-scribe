@@ -16,6 +16,12 @@ const OBJECT_PATH = '/dev/meetingscribe/Service';
 const launchReview = () =>
     Gio.DesktopAppInfo.new('dev.meetingscribe.Review.desktop')?.launch([], null) ?? false;
 
+// The path is the service's answer (opaque); the Shell hands it to the default handler for
+// Markdown. launch_default_for_uri_async never blocks the Shell and rejects when no app is set.
+Gio._promisify(Gio.AppInfo, 'launch_default_for_uri_async', 'launch_default_for_uri_finish');
+const openSummary = path =>
+    Gio.AppInfo.launch_default_for_uri_async(Gio.File.new_for_path(path).get_uri(), null, null);
+
 export default class MeetingScribeExtension extends Extension {
     enable() {
         const _ = text => this.gettext(text);
@@ -24,6 +30,7 @@ export default class MeetingScribeExtension extends Extension {
             name: _('Meeting Scribe'),
             onPrimaryClick: options => this._controller?.onPrimaryClick(options) ?? 'none',
             onMenuAction: id => this._controller?.onMenuAction(id),
+            onMenuOpen: () => this._controller?.onMenuOpened(),
         });
         this._client = new RecordingClient({
             busName: BUS_NAME,
@@ -42,6 +49,7 @@ export default class MeetingScribeExtension extends Extension {
             scheduler: this._scheduler,
             notify: (title, body) => Main.notify(title, body),
             launchReview,
+            openSummary,
             _,
         });
         Main.panel.addToStatusArea(this.uuid, this._indicator);

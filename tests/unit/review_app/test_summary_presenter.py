@@ -397,3 +397,15 @@ def test_a_confirmation_is_dropped_when_the_default_is_no_longer_the_cloud() -> 
     presenter.send(asked[0])
     assert gateway.args_of("summarize") == []
     assert len(asked) == 1
+
+
+def test_a_re_confirmed_cloud_request_completes_with_the_new_provider() -> None:
+    gateway = _cloud_gateway("cloud")
+    presenter, _, _states, asked = _wire(gateway)
+    presenter.open("m1", "DONE")
+    presenter.request()
+    gateway.replies["providers"] = Ok([provider("cloud2", cloud=True)])
+    presenter.on_service_available(True)
+    presenter.send(asked[0])  # stale: asks again
+    presenter.send(asked[1])  # the re-confirmation
+    assert gateway.args_of("summarize") == [("m1", "cloud2", True)]

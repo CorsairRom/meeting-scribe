@@ -165,6 +165,9 @@ class SummaryPresenter:
             self._publish()
 
     def on_processing_finished(self, meeting_id: str, state: str) -> None:
+        # The summary tab only needs the new state (DONE brings the view back, anything else hides
+        # it); the speaker count the finished signal also carries is irrelevant here, so finishing
+        # is the same transition as any other state change.
         self.on_processing_state_changed(meeting_id, state)
 
     def on_speakers_changed(self, meeting_id: str) -> None:

@@ -429,11 +429,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 56 | 0 | 0 |
+| GO | 58 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-056 — 2026-10-11
-**Next available IDs**: BR-005, CR-014, GO-057, AP-005
+**Last rule added**: GO-058 — 2026-10-11
+**Next available IDs**: BR-005, CR-014, GO-059, AP-005
 
 ---
 
@@ -518,3 +518,10 @@ with `Supersedes: <ID>`. Never delete rules.
 - **Detail**: `SummariesInterface` (`meetings/infrastructure/dbus/`) is also the controller's observer, subscribed to a `SummaryEventHub` (the controller is built before the bus exists). Events arrive on the job thread and cross to the loop with `call_soon_threadsafe`; `SummaryProgress` is throttled to one per second by `ProgressThrottle`, which always lets the last step through and restarts at every start and end. `ActiveSummaryMeetingId` is announced only when it changed. `create_app` builds ONE `InMemoryGpuLease`, passes it to `ProcessingController` (recording goes through `preempt()`/`release()`) and to `SummaryController`, and passes `ProcessingController.wake` as `on_gpu_free`; the providers, labels (the "cloud" label), limits and the heading catalog come from `SummariesSettings` and a `SummaryAdapters` bundle that tests replace with fakes. `serve` cancels and joins a running summary before it stops the processing loop; `SummaryController.shutdown(timeout)` bounds the join itself (no executor thread stays blocked), the job thread is a daemon, and a job that ignores the cancel past `SHUTDOWN_TIMEOUT_SECONDS` is logged (meeting id only) and makes the exit code 4, the same as a stuck processing loop (GO-026; no worker process is left over, but the unit is restarted all the same). A `dbus_method` wrapper discards the return value when called from Python (GO-022), so the behavior lives in plain coroutines the unit tests call. `LastSummary` skips a meeting whose `summary.md` was deleted and returns the path from the file store, never one built by a client.
 - **Source**: [summaries spec](../specs/summaries.md) section 10, AC-19; GO-022, GO-054; F5.5
 - **Verifiable in**: `tests/unit/meetings/test_summaries_interface.py`, `tests/unit/meetings/test_summary_events.py`, `tests/unit/test_main.py::test_recording_processing_and_summaries_share_one_gpu_lease`, `tests/e2e/meetings/test_summaries_over_dbus.py`
+
+### GO-058 — "Open last summary" opens the service's path through Gio and never builds one
+- **Date**: 2026-10-11
+- **Status**: active
+- **Detail**: (1) `MeetingsClient` also watches `Summaries1`: it calls `LastSummary` when the service appears, on `SummaryFinished` and when the menu opens, and keeps `{startedAt, path}` in its snapshot; `ENTITY_NOT_FOUND_SUMMARY`, an older service without the interface, a timeout or a path that is not absolute all clear it, which hides the item. A request counter drops a late answer. (2) The item is `Open last summary (<weekday, day, month, 24-hour time>)`, built from `started_at` in the user's locale (`formatStartedAt`); it carries no title and no path, and it follows the "Review last meeting" visibility (hidden while recording, busy, unknown state or unavailable service). (3) `openSummary(path)` is injected into the controller and implemented in `extension.js` as `Gio.AppInfo.launch_default_for_uri_async(Gio.File.new_for_path(path).get_uri(), null, null)`, so the Shell never blocks and the default app for `.md` handles it; a `false`, a throw or a rejection shows one fixed notification (`summaryOpenFailureMessage`), never the error, which can hold the path. (4) The extension never reads a summary and never writes the file name `summary.md`; a static test checks it. It needs a check in a real shell.
+- **Source**: [summaries spec](../specs/summaries.md) section 10, AC-19, OQ-7, A-8, A-9; F5.7
+- **Verifiable in**: `gnome-extension/tests/indicatorModel.test.js`, `gnome-extension/tests/indicatorController.test.js`, `gnome-extension/tests/meetingsClient.test.js`, `gnome-extension/tests/shellGlue.test.js`

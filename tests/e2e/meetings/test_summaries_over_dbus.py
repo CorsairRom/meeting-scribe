@@ -356,7 +356,7 @@ def test_serve_cancels_and_joins_a_running_summary_before_processing_stops(
 
 
 def test_a_summary_that_outlives_the_shutdown_bound_exits_with_code_four_in_time(
-    tmp_path: Path, bus_address: str
+    tmp_path: Path, bus_address: str, capfd: pytest.CaptureFixture[str]
 ) -> None:
     rig = ServiceRig(tmp_path)
     rig.seed_reviewable("m1", 0, LINES)
@@ -371,3 +371,4 @@ def test_a_summary_that_outlives_the_shutdown_bound_exits_with_code_four_in_time
 
     assert code == 4
     assert time.monotonic() - started < 4.0
+    assert "The summary job did not stop within" in capfd.readouterr().err

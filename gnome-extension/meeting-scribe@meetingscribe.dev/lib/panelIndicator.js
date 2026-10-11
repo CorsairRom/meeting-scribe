@@ -34,12 +34,17 @@ class PanelIndicator extends PanelMenu.Button {
      * @param {object} options
      * @param {string} options.name - accessible name of the button
      * @param {Function} options.onPrimaryClick - takes {menuOpen}; returns 'start', 'open-menu', 'close-menu' or 'none'
-     * @param {Function} options.onMenuAction - called with 'start', 'stop', 'reprocess' or 'review'
+     * @param {Function} options.onMenuAction - called with 'start', 'stop', 'reprocess', 'review' or 'summary'
+     * @param {Function} [options.onMenuOpen] - called each time the menu opens
      */
-    _init({name, onPrimaryClick, onMenuAction}) {
+    _init({name, onPrimaryClick, onMenuAction, onMenuOpen = () => {}}) {
         super._init(0.5, name, true);
         this.setMenu(new IndicatorMenu(this, onPrimaryClick));
         this._onMenuAction = onMenuAction;
+        this.menu.connect('open-state-changed', (_menu, open) => {
+            if (open)
+                onMenuOpen();
+        });
         this._itemsKey = null;
 
         const box = new St.BoxLayout({style_class: 'panel-status-menu-box'});

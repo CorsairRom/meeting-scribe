@@ -1,5 +1,5 @@
 import {test, assertEqual, assertDeepEqual} from './harness.js';
-import {formatElapsed, errorMessage, launchFailureMessage, viewModel, ICON_IDLE, ICON_RECORDING, ICON_FAILED, ICON_UNAVAILABLE} from '../meeting-scribe@meetingscribe.dev/lib/indicatorModel.js';
+import {formatElapsed, errorMessage, launchFailureMessage, summaryOpenFailureMessage, formatStartedAt, viewModel, ICON_IDLE, ICON_RECORDING, ICON_FAILED, ICON_UNAVAILABLE} from '../meeting-scribe@meetingscribe.dev/lib/indicatorModel.js';
 
 test('formatElapsed pads to HH:MM:SS', () => {
     assertEqual(formatElapsed(0), '00:00:00');
@@ -373,4 +373,72 @@ test('launchFailureMessage tells the user to run make install', () => {
     const message = launchFailureMessage(s => s);
     assertEqual(message.includes('make install'), true);
     assertEqual(launchFailureMessage(s => `<${s}>`).startsWith('<'), true);
+});
+
+// -- Open last summary (F5.7, AC-19) -----------------------------------------------------------
+
+const STARTED = '2026-10-09T14:30:00+00:00';
+const SUMMARY_PATH = '/private/place/m1/summary.md';
+const withSummary = (extra = {}) => ({
+    available: true, activeState: 'IDLE', queuedCount: 0, last: null,
+    lastSummary: {startedAt: STARTED, path: SUMMARY_PATH}, ...extra,
+});
+const summaryItems = model => model.menuItems.filter(item => item.action === 'summary');
+
+test('formatStartedAt gives a readable weekday, date and 24-hour time in the given locale', () => {
+    const text = formatStartedAt(STARTED, {locale: 'en-US', timeZone: 'UTC'});
+    for (const part of ['Fri', 'Oct', '9', '14:30'])
+        assertEqual(text.includes(part), true, `${text}: missing ${part}: `);
+});
+
+test('formatStartedAt returns an empty string for an invalid or missing date', () => {
+    for (const value of ['', 'not a date', undefined, null, 42])
+        assertEqual(formatStartedAt(value), '', `${value}: `);
+});
+
+test('the summary item shows the readable date, no title, no path', () => {
+    const model = vm({state: 'IDLE', processing: withSummary()});
+    const [item] = summaryItems(model);
+    assertEqual(item.text, `Open last summary (${formatStartedAt(STARTED)})`);
+    assertDeepEqual(Object.keys(item).sort(), ['action', 'kind', 'text']);
+    assertEqual(JSON.stringify(model).includes(SUMMARY_PATH), false);
+});
+
+test('the summary item follows the review item, before the processing lines', () => {
+    const items = vm({state: 'IDLE', processing: withSummary({
+        last: {meetingId: 'm', state: 'DONE', speakerCount: 2}})}).menuItems;
+    assertDeepEqual(items.map(i => i.action ?? i.kind),
+        ['start', 'review', 'summary', 'separator', 'status']);
+});
+
+test('the summary item is hidden without a summary, with an invalid date or an older service', () => {
+    assertDeepEqual(summaryItems(vm({state: 'IDLE', processing: withSummary({lastSummary: null})})), []);
+    assertDeepEqual(summaryItems(vm({state: 'IDLE', processing: withSummary({lastSummary: undefined})})), []);
+    assertDeepEqual(summaryItems(vm({state: 'IDLE', processing: withSummary({
+        lastSummary: {startedAt: 'garbage', path: SUMMARY_PATH}})})), []);
+    assertDeepEqual(summaryItems(vm({state: 'IDLE', processing: {available: true,
+        activeState: 'IDLE', queuedCount: 0, last: null}})), []);
+});
+
+test('the summary item follows the review visibility: not recording, busy, unknown or unavailable', () => {
+    const processing = withSummary();
+    for (const state of ['IDLE', 'STOPPED', 'FAILED'])
+        assertEqual(summaryItems(vm({state, processing})).length, 1, `${state}: `);
+    assertDeepEqual(summaryItems(vm({state: 'RECORDING', processing})), []);
+    assertDeepEqual(summaryItems(vm({state: 'IDLE', busy: true, processing})), []);
+    assertDeepEqual(summaryItems(vm({state: 'WEIRD', processing})), []);
+    assertDeepEqual(summaryItems(vm({available: false, processing})), []);
+    assertDeepEqual(summaryItems(vm({state: 'IDLE',
+        processing: {...processing, available: false}})), []);
+});
+
+test('the summary item text is translated through the template', () => {
+    const tr = s => `<${s}>`;
+    const [item] = summaryItems(vm({state: 'IDLE', processing: withSummary()}, tr));
+    assertEqual(item.text.startsWith('<Open last summary ('), true);
+});
+
+test('summaryOpenFailureMessage is short, fixed and translated', () => {
+    assertEqual(summaryOpenFailureMessage(s => s).includes('summary'), true);
+    assertEqual(summaryOpenFailureMessage(s => `<${s}>`).startsWith('<'), true);
 });
