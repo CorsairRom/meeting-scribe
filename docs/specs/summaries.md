@@ -930,3 +930,17 @@ The owner answered all eight questions on 2026-10-11.
 ## Decisions taken during implementation
 
 > If unresolved forks appear, record them here AND open an ADR if the decision is structural.
+
+- **F5.3 (2026-10-11)**: the `openai` client (3.x) is built on `httpx2`, not `httpx`; tests pass an
+  `httpx2.MockTransport` through `http_client`, and `httpx2` is declared as a direct dependency because the adapter
+  and the releaser import it. The import-linter contract confines `openai` and `httpx2` to
+  `summaries.infrastructure` (contract 14).
+- **F5.3**: an empty answer is returned by the adapter as an empty `Completion` and judged by `GenerateSummary`
+  (`SUMMARY_OUTPUT_INVALID`), so the rule lives in one place. A stream that ends without a `finish_reason` is a
+  retryable provider failure. The truncation guard applies to the local provider only; `finish_reason` `length`
+  applies to both.
+- **F5.3**: `SUMMARIES_CLOUD_PROVIDER_NAME` (default `OpenCode Go`) is a setting so the service builds the label
+  `cloud: <name>, <model>`. `SUMMARIES_LOCAL_CONTEXT_TOKENS` and `SUMMARIES_CLOUD_CONTEXT_TOKENS` must exceed
+  `SUMMARIES_MAX_OUTPUT_TOKENS` plus 600.
+- **F5.3**: a connect or first-byte wait cannot be interrupted by a cancel (no stream exists yet); it is bounded by
+  the connect timeout (5 s) and the read timeout capped by the time left.
