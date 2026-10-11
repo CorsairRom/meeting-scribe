@@ -46,7 +46,7 @@ class FilesystemSummaryFiles:
                     temps.append(held)
                     previous.replace(held)
             try:
-                if current.is_file():
+                if backup_temp:  # the earlier decision, not a second look at the disk
                     Path(backup_temp).replace(previous)
                 Path(new_temp).replace(current)
             except OSError:

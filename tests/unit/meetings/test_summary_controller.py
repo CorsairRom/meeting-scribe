@@ -792,3 +792,34 @@ def test_last_summary_skips_a_deleted_file_and_a_failed_only_section(rig: Rig) -
 
 def test_last_summary_without_any_summary_is_entity_not_found(rig: Rig) -> None:
     assert _code(rig.controller.last_summary()) == "ENTITY_NOT_FOUND_SUMMARY"
+
+
+# -- bounded shutdown --
+
+
+def test_a_shutdown_bound_returns_false_when_the_job_ignores_the_cancel() -> None:
+    rig = Rig(threaded=True)
+    rig.add()
+    release = threading.Event()
+    rig.local_provider.on_call = lambda _n: (release.wait(5), None)[
+        1
+    ]  # does not look at the cancel
+    rig.controller.summarize("m1", "local", False).unwrap()
+
+    try:
+        stopped = rig.controller.shutdown(0.05)
+    finally:
+        release.set()
+        rig.controller.shutdown()  # unbounded, now that the call can end
+
+    assert stopped is False
+
+
+def test_a_shutdown_bound_returns_true_when_the_job_ends_in_time() -> None:
+    rig = Rig(threaded=True)
+    rig.add()
+    rig.local_provider.block_until_cancelled = True
+    rig.controller.summarize("m1", "local", False).unwrap()
+
+    assert rig.controller.shutdown(5.0) is True
+    assert rig.controller.shutdown(5.0) is True  # idempotent

@@ -148,3 +148,24 @@ def test_a_failed_backup_replace_restores_the_older_backup(
 
 def test_path_is_the_fixed_file_name_inside_the_folder(tmp_path: Path) -> None:
     assert FilesystemSummaryFiles().path(tmp_path) == tmp_path / "summary.md"
+
+
+def test_the_older_backup_survives_when_summary_md_vanishes_mid_save(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files = FilesystemSummaryFiles()
+    files.save(tmp_path, "# Synthetic summary zero\n").unwrap()
+    files.save(tmp_path, OLD).unwrap()  # summary.md = OLD, previous = zero
+    real_replace = os.replace
+
+    def vanishing(src: str | Path, dst: str | Path) -> None:
+        if Path(src).name == "summary.previous.md":  # the older backup is being held
+            (tmp_path / "summary.md").unlink()  # the user deletes it right after the decision
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", vanishing)
+
+    assert files.save(tmp_path, NEW).unwrap() == "summary.md"
+
+    assert (tmp_path / "summary.md").read_text(encoding="utf-8") == NEW
+    assert (tmp_path / "summary.previous.md").read_text(encoding="utf-8") == OLD

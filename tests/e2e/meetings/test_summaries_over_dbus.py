@@ -6,6 +6,7 @@ no keyring, no audio. The summary files are real files in the temp meeting folde
 
 import asyncio
 import threading
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import NamedTuple
@@ -282,3 +283,68 @@ def test_a_confirmed_cloud_summary_is_labelled_cloud_and_ignores_the_gpu(
         await session.recording.call_stop()
 
     _run(rig, bus_address, scenario)
+
+
+def _serve_and_stop(rig: ServiceRig, address: str, timeout: float) -> int:
+    from meeting_scribe.main import serve  # noqa: PLC0415
+
+    async def main() -> int:
+        ready, stop = asyncio.Event(), asyncio.Event()
+        task = asyncio.create_task(
+            serve(rig.app, bus_address=address, ready=ready, stop=stop, shutdown_timeout=timeout)
+        )
+        await asyncio.wait_for(ready.wait(), timeout=5)
+        client = await connect(address)
+        try:
+            summaries = await interface(client, IFACE)
+            await summaries.call_summarize("m1", "local", False)
+            await eventually(lambda: bool(rig.local_provider.requests), "model call started")
+        finally:
+            client.disconnect()
+        stop.set()
+        return await asyncio.wait_for(task, timeout=5)
+
+    return asyncio.run(main())
+
+
+def test_serve_cancels_and_joins_a_running_summary_before_processing_stops(
+    tmp_path: Path, bus_address: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = ServiceRig(tmp_path)
+    rig.seed_reviewable("m1", 0, LINES)
+    rig.local_provider.block_until_cancelled = True
+    order: list[str] = []
+    real_shutdown = rig.app.processing.shutdown
+    monkeypatch.setattr(
+        rig.app.processing,
+        "shutdown",
+        lambda: (
+            order.append(
+                f"processing stops, summary idle={rig.app.summaries.active_meeting_id == ''}"
+            ),
+            real_shutdown(),
+        )[1],
+    )
+
+    assert _serve_and_stop(rig, bus_address, 5.0) == 0
+
+    assert order == ["processing stops, summary idle=True"]
+    assert rig.repository.meetings["m1"].summary is None  # cancelled: nothing saved
+
+
+def test_a_summary_that_outlives_the_shutdown_bound_exits_with_code_four_in_time(
+    tmp_path: Path, bus_address: str
+) -> None:
+    rig = ServiceRig(tmp_path)
+    rig.seed_reviewable("m1", 0, LINES)
+    release = threading.Event()
+    rig.local_provider.on_call = lambda _n: (release.wait(5), None)[1]  # ignores the cancel
+    started = time.monotonic()
+
+    try:
+        code = _serve_and_stop(rig, bus_address, 0.2)
+    finally:
+        release.set()
+
+    assert code == 4
+    assert time.monotonic() - started < 4.0

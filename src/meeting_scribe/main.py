@@ -358,12 +358,16 @@ async def _stop_processing(
     return not thread.is_alive()
 
 
-async def _stop_summaries(summaries: SummaryController, wait_seconds: float) -> None:
-    """Cancel a running summary and wait for its thread, bounded; nothing is persisted."""
-    try:
-        await asyncio.wait_for(asyncio.to_thread(summaries.shutdown), wait_seconds)
-    except TimeoutError:
+async def _stop_summaries(summaries: SummaryController, wait_seconds: float) -> bool:
+    """Cancel a running summary and wait for its thread, bounded; True when it ended.
+
+    The wait itself is bounded inside ``shutdown`` (no executor thread is left blocked); a job that
+    ignores the cancel is a daemon thread, so it cannot hold the process open.
+    """
+    stopped = await asyncio.to_thread(summaries.shutdown, wait_seconds)
+    if not stopped:
         logger.error("The summary job did not stop within %.0f s.", wait_seconds)
+    return stopped
 
 
 async def _wait_for_stop_or_disconnect(stop: asyncio.Event, bus: MessageBus) -> bool:
@@ -383,13 +387,18 @@ async def _wait_for_stop_or_disconnect(stop: asyncio.Event, bus: MessageBus) -> 
         await asyncio.gather(stop_waiter, disconnect_waiter, return_exceptions=True)
 
 
-def _exit_code(disconnected: bool, stop_failed: bool, processing_stopped: bool) -> int:
-    """Precedence 3, 2, 4; every cause is already logged at ERROR where it happened."""
+def _exit_code(
+    disconnected: bool, stop_failed: bool, processing_stopped: bool, summaries_stopped: bool = True
+) -> int:
+    """Precedence 3, 2, 4; every cause is already logged at ERROR where it happened.
+
+    A summary job that outlived the bound counts as 4, like a stuck processing loop.
+    """
     if disconnected:
         return EXIT_BUS_DISCONNECTED
     if stop_failed:
         return EXIT_STOP_FAILED
-    return EXIT_OK if processing_stopped else EXIT_PROCESSING_STUCK
+    return EXIT_OK if processing_stopped and summaries_stopped else EXIT_PROCESSING_STUCK
 
 
 async def serve(
@@ -407,7 +416,8 @@ async def serve(
     if the bus name is taken, ``EXIT_STOP_FAILED`` (2) if stopping the active recording at
     shutdown failed, ``EXIT_BUS_DISCONNECTED`` (3) if the bus connection was lost,
     ``EXIT_PROCESSING_STUCK`` (4) if the processing loop outlived ``shutdown_timeout`` (a worker
-    process may be left over). Precedence: 3, then 2, then 4.
+    process may be left over) or a summary job did (a daemon thread, no process).
+    Precedence: 3, then 2, then 4.
     """
     loop = asyncio.get_running_loop()
     handled: list[signal.Signals] = []
@@ -431,7 +441,7 @@ async def serve(
         app.events.subscribe(meetings)
         app.summary_events.subscribe(summaries)
         processing_thread: threading.Thread | None = None
-        processing_stopped = True
+        processing_stopped = summaries_stopped = True
         disconnected = False
         try:
             processing_thread = _start_processing(app.processing, app.review)
@@ -445,7 +455,7 @@ async def serve(
                 # first: stopping the recording queues its meeting for the next start
                 outcome = await recording.shutdown()
         finally:
-            await _stop_summaries(app.summaries, shutdown_timeout)
+            summaries_stopped = await _stop_summaries(app.summaries, shutdown_timeout)
             if processing_thread is not None:
                 processing_stopped = await _stop_processing(
                     app.processing, processing_thread, shutdown_timeout
@@ -454,7 +464,9 @@ async def serve(
                 app.processing.shutdown()
             app.events.unsubscribe(meetings)
             app.summary_events.unsubscribe(summaries)
-        code = _exit_code(disconnected, isinstance(outcome, Failure), processing_stopped)
+        code = _exit_code(
+            disconnected, isinstance(outcome, Failure), processing_stopped, summaries_stopped
+        )
         if code == EXIT_OK:
             logger.info("meeting-scribe stopped.")
         return code

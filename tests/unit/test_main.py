@@ -339,6 +339,27 @@ def test_a_processing_loop_that_outlives_the_shutdown_bound_is_logged_not_fatal(
     )
 
 
+def test_stop_summaries_reports_whether_the_job_ended_within_the_bound(
+    main_records: list[logging.LogRecord],
+) -> None:
+    app = create_app(Settings())
+    assert asyncio.run(main_module._stop_summaries(app.summaries, 0.05)) is True
+
+    class Stuck:
+        def shutdown(self, timeout: float | None = None) -> bool:
+            threading.Event().wait(min(timeout or 0, 0.01))
+            return False
+
+    assert asyncio.run(main_module._stop_summaries(Stuck(), 0.05)) is False  # type: ignore[arg-type]
+    assert any(r.levelno == logging.ERROR for r in main_records)
+
+
+def test_exit_code_four_covers_a_summary_that_outlived_the_bound() -> None:
+    assert main_module._exit_code(False, False, True, False) == main_module.EXIT_PROCESSING_STUCK
+    assert main_module._exit_code(False, False, True, True) == main_module.EXIT_OK
+    assert main_module._exit_code(True, False, True, False) == main_module.EXIT_BUS_DISCONNECTED
+
+
 # -- summaries wiring (F5.5) --
 
 
