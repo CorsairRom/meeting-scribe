@@ -7,6 +7,7 @@ unknown languages give English headings, never an error.
 """
 
 import ast
+import logging
 import re
 from importlib.resources import files
 from importlib.resources.abc import Traversable
@@ -15,9 +16,13 @@ from pydantic import ValidationError
 
 from meeting_scribe.summaries.domain.headings import ENGLISH, Headings
 
+logger = logging.getLogger(__name__)
+
 DOMAIN = "meeting_scribe"
+"""The gettext domain: the catalog file is ``<DOMAIN>.po``."""
 _LANGUAGE_CODE = re.compile(r"[a-z]{2,3}")
 _MIN_QUOTED = 2
+"""A quoted ``.po`` string needs at least its two quote characters."""
 
 
 def default_locale_dir() -> Traversable:
@@ -32,7 +37,10 @@ def load_catalog(language: str, locale_dir: Traversable | None = None) -> dict[s
     path = root.joinpath(language, "LC_MESSAGES", f"{DOMAIN}.po")
     try:
         return parse_po(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None  # a language without a catalog is normal
     except (OSError, ValueError, SyntaxError):
+        logger.warning("Heading catalog %s (%s) is unusable; using English", path, language)
         return None
 
 
@@ -90,4 +98,5 @@ class GettextHeadingCatalog:
         try:
             return Headings(**values)
         except ValidationError:
+            logger.warning("Heading catalog for %s was rejected; using English", language)
             return ENGLISH
