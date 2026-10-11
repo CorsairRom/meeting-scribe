@@ -87,6 +87,10 @@ class SummaryFiles(Protocol):
         """
         ...
 
+    def exists(self, meeting_dir: Path) -> bool:
+        """Whether ``summary.md`` is there (the user may have deleted it)."""
+        ...
+
     def read(self, meeting_dir: Path) -> Result[str, MeetingScribeError]:
         """The text; ``ENTITY_NOT_FOUND_SUMMARY`` when there is no file. No path in an error."""
         ...
@@ -188,6 +192,36 @@ class NullProcessingEvents:
         return None
 
     def status_changed(self) -> None:
+        return None
+
+
+type SummaryOutcome = Literal["DONE", "FAILED", "CANCELLED"]
+
+
+class SummaryEvents(Protocol):
+    """Observer of the summary job (the ``Summaries1`` signals are wired on it later)."""
+
+    def progress(self, meeting_id: str, step: int, total: int) -> None:
+        """A step finished; the observer throttles."""
+        ...
+
+    def finished(self, meeting_id: str, state: SummaryOutcome, error_code: str) -> None:
+        """The job ended and its result is saved (``error_code`` empty on ``DONE``)."""
+        ...
+
+    def active_changed(self) -> None:
+        """The active meeting changed; read ``active_meeting_id``."""
+        ...
+
+
+class NullSummaryEvents:
+    def progress(self, meeting_id: str, step: int, total: int) -> None:  # noqa: ARG002
+        return None
+
+    def finished(self, meeting_id: str, state: SummaryOutcome, error_code: str) -> None:  # noqa: ARG002
+        return None
+
+    def active_changed(self) -> None:
         return None
 
 

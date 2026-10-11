@@ -52,6 +52,9 @@ class FilesystemSummaryFiles:
                 Path(name).unlink(missing_ok=True)
         return Success(SUMMARY_FILE)
 
+    def exists(self, meeting_dir: Path) -> bool:
+        return (meeting_dir / SUMMARY_FILE).is_file()
+
     def read(self, meeting_dir: Path) -> Result[str, MeetingScribeError]:
         path = meeting_dir / SUMMARY_FILE
         if not path.is_file():

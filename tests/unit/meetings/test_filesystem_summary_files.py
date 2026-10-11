@@ -84,3 +84,12 @@ def test_read_of_an_unreadable_file_is_a_storage_failure(tmp_path: Path) -> None
 
     assert isinstance(result, Failure)
     assert result.failure().error_code == "SUMMARY_STORAGE_FAILED"
+
+
+def test_exists_follows_the_file(tmp_path: Path) -> None:
+    files = FilesystemSummaryFiles()
+    assert files.exists(tmp_path) is False
+
+    files.save(tmp_path, OLD).unwrap()
+
+    assert files.exists(tmp_path) is True
