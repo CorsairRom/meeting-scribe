@@ -18,6 +18,10 @@ from tests.system_python import INTERPRETER, skip_without_toolkit
 pytestmark = pytest.mark.dbus
 
 APP_SRC = Path(__file__).resolve().parents[3] / "review-app" / "src"
+CLIENT_DEADLINE_SECONDS = 20  # the client gives up first, so a missing signal fails fast
+# Only a successful rename, merge and unmerge emit SpeakersChanged; the rejected duplicate name
+# ("taken") and the read-only calls do not.
+EXPECTED_SPEAKERS_CHANGED = 3
 LINES = [("S1", 0.0, 2.0, "Fake line one."), ("S2", 2.0, 4.5, "Fake line two.")]
 WAV = b"RIFF\x00\x00\x00\x00WAVEfake"
 
@@ -72,7 +76,12 @@ def run(index=0):
         run(index + 1)
     call(done)
 
-GLib.timeout_add_seconds(20, lambda: (results.update(timeout=True), loop.quit()))
+def give_up():
+    results["timeout"] = True
+    loop.quit()
+    return GLib.SOURCE_REMOVE
+
+GLib.timeout_add_seconds(__DEADLINE__, give_up)
 run()
 loop.run()
 print(json.dumps({"results": results, "events": events}))
@@ -104,7 +113,8 @@ async def _client(address: str, steps: str, expect_speakers: int = 0) -> dict:
         "-c",
         _CLIENT.replace("__APP_SRC__", repr(str(APP_SRC)))
         .replace("__STEPS__", steps)
-        .replace("__EXPECT__", str(expect_speakers)),
+        .replace("__EXPECT__", str(expect_speakers))
+        .replace("__DEADLINE__", str(CLIENT_DEADLINE_SECONDS)),
         env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -125,7 +135,9 @@ def test_the_gateway_speaks_the_real_contract(tmp_path: Path, bus_address: str) 
 
     async def scenario() -> dict:
         async with running(rig, bus_address):
-            return await _client(bus_address, _REVIEW_STEPS, expect_speakers=3)
+            return await _client(
+                bus_address, _REVIEW_STEPS, expect_speakers=EXPECTED_SPEAKERS_CHANGED
+            )
 
     out = asyncio.run(scenario())
     results = out["results"]
@@ -140,10 +152,29 @@ def test_the_gateway_speaks_the_real_contract(tmp_path: Path, bus_address: str) 
     assert ["S2", "Speaker 2", "S1"] in results["merge"]
     assert ["S2", "Speaker 2", ""] in results["unmerge"]
     assert results["unknown_meeting"] == ["err", "ENTITY_NOT_FOUND_MEETING"]
-    assert [event for event in out["events"] if event[0] == "speakers"] == [["speakers", "m1"]] * 3
+    assert [event for event in out["events"] if event[0] == "speakers"] == [
+        ["speakers", "m1"]
+    ] * EXPECTED_SPEAKERS_CHANGED
 
 
 def test_a_missing_service_is_reported_as_not_running(bus_address: str) -> None:
     skip_without_toolkit()
     out = asyncio.run(_client(bus_address, '[("list", lambda d: gateway.list_meetings(d))]'))
     assert out["results"] == {"list": ["err", "SERVICE_NOT_RUNNING"]}
+
+
+def test_an_unreadable_reply_is_reported_as_invalid_reply(tmp_path: Path, bus_address: str) -> None:
+    skip_without_toolkit()
+    rig = ServiceRig(tmp_path)
+    rig.seed_reviewable("m1", 0, LINES, {})
+    steps = """[
+        ("key", lambda d: gateway._call("List", "", (), lambda value: {}["missing"], d)),
+        ("attribute", lambda d: gateway._call("List", "", (), lambda value: value.missing, d)),
+    ]"""
+
+    async def scenario() -> dict:
+        async with running(rig, bus_address):
+            return await _client(bus_address, steps)
+
+    results = asyncio.run(scenario())["results"]
+    assert results == {"key": ["err", "INVALID_REPLY"], "attribute": ["err", "INVALID_REPLY"]}

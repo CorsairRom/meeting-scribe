@@ -163,7 +163,7 @@ class DBusGateway:
                 return
             try:
                 result = parse(unpack_reply(reply))
-            except (GLib.Error, TypeError, ValueError, IndexError):
+            except (GLib.Error, TypeError, ValueError, IndexError, KeyError, AttributeError):
                 _LOG.warning("%s: unreadable reply", method)
                 result = Err(ServiceError(INVALID_REPLY))
             done(result)
