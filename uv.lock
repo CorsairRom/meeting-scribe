@@ -866,6 +866,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "dbus-fast" },
+    { name = "httpx2" },
     { name = "openai" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -892,6 +893,7 @@ quality-assurance = [
 requires-dist = [
     { name = "dbus-fast", specifier = ">=5.2.0" },
     { name = "faster-whisper", marker = "extra == 'ml'", specifier = ">=1.2.1" },
+    { name = "httpx2", specifier = ">=2.13.1" },
     { name = "import-linter", marker = "extra == 'quality-assurance'", specifier = ">=2.0" },
     { name = "numpy", marker = "extra == 'ml'", specifier = ">=2.5.3" },
     { name = "nvidia-cublas-cu12", marker = "extra == 'ml'", specifier = ">=12.9.2.10" },
