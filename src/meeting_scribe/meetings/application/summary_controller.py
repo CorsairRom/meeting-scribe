@@ -172,7 +172,8 @@ class SummaryController:
         self._events: SummaryEvents = events or NullSummaryEvents()
         self._start_job: JobStarter = start_job or _default_starter
         self._on_gpu_free = on_gpu_free
-        self._slot = threading.Lock()  # guards ``_job``, ``_stopping`` and ``_thread``
+        self._slot = threading.Condition()  # guards the job, _stopping, _spawning, _thread
+        self._spawning = False  # a claimed job whose thread is being started (outside the lock)
         self._job: _Job | None = None
         self._thread: object = None
         self._stopping = False
@@ -249,6 +250,7 @@ class SummaryController:
             self._stopping = True
             if self._job is not None:
                 self._job.cancel.set()
+            self._slot.wait_for(lambda: not self._spawning)  # a claimed job is spawned or refused
             thread = self._thread
         if isinstance(thread, threading.Thread) and thread is not threading.current_thread():
             thread.join()
@@ -266,19 +268,31 @@ class SummaryController:
     # -- the job thread --
 
     def _spawn(self, job: _Job) -> Result[None, MeetingScribeError]:
-        """Start the job thread; atomic with ``shutdown`` (both hold the slot lock)."""
-        failure: MeetingScribeError | None = None
+        """Start the job thread without holding the slot lock; ``shutdown`` waits for the flag."""
         with self._slot:
             if self._stopping:
-                failure = SummaryBusyError("The service is shutting down.")
-            else:
-                try:
-                    self._thread = self._start_job(lambda: self._run(job))
-                except Exception:
-                    logger.exception("Could not start the summary job for %s.", job.meeting_id)
-                    failure = MeetingScribeError("The summary could not be started.")
-            if failure is not None:
                 self._release_locked(job)
+                stopped = True
+            else:
+                self._spawning = True
+                stopped = False
+        failure: MeetingScribeError | None = None
+        if stopped:
+            failure = SummaryBusyError("The service is shutting down.")
+        else:
+            thread: object = None
+            try:
+                thread = self._start_job(lambda: self._run(job))
+            except Exception:
+                logger.exception("Could not start the summary job for %s.", job.meeting_id)
+                failure = MeetingScribeError("The summary could not be started.")
+            with self._slot:
+                if failure is None:
+                    self._thread = thread
+                else:
+                    self._release_locked(job)
+                self._spawning = False
+                self._slot.notify_all()
         if failure is None:
             return Success(None)
         self._gpu_freed(job)
@@ -399,7 +413,10 @@ class SummaryController:
         if self._job is job:
             self._job = None
         if not job.option.cloud:
-            self._lease.release("summary")
+            try:
+                self._lease.release("summary")
+            except Exception:  # the events and the queue wake-up must still follow
+                logger.exception("Could not release the GPU lease of summary %s.", job.meeting_id)
 
     def _finish_slot(self, job: _Job) -> None:
         """Free the slot and the GPU (the model is already released), then wake the queue."""
