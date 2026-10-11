@@ -4,6 +4,7 @@ from meeting_scribe_review.core.presenters.summary import SummaryPhase
 from meeting_scribe_review.core.result import Ok
 from meeting_scribe_review.core.session import ReviewSession
 from tests.unit.review_app.fakes import (
+    FakeApiKeyStore,
     FakeGateway,
     FakePlayer,
     FakeSummariesGateway,
@@ -25,7 +26,7 @@ def _open(
     if cloud:
         summaries.replies["providers"] = Ok([provider("cloud", cloud=True)])
     views = FakeViews()
-    session = ReviewSession(gateway, FakePlayer(), views, summaries)
+    session = ReviewSession(gateway, FakePlayer(), views, summaries, FakeApiKeyStore())
     session.start()
     return session, summaries, views, gateway
 
@@ -90,3 +91,18 @@ def test_closing_the_window_forgets_the_summary_and_any_open_confirmation() -> N
     assert not views.confirmations[-1].open
     session.confirm_cloud()
     assert summaries.args_of("summarize") == []
+
+
+def test_the_api_key_flow_reaches_the_store_and_the_view() -> None:
+    gateway = FakeGateway()
+    gateway.replies["list_meetings"] = Ok([meeting("m2", day=10)])
+    keys, views = FakeApiKeyStore(), FakeViews()
+    session = ReviewSession(gateway, FakePlayer(), views, FakeSummariesGateway(), keys)
+    session.start()
+    session.set_api_key()
+    assert views.api_keys[-1].status.value == "editing"
+    session.submit_api_key("fake-key")
+    assert keys.stored == ["fake-key"]
+    session.set_api_key()
+    session.cancel_api_key()
+    assert views.api_keys[-1].status.value == "idle"

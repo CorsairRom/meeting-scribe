@@ -314,3 +314,19 @@ def test_service_unavailable_then_back_reloads() -> None:
     presenter.on_service_available(True)
     assert presenter.state.phase is SummaryPhase.NONE
     assert len(gateway.args_of("providers")) == 2
+
+
+def test_the_set_key_action_is_offered_only_for_an_available_cloud_provider() -> None:
+    presenter, _gateway, _states, _asked = _wire()
+    presenter.open("m1", "DONE")
+    assert not presenter.state.can_set_key
+    gateway = FakeSummariesGateway()
+    gateway.replies["providers"] = Ok([provider("cloud", cloud=True)])
+    presenter, _, _states, _asked = _wire(gateway)
+    presenter.open("m1", "DONE")
+    assert presenter.state.can_set_key
+    gateway.replies["providers"] = Ok(
+        [provider("cloud", cloud=True, available=False, reason="SUMMARY_CLOUD_DISABLED")]
+    )
+    presenter.open("m1", "DONE")
+    assert not presenter.state.can_set_key

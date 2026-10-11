@@ -7,8 +7,14 @@ is decided here so it is tested without a display.
 from collections.abc import Sequence
 from typing import Protocol
 
-from meeting_scribe_review.core.gateway import MeetingsGateway, SamplePlayer, SummariesGateway
+from meeting_scribe_review.core.gateway import (
+    ApiKeyStore,
+    MeetingsGateway,
+    SamplePlayer,
+    SummariesGateway,
+)
 from meeting_scribe_review.core.models import Speaker
+from meeting_scribe_review.core.presenters.api_key import ApiKeyPresenter, ApiKeyState
 from meeting_scribe_review.core.presenters.cloud_confirmation import (
     CloudConfirmationPresenter,
     ConfirmationRequest,
@@ -41,6 +47,8 @@ class SessionViews(Protocol):
 
     def show_cloud_confirmation(self, state: ConfirmationState) -> None: ...
 
+    def show_api_key(self, state: ApiKeyState) -> None: ...
+
 
 class ReviewSession:
     """Also the gateway listener: it hands each service event to the presenters that need it."""
@@ -51,6 +59,7 @@ class ReviewSession:
         player: SamplePlayer,
         views: SessionViews,
         summaries: SummariesGateway,
+        keys: ApiKeyStore,
     ) -> None:
         self._views = views
         self._meetings = MeetingListPresenter(gateway, self._meetings_changed)
@@ -62,6 +71,7 @@ class ReviewSession:
             views.show_cloud_confirmation, self._cloud_confirmed
         )
         self._summary = SummaryPresenter(summaries, views.show_summary, self._confirmation.ask)
+        self._api_key = ApiKeyPresenter(keys, views.show_api_key)
         self._open_id = ""
         gateway.watch(self)
         summaries.watch_summaries(self)
@@ -95,6 +105,16 @@ class ReviewSession:
         self._review.close()
         self._confirmation.cancel()
         self._summary.close()
+        self._api_key.cancel()
+
+    def set_api_key(self) -> None:
+        self._api_key.edit()
+
+    def submit_api_key(self, raw: str) -> None:
+        self._api_key.submit(raw)
+
+    def cancel_api_key(self) -> None:
+        self._api_key.cancel()
 
     def generate_summary(self) -> None:
         """A press on "Generate summary": the only way a summary starts."""

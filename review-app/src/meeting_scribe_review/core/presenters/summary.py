@@ -63,6 +63,7 @@ class SummaryState:
     message: str = ""
     hint: str = ""
     needs_api_key: bool = False
+    can_set_key: bool = False  # the configured provider is the cloud and may be used
     can_copy: bool = False
     filename: str = ""
 
@@ -357,6 +358,7 @@ class SummaryPresenter:
             message=message if not running else "",
             hint=hint if not running else "",
             needs_api_key=failure is not None and failure.code in KEY_CODES and not running,
+            can_set_key=row is not None and row.cloud and row.available,
             can_copy=document is not None,
             filename=f"summary-{self._meeting_id}.md" if document else "",
         )

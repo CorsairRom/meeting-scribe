@@ -94,6 +94,13 @@ class SummariesGateway(Protocol):
     def watch_summaries(self, listener: SummaryListener) -> None: ...
 
 
+@runtime_checkable
+class ApiKeyStore(Protocol):
+    """Stores the cloud API key in the GNOME Keyring (BR-005). The key never crosses the service."""
+
+    def store(self, secret: str, done: Callback[None]) -> None: ...
+
+
 class PlayerListener(Protocol):
     """Backend events: the sample ended, or playback failed (the adapter logs domain and code)."""
 

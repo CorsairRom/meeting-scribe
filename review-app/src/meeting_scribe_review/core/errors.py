@@ -8,6 +8,8 @@ SERVICE_NOT_RUNNING = "SERVICE_NOT_RUNNING"
 SERVICE_OUTDATED = "SERVICE_OUTDATED"
 INVALID_REPLY = "INVALID_REPLY"
 UNKNOWN_ERROR = "UNKNOWN_ERROR"
+KEYRING_UNAVAILABLE = "KEYRING_UNAVAILABLE"
+KEYRING_STORE_FAILED = "KEYRING_STORE_FAILED"
 
 _DBUS_PREFIX = "org.freedesktop.DBus.Error."
 _NOT_RUNNING_NAMES = frozenset({"ServiceUnknown", "NameHasNoOwner", "NoServer"})
@@ -48,6 +50,12 @@ _MESSAGES: dict[str, UserMessage] = {
         "systemctl --user restart meeting-scribe.service",
     ),
     INVALID_REPLY: UserMessage("The service sent an answer this app does not understand"),
+    KEYRING_UNAVAILABLE: UserMessage(
+        "The keyring service is not reachable. Check that gnome-keyring is running."
+    ),
+    KEYRING_STORE_FAILED: UserMessage(
+        "The key could not be stored in the keyring. Unlock the login keyring and try again."
+    ),
     "ENTITY_NOT_FOUND_MEETING": UserMessage("This meeting no longer exists."),
     "ENTITY_NOT_FOUND_SPEAKER": UserMessage(
         "This speaker no longer exists. The list was refreshed."

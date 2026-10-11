@@ -6,6 +6,7 @@ from meeting_scribe_review.core.presenters.review import ReviewStatus
 from meeting_scribe_review.core.result import Ok
 from meeting_scribe_review.core.session import ReviewSession
 from tests.unit.review_app.fakes import (
+    FakeApiKeyStore,
     FakeGateway,
     FakePlayer,
     FakeSummariesGateway,
@@ -20,7 +21,11 @@ def _session(*meetings: MeetingSummary) -> tuple[ReviewSession, FakeGateway, Fak
     gateway.replies["list_meetings"] = Ok(list(meetings))
     gateway.replies["get_speakers"] = Ok([speaker("S1"), speaker("S2")])
     views = FakeViews()
-    return ReviewSession(gateway, FakePlayer(), views, FakeSummariesGateway()), gateway, views
+    return (
+        ReviewSession(gateway, FakePlayer(), views, FakeSummariesGateway(), FakeApiKeyStore()),
+        gateway,
+        views,
+    )
 
 
 def test_start_opens_the_newest_done_meeting() -> None:

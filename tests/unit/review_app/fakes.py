@@ -23,6 +23,7 @@ from meeting_scribe_review.core.models import (
     SummaryInfo,
     Utterance,
 )
+from meeting_scribe_review.core.presenters.api_key import ApiKeyState
 from meeting_scribe_review.core.presenters.cloud_confirmation import ConfirmationState
 from meeting_scribe_review.core.presenters.meeting_list import MeetingListState
 from meeting_scribe_review.core.presenters.merge import MergeState
@@ -170,6 +171,7 @@ class FakeViews:
     playbacks: list[PlaybackState] = field(default_factory=list)
     summaries: list[SummaryState] = field(default_factory=list)
     confirmations: list[ConfirmationState] = field(default_factory=list)
+    api_keys: list[ApiKeyState] = field(default_factory=list)
 
     def show_meetings(self, state: MeetingListState) -> None:
         self.meetings.append(state)
@@ -191,6 +193,9 @@ class FakeViews:
 
     def show_cloud_confirmation(self, state: ConfirmationState) -> None:
         self.confirmations.append(state)
+
+    def show_api_key(self, state: ApiKeyState) -> None:
+        self.api_keys.append(state)
 
 
 def provider(
@@ -289,3 +294,15 @@ class FakeSummariesGateway:
 
     def args_of(self, method: str) -> list[tuple[Any, ...]]:
         return [args for name, args in self.calls if name == method]
+
+
+@dataclass
+class FakeApiKeyStore:
+    """Records what would be stored in the keyring (never the real one); ``result`` is scripted."""
+
+    result: Any = None
+    stored: list[str] = field(default_factory=list)
+
+    def store(self, secret: str, done: Callback[None]) -> None:
+        self.stored.append(secret)
+        done(self.result if self.result is not None else Ok(None))
