@@ -12,6 +12,7 @@ from meeting_scribe.meetings.application.summary_controller import (
     ConfiguredProvider,
     SummaryConfig,
     SummaryController,
+    _default_starter,
 )
 from meeting_scribe.meetings.domain.meeting import (
     Meeting,
@@ -830,3 +831,10 @@ def test_a_shutdown_bound_returns_true_when_the_job_ends_in_time() -> None:
 
     assert rig.controller.shutdown(5.0) is True
     assert rig.controller.shutdown(5.0) is True  # idempotent
+
+
+def test_the_default_job_thread_is_a_daemon_so_it_cannot_hold_the_process_open() -> None:
+    thread = _default_starter(lambda: None)
+    thread.join(timeout=2)
+    assert thread.daemon is True
+    assert thread.name == "summary"

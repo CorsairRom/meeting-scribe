@@ -12,7 +12,7 @@ import pytest
 from tests.system_python import INTERPRETER, skip_without_toolkit
 
 APP_SRC = Path(__file__).resolve().parents[3] / "review-app" / "src"
-_SKIP = 77
+_SKIP = 77  # the child exits 77 (the automake "skipped" code) when libsecret cannot be imported
 
 _SCRIPT = """
 import sys

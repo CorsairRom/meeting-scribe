@@ -63,13 +63,16 @@ class ApiKeyPresenter:
         self._store.store(secret, lambda result: self._stored(attempt, result))
 
     def _stored(self, attempt: int, result: Result[None, ServiceError]) -> None:
-        if attempt != self._attempt or self._state.status is not ApiKeyStatus.SAVING:
-            return
-        if isinstance(result, Err):
-            problem = message_for(result.error).text
-            self._publish(ApiKeyState(ApiKeyStatus.EDITING, problem=problem))
-        else:
+        if not isinstance(result, Err):
+            # The key IS in the keyring, whichever attempt it came from: say so even when the
+            # user cancelled or re-edited meanwhile, so it is never stored silently.
+            self._attempt += 1
             self._publish(ApiKeyState(ApiKeyStatus.SAVED, message=SAVED_TEXT))
+            return
+        if attempt != self._attempt or self._state.status is not ApiKeyStatus.SAVING:
+            return  # a stale failure changes nothing
+        problem = message_for(result.error).text
+        self._publish(ApiKeyState(ApiKeyStatus.EDITING, problem=problem))
 
     def _publish(self, state: ApiKeyState) -> None:
         self._state = state
