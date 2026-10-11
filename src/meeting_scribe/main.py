@@ -19,6 +19,7 @@ from meeting_scribe.meetings.application.processing_controller import (
     ProcessingConfig,
     ProcessingController,
 )
+from meeting_scribe.meetings.application.review_controller import ReviewController
 from meeting_scribe.meetings.domain.meeting import ProcessingParams
 from meeting_scribe.meetings.domain.ports import (
     AudioInspector,
@@ -30,6 +31,9 @@ from meeting_scribe.meetings.domain.ports import Clock as MeetingsClock
 from meeting_scribe.meetings.infrastructure.dbus.meetings_interface import MeetingsInterface
 from meeting_scribe.meetings.infrastructure.filesystem_meeting_repository import (
     FilesystemMeetingRepository,
+)
+from meeting_scribe.meetings.infrastructure.filesystem_sample_reader import (
+    FilesystemSampleReader,
 )
 from meeting_scribe.meetings.infrastructure.freedesktop_notifier import FreedesktopNotifier
 from meeting_scribe.meetings.infrastructure.subprocess_worker_runner import SubprocessWorkerRunner
@@ -52,6 +56,9 @@ from meeting_scribe.recording.infrastructure.filesystem_recording_storage import
 from meeting_scribe.recording.infrastructure.pactl_device_resolver import PactlDeviceResolver
 from meeting_scribe.recording.infrastructure.system_clock import SystemClock
 from meeting_scribe.settings import Settings, get_settings
+from meeting_scribe.speakers.application.render_transcript import RenderTranscript
+from meeting_scribe.speakers.application.review_speakers import ReviewSpeakers
+from meeting_scribe.speakers.infrastructure.json_utterances_store import JsonUtterancesStore
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +100,7 @@ class Application:
     settings: Settings
     recording: RecordingController
     processing: ProcessingController
+    review: ReviewController  # speaker review of finished meetings, under the processing lock
     events: ProcessingEventHub  # D-Bus signals and notifications subscribe here
 
 
@@ -182,11 +190,22 @@ def create_app(
         meetings_dir=settings.storage.meetings_dir,
         listener=ProcessingRecordingListener(processing, notifier=processing_ports.notifier),
     )
-    return Application(settings=settings, recording=recording, processing=processing, events=events)
+    review = ReviewController(
+        repository=processing_ports.repository,
+        lock=processing,
+        speakers=ReviewSpeakers(),
+        transcripts=RenderTranscript(JsonUtterancesStore()),
+        samples=FilesystemSampleReader(),
+    )
+    return Application(
+        settings=settings, recording=recording, processing=processing, review=review, events=events
+    )
 
 
-def _start_processing(processing: ProcessingController) -> threading.Thread:
-    """Resume unfinished jobs, then run the loop in its own thread (it blocks on workers)."""
+def _start_processing(
+    processing: ProcessingController, review: ReviewController
+) -> threading.Thread:
+    """Resume unfinished jobs, repair stale transcripts, then run the loop in its own thread."""
     resumed = processing.resume()
     if isinstance(resumed, Failure):
         logger.error(
@@ -194,6 +213,13 @@ def _start_processing(processing: ProcessingController) -> threading.Thread:
         )
     else:
         logger.info("Processing resumed %d unfinished meeting(s).", resumed.unwrap())
+    repaired = review.repair_stale()
+    if isinstance(repaired, Failure):
+        logger.error(
+            "Could not list meetings to repair transcripts: [%s]", repaired.failure().error_code
+        )
+    elif repaired.unwrap():
+        logger.info("Repaired the transcript of %d meeting(s).", repaired.unwrap())
     thread = threading.Thread(target=processing.serve_forever, name="processing", daemon=True)
     thread.start()
     return thread
@@ -266,7 +292,7 @@ async def serve(
     bus = await MessageBus(bus_address=bus_address).connect()
     try:
         recording = RecordingInterface(app.recording, poll_interval=poll_interval)
-        meetings = MeetingsInterface(app.processing)
+        meetings = MeetingsInterface(app.processing, app.review)
         bus.export(OBJECT_PATH, recording)
         bus.export(OBJECT_PATH, meetings)
         reply = await bus.request_name(BUS_NAME, NameFlag.DO_NOT_QUEUE)
@@ -278,7 +304,7 @@ async def serve(
         processing_stopped = True
         disconnected = False
         try:
-            processing_thread = _start_processing(app.processing)
+            processing_thread = _start_processing(app.processing, app.review)
             recording.start_monitor()
             logger.info("meeting-scribe serving %s on the D-Bus session bus.", BUS_NAME)
             if ready is not None:
