@@ -541,3 +541,52 @@ def test_the_cloud_provider_keeps_the_proxy_environment(monkeypatch: pytest.Monk
     )
 
     assert provider._http_client._mounts
+
+
+def test_a_cancel_during_repeated_pre_stream_failures_returns_promptly() -> None:
+    cancel = Idle()
+    seen: list[httpx2.Request] = []
+    provider = make(lambda _r: httpx2.Response(503, text="x"), max_retries=6, requests=seen)
+    threading.Timer(0.2, cancel.set).start()
+
+    started = time.monotonic()
+    failure = complete(provider, cancel).failure()
+
+    assert isinstance(failure, SummaryCancelledError)
+    assert time.monotonic() - started < 2.0
+
+
+def test_the_time_left_bounds_repeated_pre_stream_failures() -> None:
+    provider = make(lambda _r: httpx2.Response(503, text="x"), max_retries=6)
+
+    started = time.monotonic()
+    failure = complete(provider, timeout=0.3).failure()
+
+    assert isinstance(failure, SummaryTimeoutError)
+    assert time.monotonic() - started < 2.0
+
+
+def test_pre_stream_retries_are_counted_by_the_adapter() -> None:
+    seen: list[httpx2.Request] = []
+    provider = make(
+        lambda _r: httpx2.Response(503, headers={"retry-after-ms": "1"}, text="x"),
+        max_retries=3,
+        requests=seen,
+    )
+
+    failure = complete(provider).failure()
+
+    assert isinstance(failure, SummaryProviderUnavailableError)
+    assert len(seen) == 4
+
+
+def test_a_connection_error_is_retried_before_the_stream() -> None:
+    seen: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if len(seen) == 1:
+            raise httpx2.ConnectError("refused", request=request)
+        return sse_response(ok_stream())
+
+    assert isinstance(complete(make(handler, max_retries=1, requests=seen)), Success)
+    assert len(seen) == 2

@@ -39,7 +39,8 @@ This prints only `stored`, never the key.
 ## Rollback / troubleshooting
 
 - Remove it: `secret-tool clear application meeting-scribe key opencode-api-key`.
-- `SUMMARY_CLOUD_KEY_MISSING`: the key is not stored under those attributes, or the Secret Service is unreachable.
+- `SUMMARY_CLOUD_KEY_MISSING`: the key is not stored under those attributes.
+- `SUMMARY_CLOUD_KEY_UNAVAILABLE`: the Secret Service did not answer (gnome-keyring not running, no session bus, or a timeout); check that `gnome-keyring` is running.
 - `SUMMARY_CLOUD_KEY_LOCKED`: unlock the login keyring (log in again, or open Passwords and Keys) and retry. The
   service never prompts.
 - Limitation: while your session is unlocked, any process running as you can read the key from the keyring.

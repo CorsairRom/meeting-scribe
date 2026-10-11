@@ -701,7 +701,8 @@ New classes derive from `MeetingScribeError`; each is registered in `error-codes
 |---|---|---|
 | `SUMMARY_NO_SPEECH` | The meeting has no utterances | Nothing to summarize |
 | `SUMMARY_CLOUD_DISABLED` | Cloud requested while `SUMMARIES_CLOUD_ENABLED` is false | Enable it in the settings |
-| `SUMMARY_CLOUD_KEY_MISSING` | Cloud enabled, no key in the keyring (or the keyring is unreachable) | Store the key with `secret-tool` (runbook `store-cloud-api-key.md`) |
+| `SUMMARY_CLOUD_KEY_UNAVAILABLE` | The Secret Service is not reachable (no service, D-Bus error or timeout); the cause is logged by exception type only | Check that gnome-keyring is running |
+| `SUMMARY_CLOUD_KEY_MISSING` | Cloud enabled, no key in the keyring | Store the key with `secret-tool` (runbook `store-cloud-api-key.md`) |
 | `SUMMARY_CLOUD_KEY_LOCKED` | The keyring holds the key but is locked | Unlock the login keyring and try again; the service never prompts |
 | `SUMMARY_CLOUD_NOT_CONFIRMED` | Cloud requested without `cloud_confirmed` | Confirm in the app |
 | `SUMMARY_ALREADY_RUNNING` / `SUMMARY_BUSY` | A summary is running for this meeting / another meeting | Wait or cancel |

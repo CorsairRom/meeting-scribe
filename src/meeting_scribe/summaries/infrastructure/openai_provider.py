@@ -48,13 +48,30 @@ _THINK = re.compile(r"\A\s*<think>.*?</think>\s*", re.DOTALL)
 _HTTP_UNAUTHORIZED, _HTTP_FORBIDDEN, _HTTP_NOT_FOUND = 401, 403, 404
 _HTTP_RATE_LIMITED, _HTTP_SERVER_ERROR = 429, 500
 _HTTP_TRANSIENT = frozenset({408, 409})
-_ATTEMPTS_WITH_RETRIES = 2
+_BACKOFF_START_SECONDS = 0.5
+_BACKOFF_MAX_SECONDS = 8.0
+_RETRY_AFTER_MAX_SECONDS = 60.0
 
 
 @dataclass
 class _Outcome:
     result: Result[Completion, SummaryError]
-    retry: bool = False
+    kind: str = "final"
+    """``final``, ``transient`` (failed before the stream: retry with backoff) or ``midstream``."""
+    delay: float | None = None
+    """The provider's own ``Retry-After`` hint in seconds, when it sent one."""
+
+
+def _retry_after(response: httpx2.Response) -> float | None:
+    """The provider's ``retry-after-ms`` or ``retry-after`` (seconds) hint, within a sane bound."""
+    for header, divisor in (("retry-after-ms", 1000.0), ("retry-after", 1.0)):
+        try:
+            seconds = float(response.headers[header]) / divisor
+        except (KeyError, ValueError):
+            continue
+        if 0 <= seconds <= _RETRY_AFTER_MAX_SECONDS:
+            return seconds
+    return None
 
 
 def _wire(messages: list[Message]) -> list[ChatCompletionMessageParam]:
@@ -142,20 +159,43 @@ class OpenAiCompatibleProvider:
         key = self._key()
         if isinstance(key, Failure):
             return key
+        # The client never retries (max_retries=0): the retries are ours so that a cancel or the
+        # deadline is honoured between attempts and the pauses are interruptible.
         client = openai.OpenAI(
             base_url=self._base_url,
             api_key=key.unwrap(),
-            max_retries=self._max_retries,
+            max_retries=0,
             http_client=self._http_client,
         )
         deadline = None if timeout_seconds is None else time.monotonic() + timeout_seconds
-        attempts = _ATTEMPTS_WITH_RETRIES if self._max_retries > 0 else 1
-        outcome = self._attempt(client, messages, limits, cancel, deadline)
-        for _ in range(attempts - 1):
-            if not outcome.retry or cancel.is_set():
-                break
+        transient_retries = 0
+        midstream_retried = False
+        while True:
             outcome = self._attempt(client, messages, limits, cancel, deadline)
-        return outcome.result
+            if outcome.kind == "transient" and transient_retries < self._max_retries:
+                delay = outcome.delay
+                if delay is None:
+                    delay = min(_BACKOFF_START_SECONDS * 2**transient_retries, _BACKOFF_MAX_SECONDS)
+                transient_retries += 1
+            elif outcome.kind == "midstream" and not midstream_retried and self._max_retries > 0:
+                midstream_retried = True
+                delay = 0.0
+            else:
+                return outcome.result
+            stopped = self._pause(delay, cancel, deadline)
+            if stopped is not None:
+                return stopped.result
+
+    @staticmethod
+    def _pause(delay: float, cancel: CancelSignal, deadline: float | None) -> _Outcome | None:
+        """Wait ``delay`` seconds, ending early on a cancel or when the time left runs out."""
+        if deadline is not None:
+            delay = min(delay, max(deadline - time.monotonic(), 0.0))
+        if cancel.wait(delay) or cancel.is_set():
+            return _Outcome(Failure(SummaryCancelledError("The summary was cancelled.")))
+        if deadline is not None and time.monotonic() >= deadline:
+            return _Outcome(Failure(SummaryTimeoutError("The summary ran out of time.")))
+        return None
 
     def _key(self) -> Result[str, SummaryError]:
         if not self._cloud:
@@ -194,17 +234,33 @@ class OpenAiCompatibleProvider:
                 completion = self._read(stream)
             except Exception as error:  # mapped below; nothing here may raise to the caller
                 failure = self._map_error(error, limits)
-                retry = started and not isinstance(error, openai.APIStatusError)
-                return self._stopped(cancel, watchdog) or _Outcome(Failure(failure), retry)
+                return self._stopped(cancel, watchdog) or self._failed(error, failure, started)
         stopped = self._stopped(cancel, watchdog)
         if stopped is not None:
             return stopped
         if completion is None:
             return _Outcome(
                 Failure(SummaryProviderUnavailableError("The provider stream ended early.")),
-                retry=True,
+                kind="midstream",
             )
         return _Outcome(self._guard(completion, limits))
+
+    @staticmethod
+    def _failed(error: Exception, failure: SummaryError, started: bool) -> _Outcome:
+        result: Result[Completion, SummaryError] = Failure(failure)
+        if started:
+            # A status error cannot happen after the first byte; anything else is a broken stream.
+            return _Outcome(result, kind="midstream")
+        if isinstance(error, openai.APIStatusError):
+            status = error.status_code
+            if (
+                status in _HTTP_TRANSIENT
+                or status == _HTTP_RATE_LIMITED
+                or status >= _HTTP_SERVER_ERROR
+            ):
+                return _Outcome(result, kind="transient", delay=_retry_after(error.response))
+            return _Outcome(result)
+        return _Outcome(result, kind="transient")
 
     @staticmethod
     def _stopped(cancel: CancelSignal, watchdog: _Watchdog) -> _Outcome | None:
