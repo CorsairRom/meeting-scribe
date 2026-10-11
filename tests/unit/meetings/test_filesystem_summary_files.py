@@ -117,3 +117,34 @@ def test_a_failed_save_keeps_both_the_current_file_and_the_older_backup(
         "# Synthetic summary zero\n"
     )
     assert _names(tmp_path) == ["summary.md", "summary.previous.md"]
+
+
+def test_a_failed_backup_replace_restores_the_older_backup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files = FilesystemSummaryFiles()
+    files.save(tmp_path, "# Synthetic summary zero\n").unwrap()
+    files.save(tmp_path, OLD).unwrap()  # summary.md = OLD, previous = zero
+    real_replace = os.replace
+    failed: list[bool] = []
+
+    def failing(src: str | Path, dst: str | Path) -> None:
+        if Path(dst).name == "summary.previous.md" and not failed:
+            failed.append(True)  # only the new backup fails; the restore goes through
+            raise OSError(28, "No space left on device")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", failing)
+
+    result = files.save(tmp_path, NEW)
+
+    assert isinstance(result, Failure)
+    assert (tmp_path / "summary.md").read_text(encoding="utf-8") == OLD
+    assert (tmp_path / "summary.previous.md").read_text(encoding="utf-8") == (
+        "# Synthetic summary zero\n"
+    )
+    assert _names(tmp_path) == ["summary.md", "summary.previous.md"]
+
+
+def test_path_is_the_fixed_file_name_inside_the_folder(tmp_path: Path) -> None:
+    assert FilesystemSummaryFiles().path(tmp_path) == tmp_path / "summary.md"

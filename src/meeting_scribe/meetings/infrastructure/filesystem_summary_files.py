@@ -36,6 +36,7 @@ class FilesystemSummaryFiles:
                 handle.flush()
                 os.fsync(handle.fileno())
             current = meeting_dir / SUMMARY_FILE
+            backup_temp = ""
             if current.is_file():
                 backup_temp = self._temp(meeting_dir)
                 temps.append(backup_temp)
@@ -44,13 +45,13 @@ class FilesystemSummaryFiles:
                     held = self._temp(meeting_dir)
                     temps.append(held)
                     previous.replace(held)
-                Path(backup_temp).replace(previous)
             try:
+                if current.is_file():
+                    Path(backup_temp).replace(previous)
                 Path(new_temp).replace(current)
             except OSError:
-                if held is not None:
+                if held is not None:  # both files survive every failure path
                     Path(held).replace(previous)
-                    held = None
                 raise
         except OSError as error:
             logger.warning("Cannot write the summary: %s", error.strerror or type(error).__name__)
@@ -66,6 +67,9 @@ class FilesystemSummaryFiles:
 
     def exists(self, meeting_dir: Path) -> bool:
         return (meeting_dir / SUMMARY_FILE).is_file()
+
+    def path(self, meeting_dir: Path) -> Path:
+        return (meeting_dir / SUMMARY_FILE).absolute()
 
     def read(self, meeting_dir: Path) -> Result[str, MeetingScribeError]:
         path = meeting_dir / SUMMARY_FILE

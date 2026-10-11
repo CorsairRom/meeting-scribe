@@ -313,6 +313,9 @@ class FakeSummaryFiles:
     def exists(self, meeting_dir: Path) -> bool:
         return meeting_dir.name in self.texts
 
+    def path(self, meeting_dir: Path) -> Path:
+        return meeting_dir / "summary.md"
+
 
 class FakeKeyStore:
     """A ``CloudKeyStore`` that counts reads; the key is an obvious fake."""

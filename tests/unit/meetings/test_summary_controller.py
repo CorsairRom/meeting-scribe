@@ -703,3 +703,92 @@ def test_shutdown_waits_for_a_claimed_job_to_be_spawned_and_then_cancels_it(rig:
     assert rig.events.finishes() == [("finished", "m1", "CANCELLED", "SUMMARY_CANCELLED")]
     assert rig.controller.active_meeting_id == ""
     assert rig.lease.available("processing")
+
+
+# -- follow-ups: the starter never runs under the slot lock, cleanup is guarded --
+
+
+def test_an_inline_starter_does_not_deadlock_on_the_slot_lock(rig: Rig) -> None:
+    rig.controller._start_job = lambda job: job() or None
+    results: list[object] = []
+    caller = threading.Thread(
+        target=lambda: results.append(rig.controller.summarize("m1", "local", False)),
+        daemon=True,
+    )
+
+    caller.start()
+    caller.join(5)
+
+    assert not caller.is_alive()
+    assert rig.events.finishes() == [("finished", "m1", "DONE", "")]
+    assert rig.controller.active_meeting_id == ""
+    assert rig.lease.available("processing")
+
+
+def test_a_lease_release_that_raises_still_emits_the_final_events(rig: Rig) -> None:
+    rig.controller.summarize("m1", "local", False).unwrap()
+    real_release = rig.lease.release
+
+    def broken(holder):
+        real_release(holder)
+        raise RuntimeError("boom")
+
+    rig.lease.release = broken  # type: ignore[method-assign]
+
+    rig.starter.run_next()
+
+    assert rig.controller.active_meeting_id == ""
+    assert rig.events.finishes() == [("finished", "m1", "DONE", "")]
+    assert rig.events.log[-1] == ("active",)
+    assert rig.gpu_free_calls == 1
+
+
+def test_a_shutdown_between_claim_and_spawn_refuses_and_frees_everything(rig: Rig) -> None:
+    real_claim = rig.controller._claim
+
+    def claim_then_shutdown(job):
+        claimed = real_claim(job)
+        rig.controller.shutdown()  # no thread yet: nothing to join
+        return claimed
+
+    rig.controller._claim = claim_then_shutdown  # type: ignore[method-assign]
+
+    result = rig.controller.summarize("m1", "local", False)
+
+    assert _code(result) == "SUMMARY_BUSY"
+    assert rig.starter.jobs == []
+    assert rig.controller.active_meeting_id == ""
+    assert rig.lease.available("processing")
+    assert rig.gpu_free_calls == 1
+
+
+# -- LastSummary --
+
+
+def test_last_summary_is_the_newest_with_its_file_and_an_absolute_path(rig: Rig) -> None:
+    rig.add("m2")
+    rig.summarize_and_run("m1")
+    rig.summarize_and_run("m2")
+
+    last = rig.controller.last_summary().unwrap()
+
+    assert last.meeting_id == "m2"
+    assert last.started_at == rig.stored("m2").recording.started_at
+    assert last.generated_at == rig.stored("m2").summary.generated_at  # type: ignore[union-attr]
+    assert last.path == ROOT / "m2" / "summary.md"
+
+
+def test_last_summary_skips_a_deleted_file_and_a_failed_only_section(rig: Rig) -> None:
+    rig.add("m2")
+    rig.summarize_and_run("m1")
+    rig.summarize_and_run("m2")
+    del rig.files.texts["m2"]  # the user deleted it
+    rig.add("m3")
+    rig.local_provider.responder = lambda _m: SummaryProviderUnavailableError("down")
+    rig.summarize_and_run("m3")  # only a recorded failure, no file
+
+    assert rig.controller.last_summary().unwrap().meeting_id == "m1"
+
+
+def test_last_summary_without_any_summary_is_entity_not_found(rig: Rig) -> None:
+    assert _code(rig.controller.last_summary()) == "ENTITY_NOT_FOUND_SUMMARY"
