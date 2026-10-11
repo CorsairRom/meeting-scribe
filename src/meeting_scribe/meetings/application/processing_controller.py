@@ -1,7 +1,8 @@
 """Processing use cases: enqueue, resume, reprocess, and the single-worker loop (spec section 1).
 
 One thread runs ``serve_forever``; every other method may be called from any thread (the lock
-guards the queue and the preemption state). Only this class writes ``meeting.json``. Never raises.
+guards the queue and the preemption state). Only this class writes ``meeting.json`` while a job
+runs; the review controller edits finished meetings under ``hold()``. Never raises.
 """
 
 import logging
@@ -9,6 +10,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from enum import StrEnum
 from pathlib import Path
 from typing import Literal
@@ -190,6 +192,10 @@ class ProcessingController:
     def list_meetings(self) -> Result[list[Meeting], MeetingStorageError]:
         """Every readable meeting, newest first."""
         return self._repository.list_all()
+
+    def hold(self) -> AbstractContextManager[object]:
+        """The lock that guards state changes (``MeetingLock``): review edits save under it too."""
+        return self._condition
 
     def status(self) -> ProcessingStatus:
         with self._condition:

@@ -481,7 +481,13 @@ Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv 
       at a time: reset on reprocess; "Me" target-only, "Unknown" mergeable; duplicate names rejected with
       merge-or-rename; unmerge included; no name suggestions; menu-only entry (notification action and name
       suggestions moved to backlog "Later improvements").
-- [ ] F4.1 `speakers`: speaker records, name rules, merge/unmerge, effective speakers, transcript rendering (~400)
+- [x] F4.1 `speakers`: speaker records, name rules, merge/unmerge, effective speakers, transcript rendering.
+      Delegated writer; ~1230 authored lines (split by behavior, over the heuristic). RED observed per unit.
+      Gaps resolved by the orchestrator from the owner's decisions: unmerge reverts an adopted name (kept if
+      renamed since), rejects a name clash; renaming a merged-away speaker rejected. Review
+      review-0200f4479043c15b approved with 2 warnings (chained adoption, inconsistent persisted state) fixed
+      in `57ba9b4`, review review-11be7b875a8e831a approved. Integrated #84-#86. GREEN 853 python / 108 gjs.
+      Follow-up (suggestion): validate_state does not reject a self-adoption record (unreachable by commands).
 - [ ] F4.2 `meetings`: review section in meeting.json, reset on reprocess, lock, ReviewController (~350)
 - [ ] F4.3 `Meetings1` review members + `SpeakersChanged`, api-contracts, error catalog, e2e (~400)
 - [ ] F4.4a `review-app/` scaffold, core models/ports, import-linter roots and contracts (~350)

@@ -11,11 +11,14 @@ from meeting_scribe.base.domain.errors import MeetingScribeError
 from meeting_scribe.speakers.domain.review import (
     EffectiveSpeaker,
     ReviewState,
+    SpeakerRecord,
     effective_speakers,
     merge,
     rename,
     unmerge,
 )
+
+__all__ = ["EffectiveSpeaker", "ReviewOutcome", "ReviewSpeakers", "ReviewState", "SpeakerRecord"]
 
 
 class ReviewOutcome(BaseModel):

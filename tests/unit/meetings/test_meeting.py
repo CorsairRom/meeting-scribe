@@ -17,6 +17,7 @@ from meeting_scribe.meetings.domain.meeting import (
     ProcessingParams,
     RecordingInfo,
     SpeakerEntry,
+    SpeakerReview,
 )
 
 T0 = datetime(2026, 10, 9, 10, 15, tzinfo=timezone(timedelta(hours=2)))
@@ -202,3 +203,97 @@ def test_resume_restarts_an_interrupted_job_keeping_its_queue_position() -> None
 def test_resume_is_refused_outside_in_progress_states() -> None:
     assert isinstance(_queued().resume(T0, PARAMS), Failure)
     assert isinstance(_queued().fail(FAILURE, T0).unwrap().resume(T0, PARAMS), Failure)
+
+
+def _reviewed_done() -> Meeting:
+    speakers = (
+        SpeakerEntry(id="S1", label="Speaker 1", name="Fake One"),
+        SpeakerEntry(id="S2", label="Speaker 2"),
+        SpeakerEntry(id="S3", label="Speaker 3"),
+    )
+    done = _at("EXTRACTING_SAMPLES").complete(T0, speakers, {}, "es").unwrap()
+    review = SpeakerReview(merged_into={"S3": "S1"}, name_adopted_from={"S1": "S3"})
+    return done.with_speaker_review(speakers, review)
+
+
+def test_a_new_meeting_has_an_empty_speaker_review() -> None:
+    review = _queued().speaker_review
+
+    assert (review.merged_into, review.name_adopted_from, review.transcript_stale) == (
+        {},
+        {},
+        False,
+    )
+
+
+def test_a_meeting_json_without_the_section_loads_with_defaults() -> None:
+    document = _queued().model_dump(mode="json")
+    document.pop("speaker_review")
+
+    loaded = Meeting.model_validate({**document, "directory": Path("/meetings/m1")})
+
+    assert loaded.speaker_review == SpeakerReview()
+    assert loaded.schema_version == 1
+
+
+def test_with_speaker_review_returns_a_copy_with_speakers_and_review() -> None:
+    meeting = _reviewed_done()
+    renamed = (meeting.speakers[0].model_copy(update={"name": "Fake Two"}), *meeting.speakers[1:])
+
+    changed = meeting.with_speaker_review(renamed, meeting.speaker_review.stale())
+
+    assert changed.speakers[0].name == "Fake Two"
+    assert changed.speaker_review.transcript_stale is True
+    assert meeting.speakers[0].name == "Fake One"
+    assert meeting.speaker_review.transcript_stale is False
+
+
+def test_the_stale_flag_can_be_cleared_without_touching_the_rest() -> None:
+    review = SpeakerReview(merged_into={"S3": "S1"}).stale()
+
+    fresh = review.fresh()
+
+    assert (review.transcript_stale, fresh.transcript_stale) == (True, False)
+    assert fresh.merged_into == {"S3": "S1"}
+
+
+def test_active_speaker_count_leaves_out_merged_speakers() -> None:
+    assert _reviewed_done().active_speaker_count == 2
+    assert _queued().active_speaker_count == 0
+
+
+def test_reprocess_clears_the_speaker_review() -> None:
+    stale = _reviewed_done()
+    stale = stale.with_speaker_review(stale.speakers, stale.speaker_review.stale())
+
+    queued = stale.reprocess(T0).unwrap()
+
+    assert queued.speaker_review == SpeakerReview()
+
+
+def test_complete_replaces_names_and_merges_with_the_new_run() -> None:
+    reviewed = _reviewed_done()
+    again = reviewed.reprocess(T0).unwrap()
+    for step in (
+        lambda m: m.start(T0, PARAMS),
+        lambda m: m.transcription_done(),
+        lambda m: m.diarization_done(),
+    ):
+        again = step(again).unwrap()
+    fresh = (SpeakerEntry(id="S1", label="Speaker 1"), SpeakerEntry(id="S2", label="Speaker 2"))
+
+    done = again.complete(T0, fresh, {}, "es").unwrap()
+
+    assert [s.name for s in done.speakers] == ["", ""]
+    assert done.speaker_review == SpeakerReview()
+    assert done.active_speaker_count == 2
+
+
+def test_complete_clears_a_review_left_by_a_previous_run() -> None:
+    meeting = _at("EXTRACTING_SAMPLES").with_speaker_review(
+        (), SpeakerReview(merged_into={"S2": "S1"})
+    )
+
+    done = meeting.complete(T0, (), {}, "es").unwrap()
+
+    assert done.speaker_review == SpeakerReview()

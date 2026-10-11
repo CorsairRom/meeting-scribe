@@ -1,6 +1,7 @@
 """Ports implemented by meetings infrastructure adapters."""
 
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from datetime import datetime
 from pathlib import Path
 from typing import Literal, NamedTuple, Protocol
@@ -37,6 +38,18 @@ class MeetingRepository(Protocol):
 
     def list_all(self) -> Result[list[Meeting], MeetingStorageError]:
         """Meetings with a readable ``meeting.json``, newest first. Unreadable ones are skipped."""
+        ...
+
+
+class MeetingLock(Protocol):
+    """The lock that serialises every read-modify-write of ``meeting.json``.
+
+    The processing controller owns it (its loop saves the same file); the review controller takes
+    it through this port instead of sharing the controller object.
+    """
+
+    def hold(self) -> AbstractContextManager[object]:
+        """Block until the lock is free; held for the ``with`` block, re-entrant per thread."""
         ...
 
 

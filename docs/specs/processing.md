@@ -432,7 +432,9 @@ bookkeeping beyond the caches (section 4).
 ```
 
 `failure` is `{"stage": "...", "error_code": "...", "message": "..."}` when `FAILED`. Paths are relative to the
-meeting folder. `name` is empty until F4. Unknown keys are preserved on rewrite (forward compatibility).
+meeting folder. `name` is empty until the user names the speaker in the review app. An optional `speaker_review`
+section (merges and the stale-transcript flag) is added by the review app and defaults when absent; see the
+[review app spec](review-app.md). Unknown keys are preserved on rewrite (forward compatibility).
 
 **Meeting folder** after processing (ADR-004): `meeting.json`, `audio/chunk_NNNNN.wav`, `ffmpeg.log`, `words.json`,
 `turns.json`, `utterances.json`, `transcript.md`, `samples/<speaker id>.wav`, `processing.log` (worker stderr; never

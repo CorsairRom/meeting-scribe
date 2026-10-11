@@ -82,6 +82,25 @@ class SpeakerEntry(_Section):
     sample: str = ""
 
 
+class SpeakerReview(_Section):
+    """What the user did in the review app; cleared whenever the speakers are recomputed.
+
+    ``merged_into`` is ``source id -> target id`` and ``name_adopted_from`` is ``target id ->
+    source id``. ``transcript_stale`` is set while ``transcript.md`` may not match the saved
+    names (spec: write order meeting.json, transcript.md, clear the flag).
+    """
+
+    merged_into: dict[str, str] = Field(default_factory=dict)
+    name_adopted_from: dict[str, str] = Field(default_factory=dict)
+    transcript_stale: bool = False
+
+    def stale(self) -> Self:
+        return self.model_copy(update={"transcript_stale": True})
+
+    def fresh(self) -> Self:
+        return self.model_copy(update={"transcript_stale": False})
+
+
 class Processing(_Section):
     state: ProcessingState
     queued_at: AwareDatetime | None = None
@@ -110,7 +129,15 @@ class Meeting(BaseEntity):
     recording: RecordingInfo
     processing: Processing
     speakers: tuple[SpeakerEntry, ...] = ()
+    speaker_review: SpeakerReview = Field(default_factory=SpeakerReview)
     files: dict[str, str] = Field(default_factory=dict)
+
+    @property
+    def active_speaker_count(self) -> int:
+        """Speakers that are not merged into another one."""
+        return sum(
+            1 for speaker in self.speakers if speaker.id not in self.speaker_review.merged_into
+        )
 
     @classmethod
     def enqueue(
@@ -162,7 +189,9 @@ class Meeting(BaseEntity):
             {"finished_at": now, "failure": None, "detected_language": detected_language},
         )
         return result.map(
-            lambda done: done.model_copy(update={"speakers": speakers, "files": files})
+            lambda done: done.model_copy(
+                update={"speakers": speakers, "files": files, "speaker_review": SpeakerReview()}
+            )
         )
 
     def fail(
@@ -177,7 +206,7 @@ class Meeting(BaseEntity):
                     f"Meeting '{self.id}' is {self.processing.state}; wait for it to finish."
                 )
             )
-        return self._move(
+        moved = self._move(
             _TERMINAL,
             "QUEUED",
             {
@@ -188,6 +217,15 @@ class Meeting(BaseEntity):
                 "attempt": self.processing.attempt + 1,
             },
         )
+        return moved.map(
+            lambda queued: queued.model_copy(update={"speaker_review": SpeakerReview()})
+        )
+
+    def with_speaker_review(
+        self, speakers: tuple[SpeakerEntry, ...], review: SpeakerReview
+    ) -> Self:
+        """A copy with the reviewed speakers (names) and the review state; not a state change."""
+        return self.model_copy(update={"speakers": speakers, "speaker_review": review})
 
     def with_audio(self, audio: AudioInfo) -> Self:
         return self._with_processing({"audio": audio})
