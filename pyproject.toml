@@ -125,6 +125,12 @@ source_modules = [
 forbidden_modules = ["pydantic_settings", "dbus_fast", "gi"]
 
 [[tool.importlinter.contracts]]
+name = "Summaries domain and application stay free of HTTP and settings libraries"
+type = "forbidden"
+source_modules = ["meeting_scribe.summaries.domain", "meeting_scribe.summaries.application"]
+forbidden_modules = ["httpx", "openai", "pydantic_settings", "dbus_fast"]
+
+[[tool.importlinter.contracts]]
 name = "Domain packages do not import settings or the composition root"
 type = "forbidden"
 source_modules = [
