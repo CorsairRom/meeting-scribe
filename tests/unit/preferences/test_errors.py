@@ -3,6 +3,8 @@ import pytest
 from meeting_scribe.base.domain.errors import MeetingScribeError
 from meeting_scribe.preferences.domain.errors import (
     SettingsFileInvalidError,
+    SettingsRestartBusyError,
+    SettingsRestartUnavailableError,
     SettingsStorageFailedError,
 )
 
@@ -12,6 +14,8 @@ from meeting_scribe.preferences.domain.errors import (
     [
         (SettingsStorageFailedError, "SETTINGS_STORAGE_FAILED"),
         (SettingsFileInvalidError, "SETTINGS_FILE_INVALID"),
+        (SettingsRestartBusyError, "SETTINGS_RESTART_BUSY"),
+        (SettingsRestartUnavailableError, "SETTINGS_RESTART_UNAVAILABLE"),
     ],
 )
 def test_stable_codes(error: type[MeetingScribeError], code: str) -> None:

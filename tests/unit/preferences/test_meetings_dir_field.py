@@ -1,24 +1,55 @@
 """The meetings-folder check (AC-7): absolute, creatable, writable; nothing is moved or listed."""
 
+import os
 from pathlib import Path
 
 import pytest
 from returns.result import Failure, Success
 
-from meeting_scribe.preferences.infrastructure.meetings_folder import check_meetings_folder
+from meeting_scribe.preferences.infrastructure.meetings_folder import (
+    check_meetings_folder,
+    create_meetings_folder,
+)
 
 
 def test_an_existing_writable_folder_is_accepted(tmp_path: Path) -> None:
     assert check_meetings_folder(str(tmp_path)) == Success(tmp_path)
 
 
-def test_a_missing_folder_with_an_existing_parent_is_created_private(tmp_path: Path) -> None:
+def test_checking_a_missing_folder_with_an_existing_parent_creates_nothing(
+    tmp_path: Path,
+) -> None:
     target = tmp_path / "new-meetings"
 
     assert check_meetings_folder(str(target)) == Success(target)
 
+    assert not target.exists()
+
+
+def test_creating_a_missing_folder_makes_it_private(tmp_path: Path) -> None:
+    target = tmp_path / "new-meetings"
+
+    assert create_meetings_folder(str(target)) == Success(target)
+
     assert target.is_dir()
     assert target.stat().st_mode & 0o777 == 0o700
+
+
+def test_creating_under_a_missing_parent_is_not_writable(tmp_path: Path) -> None:
+    result = create_meetings_folder(str(tmp_path / "a" / "b"))
+
+    assert isinstance(result, Failure)
+    assert result.failure().code == "FIELD_FOLDER_NOT_WRITABLE"
+
+
+@pytest.mark.parametrize("raw", ["~no-such-user-xyz/meetings", "/a/\x00/meetings"])
+def test_a_home_of_an_unknown_user_or_a_nul_byte_is_a_problem_not_an_exception(raw: str) -> None:
+    for check in (check_meetings_folder, create_meetings_folder):
+        result = check(raw)
+
+        assert isinstance(result, Failure)
+        assert result.failure().code == "FIELD_INVALID"
+        assert "no-such-user" not in result.failure().message
 
 
 def test_the_probe_leaves_nothing_behind(tmp_path: Path) -> None:
@@ -59,6 +90,7 @@ def test_a_folder_whose_parent_is_missing_is_not_creatable(tmp_path: Path) -> No
     assert result.failure().code == "FIELD_FOLDER_NOT_WRITABLE"
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
 def test_a_read_only_folder_is_not_writable_and_the_message_hides_the_path(
     tmp_path: Path,
 ) -> None:

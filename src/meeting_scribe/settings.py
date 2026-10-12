@@ -3,6 +3,7 @@
 import logging
 import os
 from collections.abc import Mapping
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, Self
@@ -29,6 +30,7 @@ from meeting_scribe.preferences.domain.fields import (
     FieldSpec,
     field_spec,
 )
+from meeting_scribe.preferences.domain.ports import SettingsFileStore
 from meeting_scribe.recording.infrastructure.recording_settings import RecordingSettings
 from meeting_scribe.speakers.infrastructure.speakers_settings import SpeakersSettings
 from meeting_scribe.summaries.infrastructure.summaries_settings import SummariesSettings
@@ -38,10 +40,12 @@ from meeting_scribe.transcription.infrastructure.transcription_settings import (
 
 __all__ = [
     "APP_DIR_NAME",
+    "LoadedSettings",
     "Settings",
     "StorageSettings",
     "effective_env_files",
     "get_settings",
+    "load_saved_settings",
     "xdg_env_file",
     "xdg_settings_file",
 ]
@@ -78,6 +82,7 @@ class Settings(MeetingScribeSettings):
 
     # Env files resolved when ``load`` ran; empty for settings built any other way.
     _env_files: tuple[Path, ...] = PrivateAttr(default=())
+    _loaded: bool = PrivateAttr(default=False)
     # Which layer supplied each exposed field, computed once at load.
     _sources: dict[str, FieldSource] = PrivateAttr(default_factory=dict)
 
@@ -92,11 +97,12 @@ class Settings(MeetingScribeSettings):
         settings source (nested settings resolve their own), so a file created or removed in
         between would make ``env_files`` disagree with what was actually read.
         """
-        saved = dict(file_values or {})
+        saved = _known_values(file_values or {})
         env_files = effective_env_files()
         with file_layer(saved):
             settings = cls()
         settings._env_files = env_files
+        settings._loaded = True
         settings._sources = _field_sources(saved, env_files)
         locked = _migrate_legacy_cloud_switch(settings, env_files, log=log_legacy)
         if locked is not None:
@@ -141,6 +147,11 @@ class Settings(MeetingScribeSettings):
         return str(section.model_fields[spec.name].default)
 
     @property
+    def loaded(self) -> bool:
+        """True when built by ``load`` (environment, ``.env`` and saved values), not by hand."""
+        return self._loaded
+
+    @property
     def env_files(self) -> tuple[Path, ...]:
         """Env files in use when these settings were loaded (empty if none or not loaded)."""
         return self._env_files
@@ -154,6 +165,17 @@ class Settings(MeetingScribeSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings.load()
+
+
+def _known_values(values: Mapping[str, str]) -> dict[str, str]:
+    """Only registry keys reach the settings sources; anything else is ignored with a warning."""
+    known: dict[str, str] = {}
+    for key, value in values.items():
+        if field_spec(key) is None:
+            logger.warning("Saved settings: ignored unknown key %s", key)
+        else:
+            known[key] = value
+    return known
 
 
 def _spec(key: str) -> FieldSpec:
@@ -218,10 +240,14 @@ def _problems_of(error: ValidationError, section: str) -> list[FieldProblem]:
     return problems
 
 
-def _legacy_cloud_switch(
-    env_files: tuple[Path, ...],
-) -> tuple[Literal["env", "dotenv"], bool] | None:
-    """The obsolete ``SUMMARIES_CLOUD_ENABLED`` in the environment or ``.env`` (else None)."""
+type _LegacySwitch = tuple[Literal["env", "dotenv"], bool | None]
+
+
+def _legacy_cloud_switch(env_files: tuple[Path, ...]) -> _LegacySwitch | None:
+    """The obsolete ``SUMMARIES_CLOUD_ENABLED`` in the environment or ``.env`` (else None).
+
+    The flag is None when the value does not parse as a boolean (it counts as not set).
+    """
     raw: str | None = None
     layer: Literal["env", "dotenv"] = "env"
     for name, value in os.environ.items():
@@ -238,33 +264,88 @@ def _legacy_cloud_switch(
     try:
         return layer, TypeAdapter(bool).validate_python(raw.strip().lower())
     except ValidationError:
-        return None
+        return layer, None
 
 
 def _migrate_legacy_cloud_switch(
     settings: Settings, env_files: tuple[Path, ...], *, log: bool
 ) -> FieldSource | None:
-    """Nobody who deliberately kept the cloud off is switched on by the upgrade (spec section 7).
+    """The cloud is opt-in: an upgrade never switches it on (spec section 7).
 
-    Absent or true: ignored (true with one warning). Explicitly false while the provider is cloud:
-    the provider resolves to local, locked with the ``LEGACY_SETTING`` reason. Values are never
-    logged; nothing is rewritten. Returns the source that locks the provider, if any.
+    A provider chosen in the Preferences window (the saved file) is the opt-in by itself. A cloud
+    provider from the environment or ``.env`` needs the old explicit
+    ``SUMMARIES_CLOUD_ENABLED=true`` next to it; without it (absent, false or unparseable) the
+    provider resolves to local, locked with ``LEGACY_SETTING``. An explicit false also overrides a
+    saved cloud. Values are never logged and nothing is rewritten. Returns the lock source.
     """
     legacy = _legacy_cloud_switch(env_files)
-    if legacy is None:
-        return None
-    layer, enabled = legacy
-    if not enabled and settings.summaries.provider == "cloud":
-        settings.summaries = settings.summaries.model_copy(update={"provider": "local"})
-        if log:
+    enabled = legacy[1] if legacy else None
+    provider_layer = settings.source_of("summaries.provider").source
+    if settings.summaries.provider == "cloud" and enabled is not True:
+        explicit_off = enabled is False
+        if explicit_off or provider_layer in {"env", "dotenv"}:
+            settings.summaries = settings.summaries.model_copy(update={"provider": "local"})
+            if log:
+                logger.warning(
+                    "%s is obsolete: a cloud provider set in the environment needs it set to true, "
+                    "so the provider stays local. Choose Cloud in Preferences, then delete the "
+                    "legacy lines.",
+                    LEGACY_CLOUD_ENABLED,
+                )
+            lock_layer = legacy[0] if explicit_off and legacy else provider_layer
+            return FieldSource("dotenv" if lock_layer == "dotenv" else "env", LEGACY_SETTING)
+    if legacy is not None and log:
+        if enabled is True and settings.summaries.provider == "local":
             logger.warning(
-                "%s is obsolete and keeps the cloud off: the provider stays local. "
-                "Delete that line to choose the provider in Preferences.",
+                "%s is obsolete and ignored: it no longer allows a per-request cloud summary while "
+                "the provider is local. Choose Cloud in Preferences to use the cloud.",
                 LEGACY_CLOUD_ENABLED,
             )
-        return FieldSource(layer, LEGACY_SETTING)
-    if log:
-        logger.warning(
-            "%s is obsolete and ignored: the provider setting decides.", LEGACY_CLOUD_ENABLED
-        )
+        else:
+            logger.warning(
+                "%s is obsolete and ignored: the provider setting decides.", LEGACY_CLOUD_ENABLED
+            )
     return None
+
+
+@dataclass(frozen=True)
+class LoadedSettings:
+    """Startup result: the settings, the saved values behind them and any file problem code."""
+
+    settings: Settings
+    saved: dict[str, str]
+    file_problem: str = ""
+
+
+def load_saved_settings(store: SettingsFileStore) -> LoadedSettings:
+    """Load the settings with the user's saved file below the environment (AC-11).
+
+    The service never refuses to start because of the file: an unreadable file is ignored, and a
+    key that is unknown or fails validation falls back to its default on its own. Logs name keys and
+    codes, never values; the file itself is only rewritten by the next successful ``Set``.
+    """
+    read = store.read()
+    if isinstance(read, Failure):
+        code = read.failure().error_code
+        logger.warning("Settings file ignored: %s", code)
+        return LoadedSettings(Settings.load(), {}, code)
+    values: dict[str, str] = {}
+    for key, value in read.unwrap().items():
+        if field_spec(key) is None:
+            logger.warning("Settings file: ignored unknown key %s", key)
+        else:
+            values[key] = value
+    while values:
+        result = Settings.with_overrides(values)
+        if isinstance(result, Success):
+            break
+        rejected = {problem.key for problem in result.failure() if problem.key in values}
+        if not rejected:
+            break  # an environment-only problem: nothing in the file can fix it
+        for problem in result.failure():
+            if problem.key in rejected:
+                logger.warning(
+                    "Settings file: key %s fell back to its default (%s)", problem.key, problem.code
+                )
+        values = {key: value for key, value in values.items() if key not in rejected}
+    return LoadedSettings(Settings.load(file_values=values), values)

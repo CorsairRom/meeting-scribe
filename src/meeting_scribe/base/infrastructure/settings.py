@@ -59,7 +59,7 @@ def _file_values_for(settings_cls: type[BaseSettings]) -> dict[str, str]:
     return {
         key.split(".", 1)[1]: value
         for key, value in (_FILE_LAYER.get() or {}).items()
-        if key.split(".", 1)[0] == section
+        if "." in key and key.split(".", 1)[0] == section
     }
 
 

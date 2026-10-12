@@ -7,6 +7,13 @@ from pathlib import Path
 
 import pytest
 
+from meeting_scribe.preferences.domain.fields import FIELD_REGISTRY
+
+_CONFIG_ENV = (
+    *(f"{spec.section}_{spec.name}".upper() for spec in FIELD_REGISTRY),
+    "SUMMARIES_CLOUD_ENABLED",
+)
+
 _CONFIG = """<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
  "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
 <busconfig>
@@ -57,3 +64,19 @@ def private_bus(tmp_path: Path) -> Iterator[PrivateBus]:
 @pytest.fixture
 def bus_address(private_bus: PrivateBus) -> str:
     return private_bus.address
+
+
+@pytest.fixture(autouse=True)
+def _isolated_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """Settings are loaded from an empty private XDG folder, never the user's real config.
+
+    An empty ``.env`` there wins over a development ``./.env``, so nothing real is read.
+    """
+    xdg = tmp_path_factory.mktemp("xdg")
+    (xdg / "meeting-scribe").mkdir()
+    (xdg / "meeting-scribe" / ".env").write_text("", encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    for name in _CONFIG_ENV:
+        monkeypatch.delenv(name, raising=False)

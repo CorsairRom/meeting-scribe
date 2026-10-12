@@ -33,8 +33,14 @@ class JsonSettingsStore:
             raw = self._path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return Success({})
-        except (OSError, UnicodeDecodeError):
+        except OSError:
             return Failure(SettingsFileInvalidError("The settings file could not be read."))
+        except UnicodeDecodeError:
+            return Failure(SettingsFileInvalidError("The settings file is not valid text."))
+        return self._parse(raw)
+
+    @staticmethod
+    def _parse(raw: str) -> Result[dict[str, str], SettingsFileInvalidError]:
         try:
             document = json.loads(raw)
         except ValueError:
@@ -55,10 +61,13 @@ class JsonSettingsStore:
     def write(self, values: Mapping[str, str]) -> Result[None, SettingsStorageFailedError]:
         try:
             self._path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            self._set_aside_a_damaged_file()
+            self._set_aside_an_invalid_file()
             self._replace(values)
-        except OSError:
-            logger.error("Settings file could not be written: SETTINGS_STORAGE_FAILED")
+        except OSError as error:
+            logger.error(
+                "Settings file could not be written: SETTINGS_STORAGE_FAILED (errno %s)",
+                error.errno,
+            )
             return Failure(
                 SettingsStorageFailedError(
                     "The settings file could not be written. "
@@ -67,9 +76,31 @@ class JsonSettingsStore:
             )
         return Success(None)
 
-    def _set_aside_a_damaged_file(self) -> None:
-        if isinstance(self.read(), Failure):
-            self._path.replace(self._path.with_name(self._path.name + INVALID_SUFFIX))
+    def _set_aside_an_invalid_file(self) -> None:
+        """Move aside only a file that was read and is invalid (JSON, version or schema).
+
+        A file that cannot be read at all (permissions, I/O error, a directory) is not known to be
+        damaged: the ``OSError`` propagates, the write fails and the file stays where it is.
+        """
+        try:
+            raw = self._path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return
+        except UnicodeDecodeError:
+            pass  # read, but not text: invalid
+        else:
+            if isinstance(self._parse(raw), Success):
+                return
+        self._path.replace(self._free_backup_name())
+
+    def _free_backup_name(self) -> Path:
+        """``settings.json.invalid``, then ``.invalid.1``, ``.invalid.2``: never overwrite one."""
+        base = self._path.with_name(self._path.name + INVALID_SUFFIX)
+        candidate, counter = base, 0
+        while candidate.exists():
+            counter += 1
+            candidate = base.with_name(f"{base.name}.{counter}")
+        return candidate
 
     def _replace(self, values: Mapping[str, str]) -> None:
         document = {"version": FILE_VERSION, "values": dict(sorted(values.items()))}

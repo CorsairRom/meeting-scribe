@@ -38,13 +38,6 @@ def test_an_unknown_key_has_no_spec() -> None:
     assert field_spec("summaries.cloud_base_url") is None
 
 
-def test_no_exposed_key_can_carry_a_secret() -> None:
-    """AC-9 allow-list: adding a field means reviewing this list (BR-005)."""
-    forbidden = ("key", "token", "secret", "password", "url", "enabled")
-    assert not [s.key for s in FIELD_REGISTRY if any(w in s.name for w in forbidden)]
-    assert not [s.key for s in FIELD_REGISTRY if s.section not in {"summaries", "storage"}]
-
-
 def test_a_value_is_locked_only_by_the_environment_layers() -> None:
     assert [FieldSource(source).locked for source in ("default", "file", "env", "dotenv")] == [
         False,

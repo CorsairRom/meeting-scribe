@@ -1,7 +1,7 @@
 ---
 type: spec
 feature: preferences
-status: approved  # draft | approved | in-progress | done | blocked
+status: in-progress  # draft | approved | in-progress | done | blocked
 mvp: true
 prd_ref: NFR-1, NFR-6, safety requirements 2-3
 depends_on:
@@ -228,12 +228,16 @@ THEN the dialog opens read-only with "The Meeting Scribe service is not running"
 ### AC-13: Legacy `SUMMARIES_CLOUD_ENABLED` is migrated safely
 
 ```gherkin
-GIVEN SUMMARIES_CLOUD_ENABLED is absent
-THEN it is ignored (nothing to migrate)
-GIVEN SUMMARIES_CLOUD_ENABLED=false is set explicitly and SUMMARIES_PROVIDER=cloud
-THEN the provider resolves to local, GetAll reports the field locked by env with a "legacy setting" reason, and one WARNING names the variable (never a value)
-GIVEN SUMMARIES_CLOUD_ENABLED=true
-THEN it is ignored with one WARNING saying the variable is obsolete
+GIVEN a provider "cloud" saved from the Preferences window (settings.json)
+THEN it is the opt-in by itself and nothing is migrated
+GIVEN SUMMARIES_PROVIDER=cloud in the environment or .env and SUMMARIES_CLOUD_ENABLED absent, unparseable or false
+THEN the provider resolves to local, GetAll reports the field locked with the "legacy setting" reason, and one WARNING names SUMMARIES_CLOUD_ENABLED (never a value)
+GIVEN SUMMARIES_CLOUD_ENABLED=false and a provider "cloud" saved in the window
+THEN the provider also resolves to local (an explicit off wins)
+GIVEN SUMMARIES_PROVIDER=cloud and SUMMARIES_CLOUD_ENABLED=true
+THEN the cloud stays selected and one WARNING says the variable is obsolete
+GIVEN SUMMARIES_CLOUD_ENABLED=true and the provider is local
+THEN one WARNING says the variable is obsolete and no longer allows a per-request cloud summary
 AND no code reads cloud_enabled any more
 ```
 
@@ -387,7 +391,8 @@ is too old; update it".
 ### 7. Removing `SUMMARIES_CLOUD_ENABLED` and migration
 
 - `SummariesSettings.cloud_enabled` is deleted; `SummaryConfig.cloud_enabled` becomes a property derived from `default_provider == "cloud"`. The gate order in `SummaryController.Summarize` is unchanged with the derived value (unknown provider, cloud not selected, not confirmed, then the rest, then the key), and `Providers` marks the cloud row unavailable with `SUMMARY_CLOUD_DISABLED` when the provider is local.
-- **Rule for existing installs** (the migration reads the environment and `.env` once at load; nothing is rewritten): ignore the variable when it is absent or `true` (the second with one WARNING that it is obsolete). If it is explicitly `false` while the provider is `cloud`, resolve the provider to `local` and warn, so nobody who deliberately kept the cloud off is switched on by an upgrade; the field is reported locked with `lock_reason` `LEGACY_SETTING` and the runbook says to delete the line to unlock it.
+- **Rule for existing installs** (the cloud is opt-in; the migration reads the environment and `.env` once at load; nothing is rewritten): a provider `cloud` chosen in the Preferences window (`settings.json`) is the opt-in by itself. A provider `cloud` that comes from the environment or `.env` keeps working only next to an explicit `SUMMARIES_CLOUD_ENABLED=true`; with the variable absent, `false` or unparseable the provider resolves to `local` with one WARNING that names the variable (never a value), so an upgrade never switches the cloud on. An explicit `false` also overrides a provider saved in the window. The field is reported locked with `lock_reason` `LEGACY_SETTING` and the runbook says to delete the legacy lines and choose Cloud in the window to unlock it.
+- **By design (OQ-8, one button)**: `SUMMARIES_CLOUD_ENABLED=true` with the provider `local` no longer allows a per-request cloud summary: the cloud is used only when the provider is `cloud`. Such a variable is ignored with one WARNING that says so.
 - The owner's `.env` is not touched by tooling. `.env.example` drops the variable and says the window is the normal way to configure the summaries.
 - The rule is removed one release after the window ships.
 
@@ -542,4 +547,9 @@ verified.
 
 > If unresolved forks appear, record them here AND open an ADR if the decision is structural.
 
-- (none yet)
+- **Language field**: `summaries.language` is `kind` `choice` with `choices` `["auto"]` only; any lowercase ISO code is accepted by the validator, and the curated list lives in the app (P4/P5).
+- **File problem in `GetAll`**: the spec says a damaged file is "reported through GetAll" without a member for it, so every row carries `file_problem` (empty or `SETTINGS_FILE_INVALID`).
+- **`applied` and `SettingsChanged`** list the keys submitted in the successful `Set` (restart fields included); `restart_required` tells which of them are pending.
+- **`Restart` is two steps** (`check`, reply, `perform` 0.3 s later) because a reply cannot follow a restart. Reachability is probed before the reply with `Manager.LoadUnit`; a failure after the reply is only logged. Verified in `man org.freedesktop.systemd1` (systemd 259).
+- **Folder creation**: validation never creates the meetings folder; it is created (mode 0700) only after every field passed, just before the file is written. If applying a live change raises after the save, the `Set` reply carries `apply_failed` (saved, restart picks it up); an empty `Set` is a no-op.
+- **Startup**: `run()` loads the file with `load_saved_settings` (damaged file or invalid key falls back, logged by key and code); `create_app()` without arguments still reads the environment only.

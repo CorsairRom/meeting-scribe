@@ -4,8 +4,8 @@ import asyncio
 import logging
 import signal
 import threading
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 
 from dbus_fast import NameFlag, RequestNameReply
 from dbus_fast.aio import MessageBus
@@ -49,6 +49,23 @@ from meeting_scribe.meetings.infrastructure.filesystem_summary_files import File
 from meeting_scribe.meetings.infrastructure.freedesktop_notifier import FreedesktopNotifier
 from meeting_scribe.meetings.infrastructure.subprocess_worker_runner import SubprocessWorkerRunner
 from meeting_scribe.meetings.infrastructure.wav_chunk_inspector import WavChunkInspector
+from meeting_scribe.preferences.application.restart_service import RestartService
+from meeting_scribe.preferences.application.settings_service import (
+    PreferencesService,
+    PreferencesState,
+)
+from meeting_scribe.preferences.domain.ports import (
+    EffectiveSettings,
+    ServiceRestarter,
+    SettingsFileStore,
+)
+from meeting_scribe.preferences.infrastructure.dbus.settings_interface import SettingsInterface
+from meeting_scribe.preferences.infrastructure.json_settings_store import JsonSettingsStore
+from meeting_scribe.preferences.infrastructure.meetings_folder import (
+    check_meetings_folder,
+    create_meetings_folder,
+)
+from meeting_scribe.preferences.infrastructure.systemd_restarter import SystemdRestarter
 from meeting_scribe.recording.application.recording_controller import RecordingController
 from meeting_scribe.recording.domain.ports import (
     AudioCapture,
@@ -66,7 +83,12 @@ from meeting_scribe.recording.infrastructure.filesystem_recording_storage import
 )
 from meeting_scribe.recording.infrastructure.pactl_device_resolver import PactlDeviceResolver
 from meeting_scribe.recording.infrastructure.system_clock import SystemClock
-from meeting_scribe.settings import Settings, get_settings
+from meeting_scribe.settings import (
+    Settings,
+    get_settings,
+    load_saved_settings,
+    xdg_settings_file,
+)
 from meeting_scribe.speakers.application.render_transcript import RenderTranscript
 from meeting_scribe.speakers.application.review_speakers import ReviewSpeakers
 from meeting_scribe.speakers.infrastructure.json_utterances_store import JsonUtterancesStore
@@ -130,6 +152,18 @@ class SummaryAdapters:
 
 
 @dataclass(frozen=True)
+class PreferencesAdapters:
+    """The ports behind the preferences use cases; tests inject a tmp store and a fake systemd."""
+
+    store: SettingsFileStore
+    restarter: ServiceRestarter
+    saved: Mapping[str, str] = field(
+        default_factory=dict
+    )  # the values the settings were loaded with
+    file_problem: str = ""  # SETTINGS_FILE_INVALID when the file could not be read at start
+
+
+@dataclass(frozen=True)
 class Application:
     """Wired application. Later phases add controllers and adapters here."""
 
@@ -141,6 +175,8 @@ class Application:
     summaries: SummaryController  # one summary at a time, sharing the GPU lease
     summary_events: SummaryEventHub  # the Summaries1 signals subscribe here
     summary_config: "LiveSummaryConfig"  # the live summary settings; ``apply`` swaps them
+    preferences: PreferencesService  # Settings1: read, validate and save the exposed settings
+    restart: RestartService  # Settings1.Restart through systemd, only when idle
 
 
 def _real_recording_adapters(settings: Settings) -> RecordingAdapters:
@@ -254,6 +290,50 @@ class LiveSummaryConfig:
         self._config = build_summary_config(settings, self._ports_for(settings))
 
 
+class _Activity:
+    """True while a recording, a processing job or a summary is active (the restart gate)."""
+
+    def __init__(
+        self,
+        recording: RecordingController,
+        processing: ProcessingController,
+        summaries: SummaryController,
+    ) -> None:
+        self._recording = recording
+        self._processing = processing
+        self._summaries = summaries
+
+    def busy(self) -> bool:
+        return (
+            self._recording.status().state == "RECORDING"
+            or bool(self._processing.status().active_meeting_id)
+            or bool(self._summaries.active_meeting_id)
+        )
+
+
+def _real_preferences_adapters() -> PreferencesAdapters:
+    return PreferencesAdapters(JsonSettingsStore(xdg_settings_file()), SystemdRestarter())
+
+
+def build_preferences(
+    settings: Settings, ports: PreferencesAdapters, summary_config: "LiveSummaryConfig"
+) -> PreferencesService:
+    """Validators come from the settings classes; a live change swaps the summary config only."""
+
+    def apply(effective: EffectiveSettings) -> None:
+        if isinstance(effective, Settings):
+            summary_config.apply(effective)
+
+    return PreferencesService(
+        ports.store,
+        PreferencesState(settings, ports.saved, ports.file_problem),
+        Settings.with_overrides,
+        apply,
+        checks={"storage.meetings_dir": lambda raw: check_meetings_folder(raw).map(str)},
+        prepare={"storage.meetings_dir": lambda raw: create_meetings_folder(raw).map(str)},
+    )
+
+
 def build_processing_config(settings: Settings) -> ProcessingConfig:
     """Every value a job needs, copied from the settings (the worker reads none, spec 6.2).
 
@@ -280,11 +360,13 @@ def create_app(
     recording_adapters: RecordingAdapters | None = None,
     processing_adapters: ProcessingAdapters | None = None,
     summary_adapters: SummaryAdapters | None = None,
+    preferences_adapters: PreferencesAdapters | None = None,
 ) -> Application:
-    injected = settings is not None
+    # Hand-built settings (tests) never ran the sources: say so instead of naming an env file.
+    hand_built = settings is not None and not settings.loaded
     settings = settings or get_settings()
     configure_logging(settings.log_level)
-    if injected:
+    if hand_built:
         logger.info("config source: settings injected by caller")
     elif settings.env_files:
         logger.info("config source: env file %s plus process environment", settings.env_files[0])
@@ -339,6 +421,8 @@ def create_app(
         events=summary_events,
         on_gpu_free=processing.wake,
     )
+    preference_ports = preferences_adapters or _real_preferences_adapters()
+    preferences = build_preferences(settings, preference_ports, summary_config)
     return Application(
         settings=settings,
         recording=recording,
@@ -348,6 +432,10 @@ def create_app(
         summaries=summaries,
         summary_events=summary_events,
         summary_config=summary_config,
+        preferences=preferences,
+        restart=RestartService(
+            _Activity(recording, processing, summaries), preference_ports.restarter
+        ),
     )
 
 
@@ -460,16 +548,17 @@ async def serve(
     try:
         recording = RecordingInterface(app.recording, poll_interval=poll_interval)
         meetings = MeetingsInterface(app.processing, app.review)
-        bus.export(OBJECT_PATH, recording)
         summaries = SummariesInterface(app.summaries)
-        bus.export(OBJECT_PATH, meetings)
-        bus.export(OBJECT_PATH, summaries)
+        settings = SettingsInterface(app.preferences, app.restart)
+        for exported in (recording, meetings, summaries, settings):
+            bus.export(OBJECT_PATH, exported)
         reply = await bus.request_name(BUS_NAME, NameFlag.DO_NOT_QUEUE)
         if reply != RequestNameReply.PRIMARY_OWNER:
             logger.error("D-Bus name %s is already owned: another instance is running.", BUS_NAME)
             return EXIT_NAME_TAKEN
         app.events.subscribe(meetings)
         app.summary_events.subscribe(summaries)
+        app.preferences.subscribe(settings)
         processing_thread: threading.Thread | None = None
         processing_stopped = summaries_stopped = True
         disconnected = False
@@ -508,4 +597,7 @@ async def serve(
 
 def run() -> int:
     """Console-script entry point: serve until interrupted; the return value is the exit code."""
-    return asyncio.run(serve(create_app()))
+    store = JsonSettingsStore(xdg_settings_file())
+    loaded = load_saved_settings(store)
+    adapters = PreferencesAdapters(store, SystemdRestarter(), loaded.saved, loaded.file_problem)
+    return asyncio.run(serve(create_app(loaded.settings, preferences_adapters=adapters)))

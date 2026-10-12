@@ -6,16 +6,11 @@ from pathlib import Path
 import pytest
 from returns.result import Failure, Success
 
+from meeting_scribe.preferences.domain.fields import FIELD_REGISTRY
 from meeting_scribe.settings import Settings
 from meeting_scribe.summaries.infrastructure.summaries_settings import SummariesSettings
 
-_ENV = (
-    "SUMMARIES_CLOUD_ENABLED",
-    "SUMMARIES_LOCAL_MODEL",
-    "SUMMARIES_PROVIDER",
-    "SUMMARIES_LANGUAGE",
-    "STORAGE_MEETINGS_DIR",
-)
+_ENV = (*(f"{s.section}_{s.name}".upper() for s in FIELD_REGISTRY), "SUMMARIES_CLOUD_ENABLED")
 
 
 @pytest.fixture(autouse=True)
@@ -148,34 +143,58 @@ def test_exposed_value_and_default_are_strings() -> None:
     )
 
 
-# -- AC-13: the legacy SUMMARIES_CLOUD_ENABLED switch --
+# -- AC-13: the legacy SUMMARIES_CLOUD_ENABLED switch (the cloud is opt-in) --
 
 
-def test_legacy_cloud_enabled_absent_is_ignored(caplog: pytest.LogCaptureFixture) -> None:
+def _legacy_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "SUMMARIES_CLOUD_ENABLED" in r.getMessage()
+    ]
+
+
+def test_a_provider_saved_in_the_window_is_the_opt_in_by_itself(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     settings = Settings.load(file_values={"summaries.provider": "cloud"})
 
     assert settings.summaries.provider == "cloud"
-    assert "SUMMARIES_CLOUD_ENABLED" not in caplog.text
+    assert settings.source_of("summaries.provider").lock_reason == ""
+    assert _legacy_warnings(caplog) == []
 
 
-def test_legacy_cloud_enabled_false_keeps_the_cloud_off(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+@pytest.mark.parametrize("switch", [None, "maybe", "", "false"])
+@pytest.mark.parametrize("layer", ["env", "dotenv"])
+def test_legacy_cloud_provider_without_an_explicit_true_stays_local(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    layer: str,
+    switch: str | None,
 ) -> None:
-    monkeypatch.setenv("SUMMARIES_CLOUD_ENABLED", "false")
-    monkeypatch.setenv("SUMMARIES_PROVIDER", "cloud")
+    lines = ["SUMMARIES_PROVIDER=cloud"]
+    if switch is not None:
+        lines.append(f"SUMMARIES_CLOUD_ENABLED={switch}")
+    if layer == "env":
+        for line in lines:
+            name, value = line.split("=")
+            monkeypatch.setenv(name, value)
+    else:
+        _dotenv(tmp_path, "\n".join(lines) + "\n")
 
     with caplog.at_level(logging.WARNING):
         settings = Settings.load()
 
     assert settings.summaries.provider == "local"
     source = settings.source_of("summaries.provider")
-    assert (source.source, source.locked, source.lock_reason) == ("env", True, "LEGACY_SETTING")
-    warnings = [r for r in caplog.records if "SUMMARIES_CLOUD_ENABLED" in r.getMessage()]
+    assert (source.source, source.locked, source.lock_reason) == (layer, True, "LEGACY_SETTING")
+    warnings = _legacy_warnings(caplog)
     assert len(warnings) == 1
-    assert "false" not in warnings[0].getMessage().lower()
+    assert "=cloud" not in warnings[0]  # the variable is named, never a value
 
 
-def test_legacy_false_from_dotenv_also_overrides_a_saved_cloud(tmp_path: Path) -> None:
+def test_legacy_false_overrides_a_saved_cloud_too(tmp_path: Path) -> None:
     _dotenv(tmp_path, "SUMMARIES_CLOUD_ENABLED=false\n")
 
     settings = Settings.load(file_values={"summaries.provider": "cloud"})
@@ -185,18 +204,22 @@ def test_legacy_false_from_dotenv_also_overrides_a_saved_cloud(tmp_path: Path) -
     assert settings.source_of("summaries.provider").lock_reason == "LEGACY_SETTING"
 
 
-def test_legacy_false_with_the_local_provider_changes_nothing(
-    monkeypatch: pytest.MonkeyPatch,
+def test_legacy_true_with_the_cloud_provider_keeps_the_cloud(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    monkeypatch.setenv("SUMMARIES_CLOUD_ENABLED", "false")
+    monkeypatch.setenv("SUMMARIES_PROVIDER", "cloud")
+    monkeypatch.setenv("SUMMARIES_CLOUD_ENABLED", "true")
 
-    settings = Settings.load()
+    with caplog.at_level(logging.WARNING):
+        settings = Settings.load()
 
-    assert settings.summaries.provider == "local"
+    assert settings.summaries.provider == "cloud"
+    assert settings.source_of("summaries.provider").locked is True
     assert settings.source_of("summaries.provider").lock_reason == ""
+    assert len(_legacy_warnings(caplog)) == 1
 
 
-def test_legacy_cloud_enabled_true_is_ignored_with_one_warning(
+def test_legacy_true_with_the_local_provider_says_the_per_request_cloud_is_gone(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     monkeypatch.setenv("SUMMARIES_CLOUD_ENABLED", "true")
@@ -204,11 +227,12 @@ def test_legacy_cloud_enabled_true_is_ignored_with_one_warning(
     with caplog.at_level(logging.WARNING):
         settings = Settings.load()
 
-    assert settings.summaries.provider == "local"  # true never switches the cloud on
+    assert settings.summaries.provider == "local"
     assert settings.source_of("summaries.provider").locked is False
-    warnings = [r for r in caplog.records if "SUMMARIES_CLOUD_ENABLED" in r.getMessage()]
-    assert len(warnings) == 1
-    assert "obsolete" in warnings[0].getMessage()
+    (warning,) = _legacy_warnings(caplog)
+    assert "obsolete" in warning
+    assert "per-request" in warning
+    assert "Preferences" in warning
 
 
 def test_with_overrides_does_not_repeat_the_legacy_warning(
@@ -219,4 +243,22 @@ def test_with_overrides_does_not_repeat_the_legacy_warning(
     with caplog.at_level(logging.WARNING):
         Settings.with_overrides({"summaries.language": "es"}).unwrap()
 
-    assert "SUMMARIES_CLOUD_ENABLED" not in caplog.text
+    assert _legacy_warnings(caplog) == []
+
+
+def test_file_values_outside_the_registry_never_break_a_load(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING):
+        settings = Settings.load(
+            file_values={
+                "summaries": "x",
+                "summaries.bogus": "y",
+                "summaries.local_model": "m-ok",
+                "log_level.x": "z",
+            }
+        )
+
+    assert settings.summaries.local_model == "m-ok"
+    assert "summaries.bogus" in caplog.text
+    assert "bogus" in caplog.text and "=y" not in caplog.text
