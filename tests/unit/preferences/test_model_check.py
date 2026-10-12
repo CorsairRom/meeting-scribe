@@ -13,13 +13,21 @@ KEY = "summaries.cloud_model"
 
 
 class FakeCatalog:
-    def __init__(self, listing: ModelListing) -> None:
+    """Answers from its cache only: a ``Set`` must never reach the network (it holds the lock)."""
+
+    def __init__(self, listing: ModelListing | None) -> None:
         self.listing = listing
         self.scopes: list[str] = []
+        self.fetches = 0
 
-    def list_models(self, scope: str) -> ModelListing:
+    def cached_models(self, scope: str) -> ModelListing | None:
         self.scopes.append(scope)
         return self.listing
+
+    def list_models(self, scope: str) -> ModelListing:
+        del scope
+        self.fetches += 1
+        raise AssertionError("Set must not fetch the model list")
 
 
 def available(*rows: ModelRow) -> ModelListing:
@@ -29,7 +37,7 @@ def available(*rows: ModelRow) -> ModelListing:
 LISTED = available(ModelRow("glm-5", True, ""), ModelRow("gpt-5", False, "NOT_SUPPORTED_YET"))
 
 
-def check(listing: ModelListing, raw: str, scope: str = "cloud"):
+def check(listing: ModelListing | None, raw: str, scope: str = "cloud"):
     return ModelCheck(FakeCatalog(listing), scope, KEY)(raw)
 
 
@@ -57,6 +65,13 @@ def test_an_unsupported_model_is_invalid() -> None:
 def test_an_unavailable_list_never_blocks_a_save() -> None:
     assert check(ModelListing("SUMMARY_CLOUD_KEY_MISSING"), "anything") == Success("anything")
     assert check(ModelListing("SUMMARY_MODELS_UNAVAILABLE"), "anything") == Success("anything")
+
+
+def test_no_fresh_list_accepts_the_save_without_a_fetch() -> None:
+    catalog = FakeCatalog(None)
+
+    assert ModelCheck(catalog, "cloud", KEY)("anything") == Success("anything")
+    assert catalog.fetches == 0
 
 
 def test_the_check_asks_for_its_own_scope() -> None:

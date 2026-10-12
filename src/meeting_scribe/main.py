@@ -4,6 +4,7 @@ import asyncio
 import logging
 import signal
 import threading
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
@@ -95,7 +96,8 @@ from meeting_scribe.speakers.application.render_transcript import RenderTranscri
 from meeting_scribe.speakers.application.review_speakers import ReviewSpeakers
 from meeting_scribe.speakers.infrastructure.json_utterances_store import JsonUtterancesStore
 from meeting_scribe.summaries.application.generate_summary import GenerateSummary
-from meeting_scribe.summaries.application.list_models import ListModels
+from meeting_scribe.summaries.application.list_models import CLOUD, LOCAL, ListModels
+from meeting_scribe.summaries.domain.errors import SummaryModelsUnavailableError
 from meeting_scribe.summaries.domain.headings import HeadingCatalog
 from meeting_scribe.summaries.domain.ports import (
     CloudKeyStore,
@@ -114,7 +116,9 @@ from meeting_scribe.summaries.infrastructure.secret_service_store import SecretS
 
 logger = logging.getLogger(__name__)
 
-UNAVAILABLE = "SUMMARY_MODELS_UNAVAILABLE"
+UNAVAILABLE = SummaryModelsUnavailableError.error_code
+MODEL_CACHE_SECONDS = 600.0
+"""How long the last good model list stays valid for checking a ``Set`` (it never fetches)."""
 
 EXIT_OK = 0
 EXIT_NAME_TAKEN = 1
@@ -294,7 +298,10 @@ class LiveSummaryConfig:
         settings: Settings,
         ports_for: Callable[[Settings], SummaryAdapters],
         initial_ports: SummaryAdapters,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
+        self._clock = clock
+        self._model_cache: dict[str, tuple[float, ModelListing]] = {}
         self._ports_for = ports_for
         self._ports = initial_ports
         self._config = build_summary_config(settings, initial_ports)
@@ -316,7 +323,16 @@ class LiveSummaryConfig:
         if isinstance(listed, Failure):
             return ModelListing(listed.failure().error_code)
         rows = tuple(ModelRow(m.id, m.supported, m.reason) for m in listed.unwrap())
-        return ModelListing(MODELS_OK, rows)
+        listing = ModelListing(MODELS_OK, rows)
+        self._model_cache[scope] = (self._clock(), listing)  # the last good list, for ``Set``
+        return listing
+
+    def cached_models(self, scope: str) -> ModelListing | None:
+        """The last good list of a scope if it is fresh; never touches the network."""
+        cached = self._model_cache.get(scope)
+        if cached is None or self._clock() - cached[0] > MODEL_CACHE_SECONDS:
+            return None
+        return cached[1]
 
 
 class _Activity:
@@ -357,8 +373,8 @@ def build_preferences(
     model_checks = {
         key: ModelCheck(summary_config, scope, key)
         for key, scope in (
-            ("summaries.local_model", "local"),
-            ("summaries.cloud_model", "cloud"),
+            ("summaries.local_model", LOCAL),
+            ("summaries.cloud_model", CLOUD),
         )
     }
     return PreferencesService(

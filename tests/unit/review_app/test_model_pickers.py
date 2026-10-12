@@ -235,3 +235,15 @@ def test_a_state_still_holds_no_key() -> None:
 
     assert "fake-secret-value" not in repr(presenter.state)
     assert isinstance(presenter.state, PreferencesState)
+
+
+def test_refresh_asks_for_the_cloud_list_again_when_the_cloud_is_shown() -> None:
+    models = {"cloud": listing(("glm-5", True))}
+    presenter, gateway, _ = wire(
+        provider="cloud", models=models, keys=FakeApiKeyStore(stored=["k"])
+    )
+    assert gateway.args_of("list_models").count(("cloud",)) == 1
+
+    presenter.refresh_models()
+
+    assert gateway.args_of("list_models").count(("cloud",)) == 2

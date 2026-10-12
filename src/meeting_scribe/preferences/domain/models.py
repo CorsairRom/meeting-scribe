@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 MODELS_OK = "OK"
+MODELS_UNAVAILABLE = "SUMMARY_MODELS_UNAVAILABLE"
 
 
 @dataclass(frozen=True)

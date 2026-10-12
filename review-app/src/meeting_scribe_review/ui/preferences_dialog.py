@@ -103,6 +103,13 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self._cloud_group = self._group(
             "In the cloud", self._cloud_provider, self._key_row, self._cloud, self._unsupported
         )
+        for group in (self._local_group, self._cloud_group):
+            # In the header, not in the model row: it stays clickable while the dropdown is not.
+            group.set_header_suffix(
+                _icon_button(
+                    "view-refresh-symbolic", "Refresh the model list", actions.refresh_models
+                )
+            )
         self._restart_group = self._group(None, self._restart_row)
         self._recordings = self._group("Recordings", self._folder)
         page = Adw.PreferencesPage()

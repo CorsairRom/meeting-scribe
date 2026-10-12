@@ -70,3 +70,7 @@ class ModelCatalog(Protocol):
     """The models a scope (``local`` or ``cloud``) offers; blocking, bounded, never raises."""
 
     def list_models(self, scope: str) -> ModelListing: ...
+
+    def cached_models(self, scope: str) -> ModelListing | None:
+        """The last good list if still fresh, else ``None``. Never touches the network."""
+        ...

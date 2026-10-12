@@ -21,7 +21,7 @@ from meeting_scribe.preferences.application.settings_service import (
     SetOutcome,
 )
 from meeting_scribe.preferences.domain.fields import FieldRow
-from meeting_scribe.preferences.domain.models import ModelListing
+from meeting_scribe.preferences.domain.models import MODELS_UNAVAILABLE, ModelListing
 from meeting_scribe.preferences.domain.ports import ModelCatalog, NullSettingsEvents
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,11 @@ def outcome_details(outcome: SetOutcome) -> dict[str, Variant]:
 class _NoModels:
     def list_models(self, scope: str) -> ModelListing:
         del scope
-        return ModelListing("SUMMARY_MODELS_UNAVAILABLE")
+        return ModelListing(MODELS_UNAVAILABLE)
+
+    def cached_models(self, scope: str) -> ModelListing | None:
+        del scope
+        return None
 
 
 class SettingsInterface(ServiceInterface, NullSettingsEvents):

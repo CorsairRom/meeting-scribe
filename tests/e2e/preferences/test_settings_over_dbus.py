@@ -406,15 +406,19 @@ def test_set_checks_a_changed_model_against_the_available_list(
             ModelEntry(id="gpt-5", supported=False, reason="NOT_SUPPORTED_YET"),
         ]
     )
-    before = rig.settings_file.read_bytes()
 
     async def scenario(session: Session) -> None:
+        before_list = _plain(await session.settings.call_set({"summaries.cloud_model": "gpt-5"}))
+        assert before_list["applied"] == ["summaries.cloud_model"]  # no fresh list: accepted
+        assert rig.cloud_models.asks == 0  # and Set never fetched one
+        await session.settings.call_set({"summaries.cloud_model": "deepseek-v4-pro"})
+        await session.settings.call_list_models("cloud")  # the window's own fetch fills the cache
         rejected = _plain(await session.settings.call_set({"summaries.cloud_model": "gpt-5"}))
         assert rejected["applied"] == []
         assert [row[:2] for row in rejected["errors"]] == [
             ("summaries.cloud_model", "FIELD_INVALID")
         ]
-        assert rig.settings_file.read_bytes() == before
+        assert _file(rig).get("summaries.cloud_model") != "gpt-5"
         saved = _plain(await session.settings.call_set({"summaries.cloud_model": "glm-5"}))
         assert saved["applied"] == ["summaries.cloud_model"]
 

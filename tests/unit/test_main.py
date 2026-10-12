@@ -5,10 +5,13 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from returns.result import Failure, Success
 
 from meeting_scribe import main as main_module
 from meeting_scribe.main import (
+    MODEL_CACHE_SECONDS,
     Application,
+    LiveSummaryConfig,
     ProcessingAdapters,
     RecordingAdapters,
     SummaryAdapters,
@@ -26,7 +29,10 @@ from meeting_scribe.recording.application.recording_controller import RecordingC
 from meeting_scribe.settings import Settings, StorageSettings, get_settings
 from meeting_scribe.speakers.domain.params import AssemblyParams, DiarizationParams
 from meeting_scribe.speakers.infrastructure.speakers_settings import SpeakersSettings
+from meeting_scribe.summaries.application.list_models import ListModels
+from meeting_scribe.summaries.domain.errors import SummaryModelsUnavailableError
 from meeting_scribe.summaries.domain.headings import EnglishHeadingCatalog
+from meeting_scribe.summaries.domain.ports import ModelEntry
 from meeting_scribe.summaries.infrastructure.openai_provider import OpenAiCompatibleProvider
 from meeting_scribe.summaries.infrastructure.secret_service_store import SecretServiceKeyStore
 from meeting_scribe.summaries.infrastructure.summaries_settings import SummariesSettings
@@ -50,7 +56,7 @@ from tests.unit.recording.fakes import (
     FakeDeviceResolver,
     FakeRecordingStorage,
 )
-from tests.unit.summaries.fakes import FakeProvider, FakeReleaser
+from tests.unit.summaries.fakes import FakeCloudModels, FakeLocalModels, FakeProvider, FakeReleaser
 
 
 @pytest.fixture(autouse=True)
@@ -429,3 +435,42 @@ def test_applying_new_settings_swaps_the_summary_config_without_a_restart() -> N
     local, cloud = app.summaries.providers()
     assert (local.label, local.default) == ("Local (m-b)", False)
     assert (cloud.available, cloud.default) == (True, True)
+
+
+def _live_models(local: FakeLocalModels, clock) -> LiveSummaryConfig:
+    ports = SummaryAdapters(
+        files=FilesystemSummaryFiles(),
+        keys=FakeKeyStore(),
+        local_provider=FakeProvider(),
+        cloud_provider=FakeProvider(),
+        local_releaser=FakeReleaser(),
+        cloud_releaser=FakeReleaser(),
+        headings=EnglishHeadingCatalog(),
+        models=ListModels(local, FakeCloudModels(), FakeKeyStore()),
+    )
+    return LiveSummaryConfig(Settings(), lambda _s: ports, ports, clock=clock)
+
+
+def test_the_last_good_model_list_is_cached_per_scope_for_ten_minutes() -> None:
+    now = [100.0]
+    local = FakeLocalModels(Success([ModelEntry(id="m1")]))
+    live = _live_models(local, lambda: now[0])
+    assert live.cached_models("local") is None  # nothing fetched yet
+
+    fetched = live.list_models("local")
+
+    assert live.cached_models("local") == fetched
+    assert live.cached_models("cloud") is None
+    assert local.asks == 1  # reading the cache never asks the provider
+    now[0] += MODEL_CACHE_SECONDS - 1
+    assert live.cached_models("local") == fetched
+    now[0] += 2
+    assert live.cached_models("local") is None
+
+
+def test_a_failed_model_list_is_not_cached() -> None:
+    local = FakeLocalModels(Failure(SummaryModelsUnavailableError("down")))
+    live = _live_models(local, lambda: 0.0)
+
+    assert live.list_models("local").status == SummaryModelsUnavailableError.error_code
+    assert live.cached_models("local") is None

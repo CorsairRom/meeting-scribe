@@ -193,8 +193,8 @@ Field error codes inside `Set` replies: `FIELD_UNKNOWN`, `FIELD_LOCKED`, `FIELD_
 (see `error-codes-catalog.md`). Messages carry keys and next steps, never values: a value can hold a home path, and
 logs and signals follow the same rule. A client that gets `UnknownMethod` or `UnknownInterface` treats the service as too
 old and asks the user to update it. A `Set` that changes `summaries.local_model` or `summaries.cloud_model` checks the
-value against the same list when it is available (`FIELD_INVALID` for a model that is not listed or not supported); an
-unavailable list never blocks a save.
+value against the last good `ListModels` result of that scope (kept 10 minutes; `FIELD_INVALID` for a model that is not
+listed or not supported). `Set` never fetches a list (it holds its lock): without a fresh one the save is accepted.
 
 Example calls (documentation only, run them against your own session bus; `Set` changes your real settings):
 
