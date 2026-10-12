@@ -120,7 +120,7 @@ case "$1" in
     echo "NAME                ID              SIZE      MODIFIED"
     echo "llama3.2:latest     aaaaaaaaaaaa    2.0 GB    2 days ago"
     [ "${FAKE_OLLAMA_MODE:-ok}" = missing-model ] || {
-      echo "${FAKE_OLLAMA_MODEL:-qwen3.5:9b}     bbbbbbbbbbbb    6.6 GB    1 day ago"
+      echo "${FAKE_OLLAMA_MODEL:-qwen3:4b-instruct-2507-q4_K_M}  bbbbbbbbbbbb  2.5 GB  1 day ago"
     } ;;
   *) echo "ollama: unexpected call" >&2; exit 9 ;;
 esac
@@ -1209,7 +1209,7 @@ def _ollama_calls(sandbox: Env) -> list[str]:
 def test_install_reports_a_reachable_ollama_with_the_default_model(sandbox: Env) -> None:
     result = sandbox.run(INSTALL, **IDLE)
     assert result.returncode == 0, result.stderr
-    assert "  ollama:    reachable; model qwen3.5:9b present" in _summary(result)
+    assert "  ollama:    reachable; model qwen3:4b-instruct-2507-q4_K_M present" in _summary(result)
     assert _ollama_calls(sandbox) == ["ollama list"]  # read-only: no pull, run, serve or create
 
 
@@ -1217,8 +1217,8 @@ def test_a_missing_model_only_warns_with_the_pull_command_and_never_pulls(sandbo
     result = sandbox.run(INSTALL, FAKE_OLLAMA_MODE="missing-model", **IDLE)
     assert result.returncode == 0, result.stderr
     summary = _summary(result)
-    assert "  ollama:    reachable; model qwen3.5:9b NOT found" in summary
-    assert "ollama pull qwen3.5:9b" in summary
+    assert "  ollama:    reachable; model qwen3:4b-instruct-2507-q4_K_M NOT found" in summary
+    assert "ollama pull qwen3:4b-instruct-2507-q4_K_M" in summary
     assert _ollama_calls(sandbox) == ["ollama list"]
 
 
@@ -1238,7 +1238,7 @@ def test_an_ollama_that_is_not_installed_only_warns(sandbox: Env) -> None:
     assert result.returncode == 0, result.stderr
     summary = _summary(result)
     assert "  ollama:    NOT found" in summary
-    assert "ollama pull qwen3.5:9b" in summary
+    assert "ollama pull qwen3:4b-instruct-2507-q4_K_M" in summary
     assert _ollama_calls(sandbox) == []
 
 
