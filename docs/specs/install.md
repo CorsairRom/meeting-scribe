@@ -603,7 +603,7 @@ ADR table in `docs/README.md` and the "ADR 001-0NN" range in `AGENTS.md` are upd
 Planned only. It runs with the README task (F6.10 in `odd/tasks/meeting-scribe.md`, after F6.9) and the repository stays private until it is done.
 
 - **(a) License.** Add the `LICENSE` file (GPL-2.0-or-later) and declare it in `pyproject.toml` (`license` and the matching classifier) and, if the format allows it, in the extension `metadata.json`. The owner chose **GPL-2.0-or-later** (decided 2026-10-12, not an open question); the `LICENSE` file carries the GPL-2.0 text and the files declare "or later".
-- **(b) Author email and history.** Change the author email in `pyproject.toml` to `richard.romero@hotmail.cl`. Then rewrite the previous work email, in every commit author and committer field, out of the whole history (a history rewrite with a mailmap-based filter). This requires a force-push of `main` and of every branch; **the owner confirms right before the force-push**, and nothing is pushed without that confirmation. Open pull requests and clones have to be recreated afterwards. The repo stays private until this is done.
+- **(b) Author email.** Change the author email in `pyproject.toml` to `richard.romero@hotmail.cl`, and commit from then on with that address (repository `user.email`). **Owner decision 2026-10-12: the history is not rewritten.** GitHub keeps `refs/pull/*` for every pull request pointing at the original commits and a force-push cannot remove them, so a rewrite in this repository would not hide the previous work email; the owner accepts that it stays in the existing history.
 - **(c) Private repository references.** Remove the references to two private repositories of earlier internal projects (they were in `odd/tasks/meeting-scribe.md`, the "Accepted deviations from HANDOFF" section and the task list, and in `docs/_templates/README.md` line 4; done in F6.10), keeping the facts that still matter (for example that the templates are English and the per-domain settings convention is new here).
 
 None of these steps is performed by the F6.0 documentation task.
@@ -627,7 +627,7 @@ About 400 authored changed lines per task (advisory, counting additions plus del
 | F6.7 | Review app UI: "Speech models" group in Preferences (token field, terms link, status, Download models, progress, cancel) | `review-app/src/meeting_scribe_review/ui/preferences_dialog.py`, `ui/` | AC-19 (UI) |
 | F6.8 | Update and uninstall: idempotent re-run proof, uninstall keep-list, existing `hf auth login` still downloads | `scripts/install.sh`, `scripts/uninstall.sh`, `tests/unit/test_install_scripts.py` | AC-21, AC-22, AC-17 (login path) |
 | F6.9 | `docs/runbooks/install.md` (install, update, troubleshoot), README section "Install (humans and AI agents)", the other runbooks, `ARCHITECTURE.md`, docs gate, validation with consent on the real machine (no recording, no audio) | docs, README | docs gate, manual check of section 6 |
-| F6.10 | Prepare the repo to become public (section 11): license, author email and history rewrite, private repository references | `LICENSE`, `pyproject.toml`, `gnome-extension/.../metadata.json`, `odd/`, `docs/_templates/README.md` | owner review; the force-push needs the owner's confirmation |
+| F6.10 | Prepare the repo to become public (section 11): license, author email for future commits, private repository references | `LICENSE`, `pyproject.toml`, `gnome-extension/.../metadata.json`, `odd/`, `docs/_templates/README.md` | owner review; the force-push needs the owner's confirmation |
 
 ---
 
