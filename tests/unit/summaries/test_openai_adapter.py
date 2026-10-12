@@ -133,6 +133,7 @@ def make(
     read_timeout: float = 30.0,
     requests: list[httpx2.Request] | None = None,
     key_store: FakeKeyStore | None = None,
+    reasoning_effort: str | None = None,
 ) -> OpenAiCompatibleProvider:
     def record(request: httpx2.Request) -> httpx2.Response:
         if requests is not None:
@@ -145,6 +146,7 @@ def make(
         key_store=(key_store or FakeKeyStore()) if cloud else None,
         max_retries=max_retries,
         read_timeout_seconds=read_timeout,
+        reasoning_effort=reasoning_effort,
         http_client=httpx2.Client(transport=httpx2.MockTransport(record)),
     )
 
@@ -174,6 +176,27 @@ def test_the_request_has_the_chat_completions_shape() -> None:
     assert body["max_tokens"] == 512
     assert body["stream"] is True
     assert body["stream_options"] == {"include_usage": True}
+
+
+def test_reasoning_effort_is_sent_when_the_provider_has_it() -> None:
+    seen: list[httpx2.Request] = []
+    provider = make(
+        lambda _r: sse_response(ok_stream()), requests=seen, reasoning_effort="none"
+    )
+
+    complete(provider)
+
+    assert json.loads(seen[0].content)["reasoning_effort"] == "none"
+
+
+@pytest.mark.parametrize("cloud", [False, True])
+def test_reasoning_effort_is_not_sent_by_default(cloud: bool) -> None:
+    seen: list[httpx2.Request] = []
+    provider = make(lambda _r: sse_response(ok_stream()), cloud=cloud, requests=seen)
+
+    complete(provider)
+
+    assert "reasoning_effort" not in json.loads(seen[0].content)
 
 
 def test_the_streamed_deltas_are_assembled_with_finish_reason_and_usage() -> None:

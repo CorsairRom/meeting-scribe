@@ -376,6 +376,8 @@ def test_the_real_summary_adapters_are_built_from_the_settings_without_any_call(
     assert isinstance(adapters.keys, SecretServiceKeyStore)
     assert isinstance(adapters.local_provider, OpenAiCompatibleProvider)
     assert isinstance(adapters.cloud_provider, OpenAiCompatibleProvider)
+    assert adapters.local_provider._reasoning_effort == "none"
+    assert adapters.cloud_provider._reasoning_effort is None
 
 
 def test_the_summary_controller_gets_its_providers_and_labels_from_the_settings() -> None:

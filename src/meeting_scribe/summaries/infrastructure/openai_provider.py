@@ -12,7 +12,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 import httpx2
 import openai
@@ -41,6 +41,8 @@ from meeting_scribe.summaries.domain.request import CompletionLimits
 
 LOCAL_PLACEHOLDER_KEY = "ollama"
 """Ollama requires an API key and ignores it."""
+LOCAL_REASONING_EFFORT = "none"
+"""Turns the hidden thinking of local models off (verified on qwen3.5:9b, Ollama 0.18)."""
 TRUNCATION_MARGIN_TOKENS = 16
 CONNECT_TIMEOUT_SECONDS = 5.0
 _POLL_SECONDS = 0.05
@@ -139,6 +141,7 @@ class OpenAiCompatibleProvider:
         max_retries: int,
         read_timeout_seconds: float,
         key_store: CloudKeyStore | None = None,
+        reasoning_effort: str | None = None,
         http_client: httpx2.Client | None = None,
     ) -> None:
         self._base_url = base_url
@@ -146,6 +149,9 @@ class OpenAiCompatibleProvider:
         self._max_retries = max_retries
         self._read_timeout = read_timeout_seconds
         self._key_store = key_store
+        # Sent as ``reasoning_effort`` when set. Local thinking models (qwen3.5) otherwise spend
+        # the whole output budget on hidden reasoning and answer with nothing.
+        self._reasoning_effort = reasoning_effort
         # Local transcripts must never go through HTTP_PROXY/ALL_PROXY, so the local client ignores
         # the proxy environment (trust_env=False). The cloud client keeps it: a user proxy to
         # reach the gateway may be legitimate, and the traffic is HTTPS anyway.
@@ -234,6 +240,7 @@ class OpenAiCompatibleProvider:
                     stream=True,
                     stream_options={"include_usage": True},
                     timeout=httpx2.Timeout(read, connect=connect),
+                    **self._extra_options(),
                 )
                 started = True
                 watchdog.attach(stream)
@@ -250,6 +257,11 @@ class OpenAiCompatibleProvider:
                 kind="midstream",
             )
         return _Outcome(self._guard(completion, limits))
+
+    def _extra_options(self) -> dict[str, Any]:
+        if self._reasoning_effort is None:
+            return {}
+        return {"reasoning_effort": self._reasoning_effort}
 
     @staticmethod
     def _failed(error: Exception, failure: SummaryError, started: bool) -> _Outcome:

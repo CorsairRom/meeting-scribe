@@ -577,6 +577,10 @@ It uses the official `openai` Python client (new dependency, assumption A-5):
 - **Error mapping** (section 9) uses the client's exception classes: connection error, timeout, rate limit, status
   error with `status_code`. Messages carry the HTTP status or the exception class, never request or response bodies.
 - **Reasoning output**: only `message.content` is used; a leading `<think>...</think>` block is stripped.
+- **Reasoning effort** (provider-level option): the local provider sends `"reasoning_effort": "none"` (the `openai`
+  client's `reasoning_effort` parameter) so a thinking model such as `qwen3.5:9b` does not spend the whole output
+  budget on hidden reasoning and answer with nothing (verified on Ollama 0.18: 2048 reasoning tokens, empty content,
+  `finish_reason: length` without it; 4 s and a correct summary with it). The cloud provider does not send it.
 - **Releasing the GPU** (`OllamaModelReleaser`): after a local summary ends in any way, and when
   `SUMMARIES_UNLOAD_LOCAL_MODEL` is true, the service asks Ollama to unload the model with a native
   `POST <origin>/api/generate {"model": ..., "keep_alive": 0}` (documented by Ollama as the immediate unload; the
