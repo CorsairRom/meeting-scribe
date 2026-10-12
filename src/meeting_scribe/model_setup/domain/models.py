@@ -29,6 +29,9 @@ class CacheStatus:
         return self.whisper_cached and self.pipeline_cached
 
 
+NOT_CACHED = CacheStatus(whisper_cached=False, pipeline_cached=False)
+
+
 @dataclass(frozen=True)
 class ModelsStatus:
     """What ``GetStatus`` reports. ``token_stored`` says the keyring item exists, not its value."""

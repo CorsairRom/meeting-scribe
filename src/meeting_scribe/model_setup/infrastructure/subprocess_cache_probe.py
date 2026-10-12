@@ -11,9 +11,10 @@ import signal
 import subprocess
 from collections.abc import Mapping, Sequence
 
-from meeting_scribe.model_setup.domain.models import CacheStatus
+from meeting_scribe.model_setup.domain.models import NOT_CACHED, CacheStatus
 from meeting_scribe.model_setup.infrastructure.child_process import (
     DEFAULT_COMMAND,
+    REAP_SECONDS,
     child_environment,
     signal_group,
 )
@@ -21,9 +22,6 @@ from meeting_scribe.model_setup.infrastructure.child_process import (
 logger = logging.getLogger(__name__)
 
 __all__ = ["DEFAULT_COMMAND", "SubprocessCacheProbe"]
-
-_NOT_CACHED = CacheStatus(whisper_cached=False, pipeline_cached=False)
-_REAP_SECONDS = 5.0
 
 
 class SubprocessCacheProbe:
@@ -49,27 +47,27 @@ class SubprocessCacheProbe:
             )
         except OSError as error:
             logger.warning("Cannot start the model cache check: %s", type(error).__name__)
-            return _NOT_CACHED
+            return NOT_CACHED
         try:
             out, _ = process.communicate(timeout=self._timeout)
         except subprocess.TimeoutExpired:
             logger.warning("The model cache check did not answer within %.0f s.", self._timeout)
             signal_group(process, signal.SIGKILL)  # it only reads, there is nothing to clean up
-            process.communicate(timeout=_REAP_SECONDS)
-            return _NOT_CACHED
+            process.communicate(timeout=REAP_SECONDS)
+            return NOT_CACHED
         return _parse(out)
 
 
 def _parse(raw: bytes) -> CacheStatus:
     lines = [line for line in raw.decode("utf-8", errors="replace").splitlines() if line.strip()]
     if not lines:
-        return _NOT_CACHED
+        return NOT_CACHED
     try:
         found = json.loads(lines[-1])
     except ValueError:
-        return _NOT_CACHED
+        return NOT_CACHED
     whisper = found.get("whisper") if isinstance(found, dict) else None
     pipeline = found.get("pipeline") if isinstance(found, dict) else None
     if not (isinstance(whisper, bool) and isinstance(pipeline, bool)):
-        return _NOT_CACHED
+        return NOT_CACHED
     return CacheStatus(whisper_cached=whisper, pipeline_cached=pipeline)

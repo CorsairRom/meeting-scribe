@@ -21,7 +21,7 @@ def _probe(tmp_path: Path, timeout: float = 20.0, **env: str) -> SubprocessCache
     )
 
 
-def test_the_default_command_is_the_check_option_of_the_cli_module() -> None:
+def test_the_default_command_is_the_prefetch_models_command_of_the_cli_module() -> None:
     assert (sys.executable, "-m", "meeting_scribe.cli", "prefetch-models") == DEFAULT_COMMAND
 
 

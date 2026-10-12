@@ -8,6 +8,7 @@ import types
 import pytest
 
 from meeting_scribe.prefetch import check_models, prefetch_models
+from tests.unit.hf_fakes import make_snapshot
 
 WHISPER = "large-v3-turbo"
 PIPELINE = "pyannote/speaker-diarization-community-1"
@@ -201,6 +202,13 @@ def test_the_pyannote_fetch_fails_when_the_library_returns_nothing(
 
 # -- F6.4: the token on stdin, the progress lines and the offline check --------------------------
 
+WHISPER_FILES = (
+    "config.json",
+    "preprocessor_config.json",
+    "model.bin",
+    "tokenizer.json",
+    "vocabulary.json",
+)
 SENTINEL = "hf_SENTINELtoken0123456789"
 
 
@@ -323,15 +331,8 @@ def test_the_whisper_backend_cache_check_is_local_only_and_needs_every_file(
         FasterWhisperBackend,
     )
 
-    repo = tmp_path / "models--x--y"
-    snapshot = repo / "snapshots" / "rev"
-    (repo / "blobs").mkdir(parents=True)
-    names = ["config.json", "preprocessor_config.json", "model.bin", "tokenizer.json"]
-    for index, name in enumerate([*names, "vocabulary.json"]):
-        blob = repo / "blobs" / f"b{index}"
-        blob.write_bytes(b"x")
-        (snapshot / name).parent.mkdir(parents=True, exist_ok=True)
-        (snapshot / name).symlink_to(blob)
+    files = dict.fromkeys(WHISPER_FILES, b"x")
+    snapshot = make_snapshot(tmp_path, files, repo="x--y")
     seen: list[tuple[str, bool]] = []
 
     def download_model(model: str, local_files_only: bool = False) -> str:
@@ -363,3 +364,23 @@ def test_the_whisper_cache_check_is_false_for_an_uncached_or_unknown_model(
     _fake_module(monkeypatch, "faster_whisper", utils=utils)
 
     assert FasterWhisperBackend().is_model_cached("large-v3-turbo") is False
+
+
+def test_a_whisper_model_without_a_preprocessor_config_is_cached(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """faster_whisper downloads ``preprocessor_config.json`` only when the repo has one."""
+    from meeting_scribe.transcription.infrastructure.faster_whisper_backend import (  # noqa: PLC0415
+        FasterWhisperBackend,
+    )
+
+    files = {name: b"x" for name in WHISPER_FILES if name != "preprocessor_config.json"}
+    snapshot = make_snapshot(tmp_path, files, repo="x--y")
+
+    def download_model(*_: object, **__: object) -> str:
+        return str(snapshot)
+
+    utils = _fake_module(monkeypatch, "faster_whisper.utils", download_model=download_model)
+    _fake_module(monkeypatch, "faster_whisper", utils=utils)
+
+    assert FasterWhisperBackend().is_model_cached("large-v3-turbo") is True

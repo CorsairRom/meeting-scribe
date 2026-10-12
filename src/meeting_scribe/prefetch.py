@@ -13,7 +13,7 @@ import json
 import re
 import sys
 from collections.abc import Callable
-from typing import TextIO
+from typing import NamedTuple, Protocol, TextIO
 
 from meeting_scribe.base.domain.errors import MeetingScribeError, ModelUnavailableError
 from meeting_scribe.speakers.infrastructure.pyannote_diarizer import map_pyannote_error
@@ -44,7 +44,7 @@ def _explain(
     error: MeetingScribeError, raw: Exception, name: str, setting: str, token: str | None
 ) -> str:
     if isinstance(error, ModelUnavailableError):
-        # The mapper's text is about the offline worker; at install time say what failed instead.
+        # The mapper's text is about the offline worker; while downloading say what failed instead.
         text = (
             f"[{error.error_code}] Could not fetch '{name}' ({type(raw).__name__}). Check the "
             f"network connection, the model name ({setting}) and the Hugging Face cache "
@@ -57,9 +57,73 @@ def _explain(
     return _scrub(text, token)
 
 
-def _emit(stream: TextIO, event: dict[str, object]) -> None:
-    print(json.dumps(event), file=stream)
-    stream.flush()  # the service reads these lines live
+class _Step(NamedTuple):
+    key: str  # ``pipeline`` or ``whisper``, as the progress events name it
+    label: str
+    name: str
+    fetch: Fetcher
+    mapper: Callable[[Exception, str], MeetingScribeError]
+    setting: str  # the setting that names the model, for the failure text
+
+
+class _Reporter(Protocol):
+    def step(self, number: int, total: int, step: _Step) -> None: ...
+
+    def ok(self) -> None: ...
+
+    def failed(self, step: _Step, error: MeetingScribeError, text: str) -> None: ...
+
+    def done(self, ready: int, total: int) -> None: ...
+
+
+class _TextReporter:
+    """Prose for a person at a terminal."""
+
+    def __init__(self, stream: TextIO) -> None:
+        self._stream = stream
+
+    def step(self, number: int, total: int, step: _Step) -> None:
+        del number, total
+        print(
+            f"==> Downloading the {step.label} '{step.name}' (skipped files are already cached)",
+            file=self._stream,
+        )
+        self._stream.flush()
+
+    def ok(self) -> None:
+        print("    ok", file=self._stream)
+
+    def failed(self, step: _Step, error: MeetingScribeError, text: str) -> None:
+        del step, error
+        print(f"    FAILED {text}", file=self._stream)
+
+    def done(self, ready: int, total: int) -> None:
+        print(f"Models ready: {ready} of {total}.", file=self._stream)
+
+
+class _JsonReporter:
+    """One JSON object per line and nothing else, for the service that runs this as a child."""
+
+    def __init__(self, stream: TextIO) -> None:
+        self._stream = stream
+
+    def _emit(self, event: dict[str, object]) -> None:
+        print(json.dumps(event), file=self._stream)
+        self._stream.flush()  # the service reads these lines live
+
+    def step(self, number: int, total: int, step: _Step) -> None:
+        self._emit({"event": "step", "model": step.key, "step": number, "total_steps": total})
+
+    def ok(self) -> None:
+        pass
+
+    def failed(self, step: _Step, error: MeetingScribeError, text: str) -> None:
+        self._emit(
+            {"event": "error", "model": step.key, "error_code": error.error_code, "message": text}
+        )
+
+    def done(self, ready: int, total: int) -> None:
+        self._emit({"event": "finished", "ready": ready == total})
 
 
 def prefetch_models(
@@ -79,10 +143,10 @@ def prefetch_models(
     each model, an ``error`` event per failure (code and scrubbed text), a final ``finished``.
     """
     stream = out or sys.stdout
-    ready = 0
+    report: _Reporter = _JsonReporter(stream) if progress_json else _TextReporter(stream)
     # The gated pipeline goes first: a missing login fails in seconds, not after 1.6 GB.
     steps = (
-        (
+        _Step(
             "pipeline",
             "diarization pipeline",
             pipeline,
@@ -90,7 +154,7 @@ def prefetch_models(
             map_pyannote_error,
             "SPEAKERS_PIPELINE",
         ),
-        (
+        _Step(
             "whisper",
             "Whisper model",
             whisper_model,
@@ -99,42 +163,18 @@ def prefetch_models(
             "TRANSCRIPTION_MODEL",
         ),
     )
-    for number, (key, label, name, fetch, mapper, setting) in enumerate(steps, start=1):
-        if progress_json:
-            _emit(
-                stream, {"event": "step", "model": key, "step": number, "total_steps": len(steps)}
-            )
-        else:
-            print(
-                f"==> Downloading the {label} '{name}' (skipped files are already cached)",
-                file=stream,
-            )
-            stream.flush()
+    ready = 0
+    for number, step in enumerate(steps, start=1):
+        report.step(number, len(steps), step)
         try:
-            fetch(name)
+            step.fetch(step.name)
         except Exception as error:
-            mapped = mapper(error, name)
-            text = _explain(mapped, error, name, setting, token)
-            if progress_json:
-                _emit(
-                    stream,
-                    {
-                        "event": "error",
-                        "model": key,
-                        "error_code": mapped.error_code,
-                        "message": text,
-                    },
-                )
-            else:
-                print(f"    FAILED {text}", file=stream)
+            mapped = step.mapper(error, step.name)
+            report.failed(step, mapped, _explain(mapped, error, step.name, step.setting, token))
         else:
-            if not progress_json:
-                print("    ok", file=stream)
+            report.ok()
             ready += 1
-    if progress_json:
-        _emit(stream, {"event": "finished", "ready": ready == len(steps)})
-    else:
-        print(f"Models ready: {ready} of {len(steps)}.", file=stream)
+    report.done(ready, len(steps))
     return 0 if ready == len(steps) else 1
 
 

@@ -44,12 +44,17 @@ class FakeTokenSource:
 class FakeCacheProbe:
     """Answers from a script: each ``check`` pops the next status (the last one repeats)."""
 
-    def __init__(self, *statuses: CacheStatus) -> None:
+    def __init__(self, *statuses: CacheStatus, gate: threading.Event | None = None) -> None:
         self._statuses = list(statuses) or [CacheStatus(False, False)]
+        self.gate = gate  # holds ``check`` until the test releases it (a slow probe)
+        self.entered = threading.Event()
         self.calls = 0
 
     def check(self) -> CacheStatus:
         self.calls += 1
+        self.entered.set()
+        if self.gate is not None:
+            assert self.gate.wait(10), "the slow probe was never released"
         if len(self._statuses) > 1:
             return self._statuses.pop(0)
         return self._statuses[0]
@@ -64,7 +69,9 @@ class FakeRunner:
         steps: tuple[tuple[str, int, int], ...] = (("pipeline", 1, 2), ("whisper", 2, 2)),
         failure: MeetingScribeError | None = None,
         gate: threading.Event | None = None,
+        ignore_cancel: bool = False,
     ) -> None:
+        self.ignore_cancel = ignore_cancel  # finishes as a success even when cancelled (a race)
         self.steps = steps
         self.failure = failure
         self.gate = gate
@@ -86,10 +93,10 @@ class FakeRunner:
             on_progress(model, step, total)
         if self.gate is not None:
             while not self.gate.is_set():
-                if cancel.is_set():
+                if cancel.is_set() and not self.ignore_cancel:
                     return Failure(ModelsDownloadCancelledError("The download was cancelled."))
                 self.gate.wait(0.01)
-        if cancel.is_set():
+        if cancel.is_set() and not self.ignore_cancel:
             return Failure(ModelsDownloadCancelledError("The download was cancelled."))
         return Failure(self.failure) if self.failure else Success(None)
 

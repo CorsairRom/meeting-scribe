@@ -61,5 +61,9 @@ elif mode == "noise":
 elif mode == "leaky_stderr":
     print(f"boom {stdin_line} and hf_AnotherShapedToken99", file=sys.stderr, flush=True)
     sys.exit(2)
+elif mode == "straddle":
+    # One line whose last 1000 characters begin inside the token (token is 26 characters long).
+    print("a" * 5 + str(stdin_line) + "b" * 984, file=sys.stderr, flush=True)
+    sys.exit(2)
 elif mode == "hang":
     time.sleep(120)

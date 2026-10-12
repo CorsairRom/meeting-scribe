@@ -46,6 +46,7 @@ __all__ = ["DEFAULT_COMMAND", "SubprocessDownloadRunner"]
 
 _POLL_SECONDS = 0.05
 _STDERR_TAIL_CHARS = 1000
+_STDERR_TAIL_LINES = 50
 
 
 class _Seen:
@@ -83,10 +84,10 @@ class SubprocessDownloadRunner:
             return spawned
         process = spawned.unwrap()
         lines: queue.Queue[str | None] = queue.Queue()
-        tail: collections.deque[str] = collections.deque(maxlen=_STDERR_TAIL_CHARS)
+        tail: collections.deque[str] = collections.deque(maxlen=_STDERR_TAIL_LINES)
         readers = (
             threading.Thread(target=_read_lines, args=(process.stdout, lines), daemon=True),
-            threading.Thread(target=_read_tail, args=(process.stderr, tail), daemon=True),
+            threading.Thread(target=_read_tail, args=(process.stderr, tail, secret), daemon=True),
         )
         for reader in readers:
             reader.start()
@@ -99,7 +100,7 @@ class SubprocessDownloadRunner:
             for reader in readers:
                 reader.join(timeout=1.0)
         if isinstance(outcome, Failure):
-            _log_tail(tail, secret)
+            _log_tail(tail)
         return outcome
 
     def _spawn(self, secret: str | None) -> Result[subprocess.Popen[bytes], MeetingScribeError]:
@@ -219,14 +220,29 @@ def _read_lines(stream: IO[bytes] | None, lines: "queue.Queue[str | None]") -> N
         lines.put(None)
 
 
-def _read_tail(stream: IO[bytes] | None, tail: "collections.deque[str]") -> None:
+def _read_tail(
+    stream: IO[bytes] | None, tail: "collections.deque[str]", secret: str | None
+) -> None:
+    """Keep the last stderr lines, each scrubbed as it arrives.
+
+    Scrubbing happens per whole line, before any truncation, so a token can never be cut in two
+    and have its tail escape the scrub. The pipe is drained so the child never blocks on it.
+    """
     if stream is None:
         return
-    for raw in stream:  # drained so the child never blocks on a full pipe
-        tail.extend(raw.decode("utf-8", errors="replace"))
+    for raw in stream:
+        tail.append(scrub(raw.decode("utf-8", errors="replace"), secret))
 
 
-def _log_tail(tail: "collections.deque[str]", secret: str | None) -> None:
-    text = scrub("".join(tail).strip(), secret)
+def _log_tail(tail: "collections.deque[str]") -> None:
+    """Log the end of the (already scrubbed) output, cut on a line boundary."""
+    kept: list[str] = []
+    size = 0
+    for line in reversed(tail):
+        if kept and size + len(line) > _STDERR_TAIL_CHARS:
+            break
+        kept.append(line)
+        size += len(line)
+    text = "".join(reversed(kept)).strip()[-_STDERR_TAIL_CHARS:]
     if text:
         logger.warning("Download process output (scrubbed): %s", text)

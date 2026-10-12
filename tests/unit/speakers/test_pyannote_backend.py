@@ -10,6 +10,7 @@ from meeting_scribe.speakers.infrastructure.pyannote_backend import (
     TELEMETRY_VARIABLE,
     RealPyannoteBackend,
 )
+from tests.unit.hf_fakes import make_snapshot
 
 SRC = Path(__file__).resolve().parents[3] / "src"
 
@@ -110,17 +111,7 @@ def test_fetch_pipeline_without_a_token_uses_the_ambient_login(
 
 
 def _snapshot(root: Path, files: dict[str, bytes]) -> Path:
-    """A fake hub snapshot: ``blobs`` holds the content, ``snapshots/<rev>`` links to it."""
-    repo = root / "models--fake--pipeline"
-    snapshot = repo / "snapshots" / "rev1"
-    (repo / "blobs").mkdir(parents=True)
-    for index, (name, content) in enumerate(files.items()):
-        blob = repo / "blobs" / f"blob{index}"
-        blob.write_bytes(content)
-        target = snapshot / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.symlink_to(blob)
-    return snapshot
+    return make_snapshot(root, files)
 
 
 def _fake_hub(monkeypatch: pytest.MonkeyPatch, result: object) -> list[dict[str, object]]:

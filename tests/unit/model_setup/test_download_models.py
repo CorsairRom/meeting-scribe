@@ -1,6 +1,7 @@
 """``ModelSetupController``: status, download, cancel and the token rules (AC-17, AC-18)."""
 
 import threading
+import time
 
 import pytest
 from returns.result import Failure, Success
@@ -292,3 +293,62 @@ def test_shutdown_with_nothing_running_is_true() -> None:
     controller, *_ = _controller()
 
     assert controller.shutdown(1) is True
+
+
+# -- review fixes: single-flight probe, cancel during the probe -------------------------------
+
+
+def test_concurrent_status_calls_share_one_cache_probe() -> None:
+    gate = threading.Event()
+    probe = FakeCacheProbe(NONE, gate=gate)
+    controller, *_ = _controller(probe=probe)
+    answers: list[str] = []
+    threads = [
+        threading.Thread(target=lambda: answers.append(controller.status().state)) for _ in range(5)
+    ]
+
+    for thread in threads:
+        thread.start()
+    assert probe.entered.wait(5)
+    time.sleep(0.2)  # let the other callers reach the flight
+    gate.set()
+    for thread in threads:
+        thread.join(5)
+
+    assert probe.calls == 1  # no extra `prefetch-models --check` child
+    assert answers == ["PENDING"] * 5
+
+
+def test_a_cancel_while_the_fresh_check_runs_is_false_and_the_download_goes_on() -> None:
+    gate = threading.Event()
+    probe = FakeCacheProbe(NONE, BOTH, gate=gate)
+    controller, events, runner, _, _ = _controller(probe=probe)
+    replies: list[object] = []
+    caller = threading.Thread(target=lambda: replies.append(controller.download()))
+    caller.start()
+    assert probe.entered.wait(5)
+
+    cancelled = controller.cancel()  # Download has not replied: there is nothing to cancel yet
+
+    gate.set()
+    caller.join(5)
+    events.wait_finished()
+    assert cancelled is False
+    assert replies == [Success("DOWNLOADING")]
+    assert events.events[-1] == ("finished", ("READY", ""))
+    assert len(runner.runs) == 1
+
+
+def test_a_true_cancel_always_ends_with_cancelled_even_when_the_models_turn_out_cached() -> None:
+    gate = threading.Event()
+    controller, events, runner, _, _ = _controller(
+        FakeRunner(gate=gate, ignore_cancel=True), probe=FakeCacheProbe(NONE, BOTH)
+    )
+    controller.download()
+    assert runner.started.wait(5)
+
+    assert controller.cancel() is True  # the child finishes anyway, and the check says both cached
+    gate.set()
+
+    events.wait_finished()
+    assert events.events[-1] == ("finished", ("CANCELLED", ""))

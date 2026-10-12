@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -156,10 +157,22 @@ def test_a_cancel_set_before_the_start_never_spawns_the_child(tmp_path: Path) ->
     assert not (tmp_path / "report.json").exists()
 
 
-def test_the_child_is_gone_after_a_timeout(tmp_path: Path) -> None:
-    _run(_runner(tmp_path, "hang"), SENTINEL, timeout=0.3)
-
+def test_the_child_is_gone_after_a_cancel(tmp_path: Path) -> None:
+    cancel = threading.Event()
+    done = threading.Thread(target=_run, args=(_runner(tmp_path, "hang"), SENTINEL, 60.0, cancel))
+    done.start()
+    report = tmp_path / "report.json"
+    deadline = time.monotonic() + 10
+    while not (report.exists() and report.stat().st_size) and time.monotonic() < deadline:
+        time.sleep(0.02)  # bounded wait: the child writes its pid before it hangs
+    assert report.exists(), "the child never wrote its report"
+    time.sleep(0.1)
     pid = _report(tmp_path)["pid"]
+
+    cancel.set()
+    done.join(10)
+
+    assert not done.is_alive()
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)  # reaped: the runner waited for it
 
@@ -190,3 +203,16 @@ def test_a_token_never_appears_in_any_error_message(tmp_path: Path) -> None:
 
         assert SENTINEL not in str(result.failure())
         assert SENTINEL not in repr(result)
+
+
+def test_a_token_straddling_the_logged_tail_is_never_logged_even_in_part(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    assert len(SENTINEL) == 26  # the child's line is laid out for this length
+    with caplog.at_level(logging.DEBUG):
+        result, _ = _run(_runner(tmp_path, "straddle"), SENTINEL)
+
+    assert isinstance(result, Failure)
+    for start in range(len(SENTINEL) - 5):
+        assert SENTINEL[start : start + 6] not in caplog.text  # no 6-character piece survives
+    assert "hf_***" in caplog.text

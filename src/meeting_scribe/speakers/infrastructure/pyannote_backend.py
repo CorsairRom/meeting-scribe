@@ -38,8 +38,9 @@ class RealPyannoteBackend:
         import torch  # noqa: PLC0415 - lazy by design
         from pyannote.audio import Pipeline  # noqa: PLC0415 - lazy by design
 
-        # token=None: processing is offline and needs no login. The cached files load as they are;
-        # the loader never reads a stored token (AC-15).
+        # token=None: processing is offline and needs no login. On its own ``None`` means the
+        # library's implicit lookup (HF_TOKEN or the stored file); the worker environment sets
+        # HF_HUB_DISABLE_IMPLICIT_TOKEN=1, so no token is ever used here (AC-15, ADR-011).
         loaded = Pipeline.from_pretrained(pipeline, token=None)
         if loaded is None:
             raise RuntimeError(f"Pipeline '{pipeline}' could not be loaded")

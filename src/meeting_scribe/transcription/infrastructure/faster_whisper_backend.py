@@ -13,14 +13,9 @@ from meeting_scribe.transcription.infrastructure.cuda_preload import preload_cud
 from meeting_scribe.transcription.infrastructure.faster_whisper_transcriber import ModelLike
 
 _ENGINES = ("faster-whisper", "ctranslate2")
-_REQUIRED_FILES = (
-    "config.json",
-    "preprocessor_config.json",
-    "model.bin",
-    "tokenizer.json",
-    "vocabulary.*",
-)
-"""What ``faster_whisper.utils.download_model`` fetches; all of it is needed to load offline."""
+_REQUIRED_FILES = ("config.json", "model.bin", "tokenizer.json", "vocabulary.*")
+"""What loading needs. ``download_model`` also allows ``preprocessor_config.json``, but only
+fetches it when the repository has one, so it is not required here."""
 
 
 class FasterWhisperBackend:
@@ -39,7 +34,7 @@ class FasterWhisperBackend:
         return WhisperModel(model, device=device, compute_type=compute_type)
 
     def download_model(self, model: str) -> None:
-        """Fetch the model into the Hugging Face cache (install time; the worker runs offline)."""
+        """Fetch the model into the Hugging Face cache (download time; the worker runs offline)."""
         from faster_whisper.utils import download_model  # noqa: PLC0415 - lazy by design
 
         download_model(model)

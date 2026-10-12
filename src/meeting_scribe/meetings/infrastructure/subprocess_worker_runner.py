@@ -51,6 +51,9 @@ _CHILD_ENV = {
     "PYANNOTE_METRICS_ENABLED": "false",
     # Models are downloaded by ``make install`` (OQ-7); processing never touches the network.
     "HF_HUB_OFFLINE": "1",
+    # Processing is token-free (ADR-011): ``token=None`` must not fall back to HF_TOKEN or the
+    # stored login file.
+    "HF_HUB_DISABLE_IMPLICIT_TOKEN": "1",
 }
 
 type _OnEvent = Callable[[ProgressOrNotice], Result[None, MeetingScribeError]]

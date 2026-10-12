@@ -19,6 +19,7 @@ from meeting_scribe.model_setup.domain.errors import (
     ModelsDownloadFailedError,
 )
 from meeting_scribe.model_setup.domain.models import (
+    NOT_CACHED,
     TOTAL_STEPS,
     CacheStatus,
     DownloadState,
@@ -35,7 +36,13 @@ from meeting_scribe.model_setup.domain.ports import (
 
 logger = logging.getLogger(__name__)
 
-_NOT_CACHED = CacheStatus(whisper_cached=False, pipeline_cached=False)
+
+class _Flight:
+    """One cache probe in progress; the callers that arrive meanwhile wait for its answer."""
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.result = NOT_CACHED
 
 
 class ModelSetupController:
@@ -55,6 +62,8 @@ class ModelSetupController:
         self._observers: tuple[DownloadEvents, ...] = ()
         self._cache: CacheStatus | None = None  # remembered until a download ends
         self._active = False
+        self._started = False  # the job is announced: only then is there something to cancel
+        self._flight: _Flight | None = None
         self._cancel = threading.Event()
         self._thread: threading.Thread | None = None
         self._step = 0
@@ -76,10 +85,10 @@ class ModelSetupController:
         with self._lock:
             active, cache = self._active, self._cache
         if cache is None and not active:
-            cache = self._probe_and_remember()
+            cache = self._single_flight_probe()
         stored = self._tokens.token_stored()
         with self._lock:
-            return self._status(cache or _NOT_CACHED, stored)
+            return self._status(cache or NOT_CACHED, stored)
 
     def download(self) -> Result[str, MeetingScribeError]:
         """``DOWNLOADING`` once the job started; ``READY`` when nothing is missing (nothing runs).
@@ -92,6 +101,7 @@ class ModelSetupController:
             if self._active:
                 return Failure(ModelsDownloadActiveError("A download is already running."))
             self._active = True
+            self._started = False
             self._cancel = threading.Event()
             cancel = self._cancel
         cache = self._probe_and_remember()
@@ -102,6 +112,7 @@ class ModelSetupController:
         with self._lock:
             self._failure_code = ""
             self._step, self._total = 0, TOTAL_STEPS
+            self._started = True
             self._thread = threading.Thread(
                 target=self._job, args=(cancel,), name="model-download", daemon=True
             )
@@ -111,9 +122,13 @@ class ModelSetupController:
         return Success("DOWNLOADING")
 
     def cancel(self) -> bool:
-        """True when a download was running; the outcome arrives as ``finished(CANCELLED, "")``."""
+        """True when a download was running; the outcome arrives as ``finished(CANCELLED, "")``.
+
+        False until ``download`` has decided to run (it checks the cache first and has not replied
+        yet): there is nothing to cancel then, and a true answer always ends as ``CANCELLED``.
+        """
         with self._lock:
-            if not self._active:
+            if not (self._active and self._started):
                 return False
             self._cancel.set()
             return True
@@ -152,6 +167,9 @@ class ModelSetupController:
                 return "CANCELLED", ""
             return self._failed(self._policy.code_for(error))
         cache = self._probe_and_remember()  # nothing partial is ever reported as ready
+        if cancel.is_set():  # a true CancelDownload always ends as CANCELLED, even if it lost
+            self._forget_cache()
+            return "CANCELLED", ""
         if cache.ready:
             return "READY", ""
         return "FAILED", ModelsDownloadFailedError.error_code
@@ -181,10 +199,30 @@ class ModelSetupController:
             cache = self._probe.check()
         except Exception:  # the contract says never; a failed probe means "not cached"
             logger.warning("The model cache check failed.", exc_info=True)
-            cache = _NOT_CACHED
+            cache = NOT_CACHED
         with self._lock:
             self._cache = cache
         return cache
+
+    def _single_flight_probe(self) -> CacheStatus:
+        """The remembered cache, probing at most once at a time however many callers ask."""
+        with self._lock:
+            if self._cache is not None:
+                return self._cache
+            flight = self._flight
+            leader = flight is None
+            if flight is None:
+                flight = self._flight = _Flight()
+        if not leader:
+            flight.done.wait()
+            return flight.result
+        try:
+            flight.result = self._probe_and_remember()
+        finally:
+            with self._lock:
+                self._flight = None
+            flight.done.set()
+        return flight.result
 
     def _forget_cache(self) -> None:
         with self._lock:

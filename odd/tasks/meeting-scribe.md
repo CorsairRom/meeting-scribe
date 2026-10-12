@@ -645,9 +645,8 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
       Evidence: RED = 15 failed plus 2 collection errors across `test_prefetch.py`, `test_cli.py`, `test_pyannote_backend.py`,
       `test_pyannote_diarizer.py`, `test_faster_whisper_transcriber.py`, `test_hf_cache.py` (no `check_models`, no `hf_cache`, loader still
       `token=True`, old error texts); GREEN = `make check` 2078 python passed, packaging 1 passed, gjs 163 passed, lint and import contracts clean. Offline proof:
-      `uv run pytest -m gpu -s tests/gpu/test_offline_cached_load.py` passed on the real cached pipeline with `HF_TOKEN` unset,
-      `HF_HUB_OFFLINE=1`, `HF_HUB_DISABLE_IMPLICIT_TOKEN=1` and `HF_TOKEN_PATH` redirected to a missing file (the token file was not
-      read). Commit `9bf7cdf` `feat(speakers): load cached models without a token and fetch with one on stdin` (about 1,000 changed lines with tests and docs).
+      `uv run pytest -m gpu -s tests/gpu/test_offline_cached_load.py` passed: the offline load of the real cached pipeline succeeded with no token sources (`HF_TOKEN` unset,
+      `HF_HUB_OFFLINE=1`, `HF_HUB_DISABLE_IMPLICIT_TOKEN=1`, `HF_TOKEN_PATH` redirected to a missing file). Commit `9bf7cdf` `feat(speakers): load cached models without a token and fetch with one on stdin` (about 1,000 changed lines with tests and docs).
 - [x] F6.5 `model_setup` domain and `dev.meetingscribe.Models1` (status, download, cancel, progress, finished), keyring
       reader moved to the shared kernel, new error codes, api-contracts and catalog, e2e on a private bus.
       Evidence: RED = collection errors for every new module (`meeting_scribe.base.infrastructure.secret_service`,

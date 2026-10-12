@@ -597,10 +597,11 @@ async def _stop_downloads(models: ModelSetupController, wait_seconds: float) -> 
     return stopped
 
 
-async def _stop_background_jobs(app: Application, wait_seconds: float) -> bool:
-    """Stop the summary job and the model download (both always), bounded; True when both ended."""
+async def _stop_background_jobs(app: Application, wait_seconds: float) -> tuple[bool, bool]:
+    """Stop the summary job and the model download (both always), bounded: (summaries, downloads)
+    are each True when that one ended."""
     summaries_stopped = await _stop_summaries(app.summaries, wait_seconds)
-    return await _stop_downloads(app.models, wait_seconds) and summaries_stopped
+    return summaries_stopped, await _stop_downloads(app.models, wait_seconds)
 
 
 def _announce_to(
@@ -646,17 +647,23 @@ async def _wait_for_stop_or_disconnect(stop: asyncio.Event, bus: MessageBus) -> 
 
 
 def _exit_code(
-    disconnected: bool, stop_failed: bool, processing_stopped: bool, summaries_stopped: bool = True
+    disconnected: bool,
+    stop_failed: bool,
+    processing_stopped: bool,
+    summaries_stopped: bool = True,
+    downloads_stopped: bool = True,
 ) -> int:
     """Precedence 3, 2, 4; every cause is already logged at ERROR where it happened.
 
-    A summary job that outlived the bound counts as 4, like a stuck processing loop.
+    A summary job or a model download that outlived the bound counts as 4, like a stuck
+    processing loop.
     """
     if disconnected:
         return EXIT_BUS_DISCONNECTED
     if stop_failed:
         return EXIT_STOP_FAILED
-    return EXIT_OK if processing_stopped and summaries_stopped else EXIT_PROCESSING_STUCK
+    stopped = processing_stopped and summaries_stopped and downloads_stopped
+    return EXIT_OK if stopped else EXIT_PROCESSING_STUCK
 
 
 async def serve(
@@ -699,7 +706,7 @@ async def serve(
             return EXIT_NAME_TAKEN
         _announce_to(app, meetings, summaries, settings, models)
         processing_thread: threading.Thread | None = None
-        processing_stopped = summaries_stopped = True
+        processing_stopped = summaries_stopped = downloads_stopped = True
         disconnected = False
         try:
             processing_thread = _start_processing(app.processing, app.review)
@@ -713,7 +720,9 @@ async def serve(
                 # first: stopping the recording queues its meeting for the next start
                 outcome = await recording.shutdown()
         finally:
-            summaries_stopped = await _stop_background_jobs(app, shutdown_timeout)
+            summaries_stopped, downloads_stopped = await _stop_background_jobs(
+                app, shutdown_timeout
+            )
             if processing_thread is not None:
                 processing_stopped = await _stop_processing(
                     app.processing, processing_thread, shutdown_timeout
@@ -722,7 +731,11 @@ async def serve(
                 app.processing.shutdown()
             _stop_announcing(app, meetings, summaries, models)
         code = _exit_code(
-            disconnected, isinstance(outcome, Failure), processing_stopped, summaries_stopped
+            disconnected,
+            isinstance(outcome, Failure),
+            processing_stopped,
+            summaries_stopped,
+            downloads_stopped,
         )
         if code == EXIT_OK:
             logger.info("meeting-scribe stopped.")

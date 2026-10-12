@@ -361,6 +361,13 @@ def test_stop_summaries_reports_whether_the_job_ended_within_the_bound(
     assert any(r.levelno == logging.ERROR for r in main_records)
 
 
+def test_exit_code_four_covers_a_download_that_outlived_the_bound() -> None:
+    assert (
+        main_module._exit_code(False, False, True, True, False) == main_module.EXIT_PROCESSING_STUCK
+    )
+    assert main_module._exit_code(False, False, True, True, True) == main_module.EXIT_OK
+
+
 def test_exit_code_four_covers_a_summary_that_outlived_the_bound() -> None:
     assert main_module._exit_code(False, False, True, False) == main_module.EXIT_PROCESSING_STUCK
     assert main_module._exit_code(False, False, True, True) == main_module.EXIT_OK

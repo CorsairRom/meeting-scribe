@@ -103,10 +103,10 @@ Every code is listed in [`../architecture/error-codes-catalog.md`](../architectu
 
 ## Verify the offline, token-free load
 
-Proof that processing needs no login (only with the models already cached, never downloads, never audio):
+Proof that processing needs no token (only with the models already cached, never downloads, never audio):
 `uv run pytest -m gpu -s tests/gpu/test_offline_cached_load.py`. It loads the cached pipeline in a subprocess with
 `HF_TOKEN` unset, `HF_HUB_OFFLINE=1`, `HF_HUB_DISABLE_IMPLICIT_TOKEN=1` and `HF_TOKEN_PATH` pointing at a file that
-does not exist. The offline cache check is covered by `tests/unit/test_prefetch_check_offline.py`, which runs
+does not exist, so no token source is available and a successful load shows none is needed. The offline cache check is covered by `tests/unit/test_prefetch_check_offline.py`, which runs
 `prefetch-models --check` on a fake cache in a throwaway HOME.
 
 ## Verify
