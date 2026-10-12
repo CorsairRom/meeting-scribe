@@ -106,3 +106,10 @@ def test_the_api_key_flow_reaches_the_store_and_the_view() -> None:
     session.set_api_key()
     session.cancel_api_key()
     assert views.api_keys[-1].status.value == "idle"
+
+
+def test_a_provider_setting_change_reloads_the_summary_providers() -> None:
+    session, summaries, _views, _gateway = _open()
+    before = len(summaries.args_of("providers"))
+    session.on_settings_changed(("summaries.local_model",))
+    assert len(summaries.args_of("providers")) == before + 1

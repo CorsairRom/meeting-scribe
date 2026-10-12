@@ -97,6 +97,7 @@ class FakeProvider:
         self.on_call: Callable[[int], None] | None = None
         self.timeouts: list[float | None] = []
         self.block_until_cancelled = False
+        self.sessions: list[str | None] = []
 
     def complete(
         self,
@@ -104,8 +105,10 @@ class FakeProvider:
         limits: CompletionLimits,
         cancel: CancelSignal,
         timeout_seconds: float | None = None,
+        session_id: str | None = None,
     ) -> Result[Completion, SummaryError]:
         self.requests.append(messages)
+        self.sessions.append(session_id)
         self.timeouts.append(timeout_seconds)
         if self.block_until_cancelled:
             cancel.wait(5.0)

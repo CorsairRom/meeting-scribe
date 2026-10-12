@@ -98,6 +98,7 @@ per-application ACL outside Flatpak). The key is stored with
 
 - Affected: `SummariesSettings`, `.env.example`, `ARCHITECTURE.md` section 7, `docs/specs/summaries.md`.
 - The key is sent only in the `Authorization` header and is never logged or stored in meeting files or settings files.
+- **Session identification (2026-10-12, F5.9)**: OpenCode Go rejects requests without it (HTTP 400 `MissingSessionID`). Every cloud request carries `User-Agent: meeting-scribe/<version>`, and every chat request carries `x-opencode-session` with an opaque per-job id (a hash of a random UUID, never derived from the meeting). The requirement is a field of the provider entry in `CLOUD_PROVIDERS`. See rules-registry GO-063 and <https://opencode.ai/docs/go>.
 
 ---
 

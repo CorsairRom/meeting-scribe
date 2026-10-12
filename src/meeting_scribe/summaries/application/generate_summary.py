@@ -21,6 +21,7 @@ from meeting_scribe.summaries.domain.errors import (
     SummaryError,
     SummaryNoSpeechError,
     SummaryOutputInvalidError,
+    SummaryOutputLimitReachedError,
     SummaryTimeoutError,
 )
 from meeting_scribe.summaries.domain.fingerprint import input_fingerprint
@@ -40,6 +41,7 @@ from meeting_scribe.summaries.domain.ports import (
 from meeting_scribe.summaries.domain.prompts import PROMPT_VERSION, PromptBuilder
 from meeting_scribe.summaries.domain.renderer import SummaryText, parse_body, render_summary
 from meeting_scribe.summaries.domain.request import CompletionLimits, SummaryLine, SummaryRequest
+from meeting_scribe.summaries.domain.session import new_session_id
 
 __all__ = [
     "CloudKeyStore",
@@ -81,6 +83,7 @@ class _Run:
     on_progress: ProgressCallback | None
     deadline: float | None
     stop: threading.Event = field(default_factory=threading.Event)
+    session_id: str = field(default_factory=new_session_id)
     prompts: PromptBuilder = field(init=False)
     step: int = 0
     total: int = 1
@@ -228,7 +231,11 @@ class GenerateSummary:
                 return Failure(_timeout())
             remaining = max(remaining, MIN_CALL_SECONDS)
         completed = self._provider.complete(
-            messages, run.request.limits, _Either(run.cancel, run.stop), remaining
+            messages,
+            run.request.limits,
+            _Either(run.cancel, run.stop),
+            remaining,
+            session_id=run.session_id,
         )
         if (stopped := self._stopped(run)) is not None:
             return Failure(stopped)
@@ -269,7 +276,12 @@ class _Either:
 
 def _accepted(completion: Completion) -> Result[str, SummaryError]:
     if completion.finish_reason == "length":
-        return Failure(_too_large("The model output was cut at the token limit."))
+        return Failure(
+            SummaryOutputLimitReachedError(
+                "The model used its whole output limit before finishing the summary. "
+                "Raise SUMMARIES_MAX_OUTPUT_TOKENS or choose another model."
+            )
+        )
     if not completion.text.strip():
         return Failure(SummaryOutputInvalidError("The model returned an empty answer."))
     return Success(completion.text)

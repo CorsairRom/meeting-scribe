@@ -127,17 +127,25 @@ class OpenAiCompatibleModelLister:
         base_url: str,
         http_client: httpx2.Client | None = None,
         deadline_seconds: float = CLOUD_DEADLINE_SECONDS,
+        user_agent: str | None = None,
     ) -> None:
         self._url = f"{base_url.rstrip('/')}/models"
+        self._user_agent = user_agent
         self._deadline = deadline_seconds
         self._client = http_client or httpx2.Client(timeout=deadline_seconds)
+
+    def _headers(self, key: SecretStr) -> dict[str, str]:
+        headers = {"Authorization": f"Bearer {key.get_secret_value()}"}
+        if self._user_agent:
+            headers["User-Agent"] = self._user_agent
+        return headers
 
     def list_models(self, key: SecretStr) -> Result[list[ModelEntry], SummaryError]:
         try:
             response = _get(
                 self._client,
                 self._url,
-                {"Authorization": f"Bearer {key.get_secret_value()}"},
+                self._headers(key),
                 self._deadline,
             )
         except Exception as error:  # offline, a timeout; the message may echo the key: log the type

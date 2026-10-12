@@ -16,7 +16,7 @@ from meeting_scribe_review.core.presenters.summary import SummaryPhase, SummaryS
 class SummaryActions:
     generate: Callable[[], None]
     cancel: Callable[[], None]
-    set_key: Callable[[], None]
+    open_preferences: Callable[[], None]
     copy: Callable[[], None]
     save: Callable[[], None]
 
@@ -37,10 +37,18 @@ class SummaryView(Gtk.Box):
         self._stale = Adw.Banner(use_markup=False)
         self._generate = _button("Generate summary", actions.generate, "suggested-action")
         self._cancel = _button("Cancel", actions.cancel)
-        self._set_key = _button("Set API key…", actions.set_key, "flat")
+        self._caption = Gtk.Label(xalign=0, wrap=True)
+        self._caption.add_css_class("caption")
+        self._caption.add_css_class("dim-label")
         buttons = Gtk.Box(spacing=8)
-        for button in (self._generate, self._cancel, self._set_key):
+        for button in (self._generate, self._cancel):
             buttons.append(button)
+        self._key_hint = Gtk.Label(xalign=0, wrap=True)
+        self._open_preferences = _button("Open Preferences", actions.open_preferences, "flat")
+        key = Gtk.Box(spacing=8)
+        key.append(self._key_hint)
+        key.append(self._open_preferences)
+        self._key_row = key
         self._progress = Gtk.ProgressBar(show_text=True)
         self._message = Gtk.Label(xalign=0, wrap=True, selectable=False)
         self._source = Gtk.Label(xalign=0, wrap=True)
@@ -58,7 +66,15 @@ class SummaryView(Gtk.Box):
         self._content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, vexpand=True)
         for child in (self._source, self._title, scroller, export):
             self._content.append(child)
-        for child in (self._stale, buttons, self._progress, self._message, self._content):
+        for child in (
+            self._stale,
+            buttons,
+            self._caption,
+            key,
+            self._progress,
+            self._message,
+            self._content,
+        ):
             self.append(child)
 
     def update(self, state: SummaryState) -> None:
@@ -68,11 +84,10 @@ class SummaryView(Gtk.Box):
         self._generate.set_sensitive(state.can_generate)
         self._generate.set_visible(not hide_generate)
         self._cancel.set_visible(state.can_cancel)
-        self._set_key.set_visible(state.can_set_key)
-        if state.needs_api_key:
-            self._set_key.add_css_class("suggested-action")
-        else:
-            self._set_key.remove_css_class("suggested-action")
+        self._caption.set_label(state.provider_caption)
+        self._caption.set_visible(bool(state.provider_caption) and not hide_generate)
+        self._key_hint.set_label(state.key_hint)
+        self._key_row.set_visible(bool(state.key_hint))
         running = state.phase is SummaryPhase.RUNNING
         self._progress.set_visible(running)
         self._progress.set_text(state.progress_text)

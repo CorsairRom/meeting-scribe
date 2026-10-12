@@ -1,6 +1,7 @@
 """The OpenAI-compatible adapter against an in-process fake transport: no socket, no real key."""
 
 import json
+import re
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -17,6 +18,7 @@ from meeting_scribe.summaries.domain.errors import (
     SummaryContextTooLargeError,
     SummaryError,
     SummaryModelNotFoundError,
+    SummaryOutputLimitReachedError,
     SummaryProviderRejectedError,
     SummaryProviderUnavailableError,
     SummaryRateLimitedError,
@@ -133,6 +135,9 @@ def make(
     read_timeout: float = 30.0,
     requests: list[httpx2.Request] | None = None,
     key_store: FakeKeyStore | None = None,
+    reasoning_effort: str | None = None,
+    user_agent: str | None = None,
+    session_header: str | None = None,
 ) -> OpenAiCompatibleProvider:
     def record(request: httpx2.Request) -> httpx2.Response:
         if requests is not None:
@@ -145,6 +150,9 @@ def make(
         key_store=(key_store or FakeKeyStore()) if cloud else None,
         max_retries=max_retries,
         read_timeout_seconds=read_timeout,
+        reasoning_effort=reasoning_effort,
+        user_agent=user_agent,
+        session_header=session_header,
         http_client=httpx2.Client(transport=httpx2.MockTransport(record)),
     )
 
@@ -174,6 +182,67 @@ def test_the_request_has_the_chat_completions_shape() -> None:
     assert body["max_tokens"] == 512
     assert body["stream"] is True
     assert body["stream_options"] == {"include_usage": True}
+
+
+def test_reasoning_effort_is_sent_when_the_provider_has_it() -> None:
+    seen: list[httpx2.Request] = []
+    provider = make(lambda _r: sse_response(ok_stream()), requests=seen, reasoning_effort="none")
+
+    complete(provider)
+
+    assert json.loads(seen[0].content)["reasoning_effort"] == "none"
+
+
+@pytest.mark.parametrize("cloud", [False, True])
+def test_reasoning_effort_is_not_sent_by_default(cloud: bool) -> None:
+    seen: list[httpx2.Request] = []
+    provider = make(lambda _r: sse_response(ok_stream()), cloud=cloud, requests=seen)
+
+    complete(provider)
+
+    assert "reasoning_effort" not in json.loads(seen[0].content)
+
+
+def test_the_gateway_gets_the_client_name_and_the_job_session() -> None:
+    seen: list[httpx2.Request] = []
+    provider = make(
+        lambda _r: sse_response(ok_stream()),
+        cloud=True,
+        requests=seen,
+        user_agent="meeting-scribe/9.9",
+        session_header="x-opencode-session",
+    )
+
+    provider.complete(MESSAGES, LIMITS, Idle(), None, session_id="abc123")
+
+    headers = seen[0].headers
+    assert headers["user-agent"] == "meeting-scribe/9.9"
+    assert headers["x-opencode-session"] == "abc123"
+    assert headers["authorization"] == f"Bearer {KEY}"
+
+
+def test_a_session_header_without_a_caller_id_still_sends_an_opaque_one() -> None:
+    seen: list[httpx2.Request] = []
+    provider = make(
+        lambda _r: sse_response(ok_stream()),
+        cloud=True,
+        requests=seen,
+        session_header="x-opencode-session",
+    )
+
+    complete(provider)
+
+    assert re.fullmatch(r"[0-9a-f]{32}", seen[0].headers["x-opencode-session"])
+
+
+def test_no_session_header_is_sent_unless_the_provider_needs_one() -> None:
+    seen: list[httpx2.Request] = []
+    provider = make(lambda _r: sse_response(ok_stream()), requests=seen)
+
+    provider.complete(MESSAGES, LIMITS, Idle(), None, session_id="abc123")
+
+    assert "x-opencode-session" not in seen[0].headers
+    assert seen[0].headers["user-agent"] != "meeting-scribe/9.9"
 
 
 def test_the_streamed_deltas_are_assembled_with_finish_reason_and_usage() -> None:
@@ -408,12 +477,16 @@ def test_the_cloud_budget_is_not_a_hard_window() -> None:
 
 
 @pytest.mark.parametrize("cloud", [False, True])
-def test_an_answer_cut_at_the_output_limit_is_context_too_large(cloud: bool) -> None:
-    body = sse(chunk("cut"), chunk(finish="length"))
+@pytest.mark.parametrize("text", ["cut", None])
+def test_an_answer_cut_at_the_output_limit_is_not_a_context_problem(
+    cloud: bool, text: str | None
+) -> None:
+    body = sse(chunk(text), chunk(finish="length"))
 
     failure = complete(make(lambda _r: sse_response(body), cloud=cloud)).failure()
 
-    assert isinstance(failure, SummaryContextTooLargeError)
+    assert isinstance(failure, SummaryOutputLimitReachedError)
+    assert not isinstance(failure, SummaryContextTooLargeError)
     assert "SUMMARIES_MAX_OUTPUT_TOKENS" in str(failure)
 
 

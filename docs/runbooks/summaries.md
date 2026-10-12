@@ -80,10 +80,10 @@ The cloud is off by default. A cloud summary sends the transcript, with speaker 
 ([ADR-009](../decisions/009-cloud-summaries-through-opencode-go.md)); it happens only when you confirm it, every time.
 
 1. Store the API key in the GNOME Keyring, never in a file (BR-005):
-   [`store-cloud-api-key.md`](store-cloud-api-key.md). The review app also has a **Set API key** action once the
-   cloud is enabled; it writes to the same keyring entry.
+   [`store-cloud-api-key.md`](store-cloud-api-key.md). The Preferences window also has a **Set API key** action;
+   it writes to the same keyring entry (the Summary tab only points to Preferences when the key is missing).
 2. Choose the cloud as the provider: set `SUMMARIES_PROVIDER=cloud` (the Preferences window does the same).
-   That is the whole opt-in; the button then says "(cloud)" and asks for confirmation before it sends anything.
+   That is the whole opt-in; the caption under the button says "Cloud" and the button asks for confirmation before it sends anything.
    `SUMMARIES_CLOUD_ENABLED` no longer exists. Upgrading never switches the cloud on: a `SUMMARIES_PROVIDER=cloud` line in
    the environment or `.env` without `SUMMARIES_CLOUD_ENABLED=true` next to it (or with it `false`) keeps the provider
    local, logs one warning and locks the field in Preferences until you delete those lines; then choose Cloud in the
@@ -113,7 +113,9 @@ A finished summary appears in the Summary tab and as `summary.md` next to the me
 | Install says `model ... NOT found` | `ollama pull <model>` (the command is in the install output). The install never pulls. |
 | `SUMMARY_PROVIDER_UNAVAILABLE` | Ollama is unreachable from the service. Start it; `SUMMARIES_LOCAL_BASE_URL` must point at it. |
 | `SUMMARY_MODEL_NOT_FOUND` | The model is not in `ollama list`: pull it or fix `SUMMARIES_LOCAL_MODEL`. |
-| `SUMMARY_CONTEXT_TOO_LARGE`, or an answer cut short | Raise the Ollama context and `SUMMARIES_LOCAL_CONTEXT_TOKENS` together (above); the cut-short case also has `SUMMARIES_MAX_OUTPUT_TOKENS`. |
+| `SUMMARY_CONTEXT_TOO_LARGE` | Raise the Ollama context and `SUMMARIES_LOCAL_CONTEXT_TOKENS` together (above). |
+| `SUMMARY_OUTPUT_LIMIT_REACHED` | The model used its whole output limit, often on hidden reasoning. Raise `SUMMARIES_MAX_OUTPUT_TOKENS` or choose another model. |
+| `SUMMARY_PROVIDER_REJECTED` (HTTP 400) from the cloud | OpenCode Go rejects requests without client and session identification (`MissingSessionID`). The service sends `User-Agent: meeting-scribe/<version>` and `x-opencode-session` itself; a `SUMMARIES_CLOUD_BASE_URL` override that points at another gateway does not change that (GO-063). |
 | `SUMMARY_TIMEOUT` | The provider sent no data in time; retry, or raise `SUMMARIES_TIMEOUT_SECONDS`. A model that spills to the CPU is slow. |
 | `SUMMARY_GPU_BUSY`, `SUMMARY_BUSY` | A recording, processing or another summary holds the GPU. Wait; processing resumes by itself. |
 | `SUMMARY_CLOUD_DISABLED` | The provider is not `cloud`: set `SUMMARIES_PROVIDER=cloud` (or choose Cloud in Preferences). |

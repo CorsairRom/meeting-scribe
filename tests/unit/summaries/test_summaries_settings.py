@@ -199,3 +199,10 @@ def test_the_cloud_provider_identity_has_one_source() -> None:
     assert fields["cloud_provider"].default == DEFAULT_CLOUD_PROVIDER
     assert fields["cloud_provider_name"].default == default.name
     assert fields["cloud_base_url"].default == default.base_url
+
+
+def test_the_opencode_go_entry_requires_the_session_header() -> None:
+    entry = CLOUD_PROVIDERS["opencode-go"]
+
+    assert entry.session_header == "x-opencode-session"
+    assert SummariesSettings().cloud_session_header == "x-opencode-session"
