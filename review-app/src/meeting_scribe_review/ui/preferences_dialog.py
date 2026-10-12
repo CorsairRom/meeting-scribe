@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from meeting_scribe_review.core.errors import command_hint
+from meeting_scribe_review.core.presenters.models import ModelsState
 from meeting_scribe_review.core.presenters.preferences import (
     CLOUD_MODEL,
     CLOUD_PROVIDER,
@@ -23,6 +24,7 @@ from meeting_scribe_review.core.presenters.preferences import (
     PreferencesPhase,
     PreferencesState,
 )
+from meeting_scribe_review.ui.models_group import ModelsActions, ModelsGroup
 
 TITLE = "Preferences"
 SAVE_LABEL = "Save"
@@ -37,6 +39,7 @@ class PreferencesActions:
     refresh_models: Callable[[], None]
     set_key: Callable[[], None]
     remove_key: Callable[[], None]
+    models: ModelsActions
 
 
 def _button(label: str, handler: Callable[[], None], *, css: str = "") -> Gtk.Button:
@@ -112,6 +115,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
             )
         self._restart_group = self._group(None, self._restart_row)
         self._recordings = self._group("Recordings", self._folder)
+        self._models = ModelsGroup(actions.models)  # acts at once: not part of Save
         page = Adw.PreferencesPage()
         for group in (
             self._notice,
@@ -119,6 +123,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
             self._local_group,
             self._cloud_group,
             self._recordings,
+            self._models,
             self._restart_group,
             self._group(None, self._save),
         ):
@@ -136,6 +141,9 @@ class PreferencesDialog(Adw.PreferencesDialog):
             self._sync_chrome(state, ready=ready)
         finally:
             self._syncing = False
+
+    def update_models(self, state: ModelsState) -> None:
+        self._models.update(state)
 
     def _sync_fields(self, state: PreferencesState, *, ready: bool) -> None:
         if not state.fields:

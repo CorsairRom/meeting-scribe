@@ -1,7 +1,7 @@
 ---
 type: architecture
 status: draft
-last_updated: 2026-10-09
+last_updated: 2026-10-12
 ai_instructions:
   - "This is the system-level view. Sections marked (planned) describe decided-but-unbuilt parts; everything else reflects code that exists."
   - "If you change a contract in pyproject.toml [tool.importlinter] or a settings variable, update this file in the same commit."
@@ -46,7 +46,7 @@ flowchart LR
 
 | Element | Technology | Status |
 |---|---|---|
-| Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root serves the `Recording1` D-Bus interface (`create_app`, `serve`, `run`); more interfaces in later phases, unit file and activation installed by `make install` (F2.5) |
+| Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root serves `Recording1`, `Meetings1`, `Summaries1`, `Settings1` and `Models1` (`create_app`, `serve`, `run`); unit file and activation installed by `make install` (F2.5) |
 | GNOME extension | GJS, thin client, no ML | done (F2), [ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md) |
 | Capture | ffmpeg on PipeWire, 2-channel 30 s chunks | adapter built (F1.3) and wired in `main.py` (F1.4), [ADR-002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) |
 | Transcription | faster-whisper `large-v3-turbo`, float16, CUDA, in a short-lived worker process | built (F3.2) and wired into the service (F3.4a); [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
@@ -63,12 +63,13 @@ Source root: `src/meeting_scribe/`. Each package has `domain/`, `application/`, 
 
 | Package | Responsibility |
 |---|---|
-| `base/` | Shared kernel: `BaseEntity` (frozen, null-object support), error hierarchy with stable `error_code` (including the shared GPU errors), D-Bus error mapping, logging setup and the shared settings base |
+| `base/` | Shared kernel: `BaseEntity` (frozen, null-object support), error hierarchy with stable `error_code` (including the shared GPU errors), D-Bus error mapping, logging setup, the shared settings base, the Secret Service reader (cloud key and Hugging Face token) and the Hugging Face cache completeness check |
 | `recording/` | Start/stop capture, recording session state, PipeWire/ffmpeg adapter |
 | `transcription/` | Audio to words with timestamps (faster-whisper adapter) |
 | `speakers/` | Diarization (pyannote adapter), voice samples, rename, merge, "Me" labelling |
 | `summaries/` | `SummaryProvider` port, native Ollama adapter (local) and OpenAI-compatible adapter (OpenCode Go, cloud); see [ADR-006](docs/decisions/006-summary-provider-openai-compatible.md), [ADR-009](docs/decisions/009-cloud-summaries-through-opencode-go.md) and the [spec](docs/specs/summaries.md) |
 | `preferences/` | The few user-editable settings: the `FieldSpec` registry, the JSON settings file store, the meetings-folder check, the use cases (`PreferencesService`, `RestartService`), the systemd restarter and the `Settings1` adapter; validators are injected by the composition root ([spec](docs/specs/preferences.md)) |
+| `model_setup/` | The speech models and their download: status (cached or not, token stored), the download as a child process (`prefetch-models --token-stdin --progress-json`), cancel, the keyring token source, the offline cache probe and the `Models1` adapter; no GPU and no lease ([spec](docs/specs/install.md) sections 6 and 7, [ADR-011](docs/decisions/011-hugging-face-token-in-keyring-and-models-from-preferences.md)) |
 | `meetings/` | Meeting catalog, `MeetingRepository`, post-recording pipeline orchestration and job queue, worker protocol and subprocess runner, WAV readers |
 | `settings.py` | Root `Settings` composed of per-domain settings classes |
 | `main.py` | Composition root: `create_app(settings)`, `run()` |
@@ -141,12 +142,12 @@ Defined in `pyproject.toml` under `[tool.importlinter]` (`root_packages = ["meet
 
 | # | Name | Type | Rule |
 |---|---|---|---|
-| 1 | Domains recording, transcription, speakers and summaries are independent | independence | `recording`, `transcription`, `speakers`, `summaries` and `preferences` do not import each other |
-| 2 | Layers per package: infrastructure > application > domain | layers | In `base`, `recording`, `transcription`, `speakers`, `summaries`, `meetings`, `preferences`: `infrastructure` may import `application` may import `domain`, never the reverse |
+| 1 | Domains recording, transcription, speakers and summaries are independent | independence | `recording`, `transcription`, `speakers`, `summaries`, `preferences` and `model_setup` do not import each other |
+| 2 | Layers per package: infrastructure > application > domain | layers | In `base`, `recording`, `transcription`, `speakers`, `summaries`, `meetings`, `preferences`, `model_setup`: `infrastructure` may import `application` may import `domain`, never the reverse |
 | 3 | meetings only depends on other domains through their application layer | forbidden | `meetings` may not import `<domain>.domain` or `<domain>.infrastructure` of `recording`, `transcription`, `speakers`, `summaries` (`allow_indirect_imports = true`) |
-| 4 | Shared kernel does not depend on the domains | forbidden | `base` may not import any domain, `meetings` or `preferences` (`settings`/`main` are covered by contract 6) |
-| 5 | Domain layers do not import frameworks | forbidden | every `<package>.domain` (including `base`, `meetings` and `preferences`) may not import `pydantic_settings`, `dbus_fast`, `gi` |
-| 6 | Domain packages do not import settings or the composition root | forbidden | `base` and all domain packages (including `preferences`) may not import `meeting_scribe.main` or `meeting_scribe.settings` |
+| 4 | Shared kernel does not depend on the domains | forbidden | `base` may not import any domain, `meetings`, `preferences` or `model_setup` (`settings`/`main` are covered by contract 6) |
+| 5 | Domain layers do not import frameworks | forbidden | every `<package>.domain` (including `base`, `meetings`, `preferences` and `model_setup`) may not import `pydantic_settings`, `dbus_fast`, `gi` |
+| 6 | Domain packages do not import settings or the composition root | forbidden | `base` and all domain packages (including `preferences` and `model_setup`) may not import `meeting_scribe.main` or `meeting_scribe.settings` |
 | 7 | The service never imports ML libraries (only the two backends do, in the worker) | forbidden | no module of `meeting_scribe` may import `faster_whisper`, `ctranslate2`, `torch`, `torchaudio` or `pyannote`, except the faster-whisper backend (`faster_whisper`, `ctranslate2`) and the pyannote backend (`torch`, `pyannote`), both loaded only in the worker |
 | 8 | The service entry point never reaches the worker or its ML backends | forbidden | `meeting_scribe.main` may not import `meeting_scribe.worker` or the faster-whisper backend, directly or indirectly |
 | 9 | The app core never imports gi | forbidden | `meeting_scribe_review.core` may not import `gi` (only `ui` does, F4.5) |
@@ -156,6 +157,7 @@ Defined in `pyproject.toml` under `[tool.importlinter]` (`root_packages = ["meet
 | 13 | Summaries domain and application stay free of HTTP and settings libraries | forbidden | `summaries.domain` and `summaries.application` may not import `httpx`, `httpx2`, `openai`, `pydantic_settings` or `dbus_fast`; `openai` and `httpx2` are confined to `summaries.infrastructure` by contract 14 |
 | 14 | The openai client and httpx2 are imported only by summaries.infrastructure | forbidden | No `meeting_scribe` module may import `openai` or `httpx2`, except the adapters `summaries.infrastructure.openai_provider` and `ollama_releaser` (allowed by `ignore_imports`) |
 | 15 | Preferences application stays free of D-Bus and settings libraries | forbidden | `preferences.application` may not import `dbus_fast`, `pydantic_settings` or `gi`; the `Settings1` adapter and the file store live in `preferences.infrastructure` |
+| 16 | Model setup application stays free of D-Bus and settings libraries | forbidden | `model_setup.application` may not import `dbus_fast`, `pydantic_settings` or `gi`; the `Models1` adapter, the keyring source and the two child-process adapters live in `model_setup.infrastructure` |
 
 ---
 
@@ -200,10 +202,10 @@ Target GPU: RTX 5060 Laptop, 8 GB.
 
 ---
 
-## 6. D-Bus API (`Recording1`, `Meetings1`, `Summaries1` and `Settings1` implemented, others planned)
+## 6. D-Bus API (`Recording1`, `Meetings1`, `Summaries1`, `Settings1` and `Models1` implemented, others planned)
 
 All clients (extension, review app, e2e tests) use the session bus; there is no HTTP server ([ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md)).
-Names are proposed and renamable until F6. The contract lives in [`docs/architecture/api-contracts.md`](docs/architecture/api-contracts.md).
+Names are frozen as of F6 (owner decision 2026-10-12); a later rename needs an ADR. The contract lives in [`docs/architecture/api-contracts.md`](docs/architecture/api-contracts.md).
 
 | Item | Value |
 |---|---|
@@ -214,6 +216,7 @@ Names are proposed and renamable until F6. The contract lives in [`docs/architec
 | `dev.meetingscribe.Speakers1` | rename, merge, sample path |
 | `dev.meetingscribe.Summaries1` (implemented, F5.5) | `Providers`, `Summarize`, `CancelSummary`, `GetSummaryStatus`, `GetSummary`, `LastSummary`; property `ActiveSummaryMeetingId`; signals `SummaryProgress`, `SummaryFinished` ([spec](docs/specs/summaries.md) section 10) |
 | `dev.meetingscribe.Settings1` (implemented, F5.10) | `GetAll`, `Set` (all or nothing, per-field error rows), `Restart` (systemd, only when idle), `ListModels` (installed Ollama models, or the cloud provider's models behind the keyring key; unsupported cloud models are listed but flagged); property `RestartRequired`; signal `SettingsChanged` ([spec](docs/specs/preferences.md) section 4). The API key never crosses it |
+| `dev.meetingscribe.Models1` (implemented, F6.5) | `GetStatus`, `Download`, `CancelDownload`; property `ActiveDownload`; signals `ModelsProgress`, `ModelsFinished`. The service reads the Hugging Face token from the keyring and writes it to the download child's stdin; the token crosses no D-Bus message ([spec](docs/specs/install.md) section 7) |
 | Errors | `dev.meetingscribe.Error.<ERROR_CODE>` (see [error codes](docs/architecture/error-codes-catalog.md)) |
 | Activation | `systemd --user` unit plus D-Bus session activation file, installed by `make install` |
 
@@ -222,7 +225,7 @@ service, the same boundary as the user's files. The service runs one asyncio loo
 so D-Bus stays responsive. The review app runs on system Python ([ADR-005](docs/decisions/005-review-ui-native-gtk-app.md)).
 Tooling: `gdbus call` or `busctl --user`. E2E tests (`@pytest.mark.dbus`) start a private `dbus-daemon`, connect to its
 address explicitly and wire the controller with fakes; they never touch the user's session bus or an audio device.
-`make install` (`scripts/install.sh`) installs the service as a `uv tool` (Python 3.12, with the `ml` extra) into a fresh `${XDG_DATA_HOME:-~/.local/share}/meeting-scribe/versions/<timestamp>-<pid>/` directory, verifies it, repoints the `current` symlink the unit runs, rolls back to the previous version if the new one fails to start and prunes old versions; it renders the unit with the absolute `ExecStart`, copies the activation file, runs `systemctl --user enable --now` (restart on upgrade, never while recording), then runs `meeting-scribe prefetch-models` (entry point `meeting_scribe.cli`, kept apart from `main` so the service never reaches the ML backends) to download the Whisper model and the pyannote pipeline into the Hugging Face cache (a failure is reported in the summary and never fails the install; the worker runs with `HF_HUB_OFFLINE=1`), and packs, installs and enables the extension; `make uninstall` reverses it and never touches the meetings directory or `.env`. The service can also run in the foreground for development (`make run`, `meeting-scribe`); it exits non-zero if the bus name is already
+`./install.sh` (alias `make install`; `scripts/install.sh`) first runs the read-only preflight (`scripts/preflight.sh`, `--check` stops there; exit 10 or 11 and zero changes when a prerequisite is missing, never `sudo`, never a prompt) and then installs the service as a `uv tool` (Python 3.12, with the `ml` extra) into a fresh `${XDG_DATA_HOME:-~/.local/share}/meeting-scribe/versions/<timestamp>-<pid>/` directory, verifies it, repoints the `current` symlink the unit runs, rolls back to the previous version if the new one fails to start and prunes old versions; it renders the unit with the absolute `ExecStart`, copies the activation file, runs `systemctl --user enable --now` (restart on upgrade, never while recording), does not download the models (it only reports `models: ready (cached)` or `models: PENDING` from `meeting-scribe prefetch-models --check`; entry point `meeting_scribe.cli`, kept apart from `main` so the service never reaches the ML backends; the worker runs with `HF_HUB_OFFLINE=1`), and packs, installs and enables the extension; the models arrive afterwards, from Preferences ("Speech models": the user stores the Hugging Face token in the GNOME Keyring through libsecret and presses Download models; the service's `model_setup` domain reads the token from the keyring, writes it to the download child's standard input and serves `Models1`; with no keyring token the child uses an existing `hf auth login`). The update is `git pull` and `./install.sh` again (a new version directory, an atomic switch, the old one pruned; meetings, `settings.json`, `.env`, the keyring items and the model cache are never touched). `make uninstall` (`./uninstall.sh`) reverses the install and prints what it keeps: the meetings, `settings.json` and `.env`, the keyring items (cloud API key and Hugging Face token) and the downloaded models. Steps, exit codes and troubleshooting: [`docs/runbooks/install.md`](docs/runbooks/install.md). The service can also run in the foreground for development (`make run`, `meeting-scribe`); it exits non-zero if the bus name is already
 owned (1), stops an active recording on SIGINT/SIGTERM, exits 2 if that stop fails and 3 if the bus connection is lost
 (the recording is stopped first, so ffmpeg is never left running unreachable). Shutdown lets the crash monitor finish
 its current poll before stopping, so controller calls never overlap.
@@ -230,6 +233,8 @@ its current poll before stopping, so controller calls never overlap.
 ---
 
 ## 7. Configuration
+
+Installer-only timeout knobs (`MEETING_SCRIBE_NVIDIA_SMI_TIMEOUT`, `MEETING_SCRIBE_OLLAMA_TIMEOUT`, `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT`, `REVIEW_APP_PYTHON`) are not settings: see [`docs/runbooks/install.md`](docs/runbooks/install.md).
 
 `Settings` (root) composes per-domain classes via `Field(default_factory=...)`. All inherit the shared
 `MeetingScribeSettings` base (`extra="ignore"`, `case_sensitive=False`, utf-8) and only set their own
@@ -282,6 +287,7 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | `SPEAKERS_SAMPLE_MAX_CLIPS` | `SpeakersSettings.sample_max_clips` | `3` | Clips per speaker sample (>= 1) |
 | `SPEAKERS_SAMPLE_TARGET_SECONDS` | `SpeakersSettings.sample_target_seconds` | `15.0` | Target total sample length (> 0) |
 | `SPEAKERS_SAMPLE_MIN_CLIP_SECONDS` / `SPEAKERS_SAMPLE_MAX_CLIP_SECONDS` | `SpeakersSettings.sample_min_clip_seconds` / `sample_max_clip_seconds` | `1.5` / `6.0` | Clip length bounds (min must not exceed max) |
+| `MODEL_SETUP_DOWNLOAD_TIMEOUT_SECONDS` | `ModelSetupSettings.download_timeout_seconds` | `3600` | How long the model download child may run before the service stops it (> 0); replaces the installer's old `MEETING_SCRIBE_PREFETCH_TIMEOUT` |
 | `SUMMARIES_PROVIDER` | `SummariesSettings.provider` | `local` | Provider the "Generate summary" button uses, `local` or `cloud` (choosing `cloud` is the opt-in and also needs a key; `SUMMARIES_CLOUD_ENABLED` was removed) |
 | `SUMMARIES_LOCAL_BASE_URL` | `SummariesSettings.local_base_url` | `http://127.0.0.1:11434/v1` | Local Ollama; the host must be `127.0.0.1`, `::1` or `localhost`. Local summaries use the native API at the same origin (`/api/chat`), so the `/v1` path is ignored |
 | `SUMMARIES_LOCAL_MODEL` | `SummariesSettings.local_model` | `qwen3:4b-instruct-2507-q4_K_M` | Ollama model name; fits 100% on an 8 GB GPU at 16k |
@@ -317,5 +323,7 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | [007](docs/decisions/007-gpu-worker-subprocess.md) | GPU work in short-lived worker processes, one per GPU stage |
 | [008](docs/decisions/008-summary-sections.md) | The summary has a Decisions section |
 | [009](docs/decisions/009-cloud-summaries-through-opencode-go.md) | Cloud summaries go through OpenCode Go |
+| [010](docs/decisions/010-install-never-uses-sudo.md) | The install checks first, never uses sudo and never prompts |
+| [011](docs/decisions/011-hugging-face-token-in-keyring-and-models-from-preferences.md) | The Hugging Face token lives in the keyring; models are downloaded from Preferences |
 
 Related: [error codes](docs/architecture/error-codes-catalog.md) · [rules registry](docs/project/rules-registry.md) · [scope](docs/project/mvp-scope.md).

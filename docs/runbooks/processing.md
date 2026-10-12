@@ -1,7 +1,7 @@
 ---
 type: runbook
 status: active
-last_updated: 2026-10-09
+last_updated: 2026-10-12
 phase: F3
 verifiable_by:
   - scripts/install.sh
@@ -12,14 +12,14 @@ verifiable_by:
   - tests/unit/test_prefetch.py
 ai_instructions:
   - "Processing reads real meeting audio. An agent must NEVER open the meetings directory or run a real job on its own."
-  - "Never read or print the Hugging Face token; the login is the user's one-time manual step."
+  - "Never read or print the Hugging Face token, and never press Download models or run prefetch-models without the user's explicit go: accepting the terms and creating the token are the user's manual steps."
 ---
 
 # Set up and troubleshoot processing
 
 ## Purpose
 
-Get meetings transcribed and diarized after Stop: what to install, what `make install` downloads, what to expect on
+Get meetings transcribed and diarized after Stop: what to install, what the install needs and how the models get downloaded, what to expect on
 the first run, and what each failure code means. Design: [`../specs/processing.md`](../specs/processing.md).
 
 ## Preconditions
@@ -28,29 +28,38 @@ the first run, and what each failure code means. Design: [`../specs/processing.m
   driver is the only system part. Without it, jobs fail with `GPU_UNAVAILABLE` (never a silent CPU fallback).
 - A Hugging Face account with the community-1 terms accepted. The diarization model is **gated**:
   1. Accept the terms at <https://hf.co/pyannote/speaker-diarization-community-1> while logged in.
-  2. Log in once in a real terminal: `hf auth login` (the CLI comes with `huggingface_hub`; run it from the
-     installed environment or any environment that has it). The token is stored by Hugging Face; this program never
-     reads or prints it.
-- Network access during `make install` only. Processing itself runs offline (`HF_HUB_OFFLINE=1`).
+  2. Create a read token (Hugging Face, Settings, Access Tokens) and add it in Preferences, Speech models: it is stored in
+     the GNOME Keyring. The download uses that token when there is one and an existing `hf auth login` login otherwise
+     (no need to log in if you have a token in Preferences). This program never prints either.
+- Network access only while the models are downloaded. Processing itself runs offline (`HF_HUB_OFFLINE=1`) and needs
+  neither a token nor a login: a cached model loads without them.
 
 ## Steps
 
-1. `make install`. It installs the service with the `ml` extra (faster-whisper, torch, pyannote.audio) and then runs
-   `meeting-scribe prefetch-models` as a visible step. That command downloads into the Hugging Face cache
-   (`~/.cache/huggingface`, or `$HF_HOME`):
+1. `./install.sh` (alias `make install`; see [`install.md`](install.md)). It runs the preflight, installs the service with the `ml` extra
+   (faster-whisper, torch, pyannote.audio) and does **not** download the models: recording never needs them. The
+   models live in the Hugging Face cache (`~/.cache/huggingface`, or `$HF_HOME`):
    - the diarization pipeline `pyannote/speaker-diarization-community-1` (`SPEAKERS_PIPELINE`) with the models it names,
    - the Whisper model `large-v3-turbo` (`TRANSCRIPTION_MODEL`).
 
    Size, measured on the first real install (A-10): about 7.1 GB per installed version (torch with CUDA) and about 1.6 GB
    of models in the Hugging Face cache (`large-v3-turbo` 1.6 GB, community-1 32 MB). Later installs reuse the uv
-   cache and the Hugging Face cache.
-2. Read the summary. The `models:` line says `downloaded`, or `NOT downloaded` with the fix. A failed download never
-   fails the service install: recording works, processing does not until the models are cached. The download is
-   bounded by `MEETING_SCRIBE_PREFETCH_TIMEOUT` (a positive integer of seconds, default 3600; an invalid value warns and uses the default; the summary says when it timed out), and it is
-   skipped when the install rolled back because the new version failed to start (fix that first).
-3. If the models were not downloaded: fix the cause (login, terms, network; the download output above names it),
-   then run `make install` again. To download only the models: `meeting-scribe prefetch-models` (installed path:
-   `~/.local/share/meeting-scribe/current/bin/meeting-scribe prefetch-models`).
+   cache and the Hugging Face cache. The preflight checks the free space per filesystem (`disk.space`).
+2. Read the summary. The `models:` line says `ready (cached)`, or `PENDING: add your Hugging Face token in Preferences
+   and press Download models` (an offline check, bounded by `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT` seconds, default 30).
+   Pending is not a failure: recording works, processing does not until the models are cached.
+3. Fetch the models from Preferences: open it from the Meeting Scribe menu, then **Speech models**: **Accept the pyannote
+   terms**, paste the token, press **Download models** (steps and statuses in [`preferences.md`](preferences.md)). The
+   service runs the download itself (`dev.meetingscribe.Models1`: `GetStatus`, `Download`, `CancelDownload`, signals
+   `ModelsProgress` and `ModelsFinished`, see [`../architecture/api-contracts.md`](../architecture/api-contracts.md)) with the
+   keyring token, else your `hf auth login` login, and stops it after `MODEL_SETUP_DOWNLOAD_TIMEOUT_SECONDS`
+   (default 3600). From a terminal, `gdbus call --session --dest dev.meetingscribe.Service --object-path
+   /dev/meetingscribe/Service --method dev.meetingscribe.Models1.GetStatus` shows the status. For development,
+   `meeting-scribe prefetch-models` (installed path: `~/.local/share/meeting-scribe/current/bin/meeting-scribe
+   prefetch-models`) downloads with the ambient login (it never reads the keyring). Developer options of the same command:
+   `--check` (offline; prints `{"whisper": true, "pipeline": false}` and exits 0 only when both are cached, a partial
+   download never counts), `--token-stdin` (the token is the first line of standard input, never an argument) and
+   `--progress-json` (one JSON object per line: `step`, `error`, `finished`). The service runs it that way.
 
 ## First run
 
@@ -80,11 +89,11 @@ Unfinished meetings resume by themselves when the service starts.
 |---|---|---|
 | `GPU_UNAVAILABLE` | No usable CUDA device or driver | Fix the NVIDIA driver (`nvidia-smi`), restart the service, Reprocess. `PROCESSING_DEVICE=cpu` runs on the CPU explicitly (slow). |
 | `GPU_OUT_OF_MEMORY` | The GPU ran out of memory | Close other GPU programs and Reprocess. There is no automatic CPU retry. |
-| `DIARIZATION_MODEL_ACCESS_DENIED` | Terms not accepted or no Hugging Face login | Accept the terms at the model page, run `hf auth login`, run `make install` again, then Reprocess. Transcription is kept. |
-| `MODEL_UNAVAILABLE` | A model is not in the cache (the worker is offline) | Run `make install` again (it downloads the models), or check `TRANSCRIPTION_MODEL` / `SPEAKERS_PIPELINE`, then Reprocess. |
+| `DIARIZATION_MODEL_ACCESS_DENIED` | Terms not accepted, or no usable Hugging Face token | Accept the terms at the model page, add your token in Preferences (or run `hf auth login`), press Download models (or `meeting-scribe prefetch-models`), then Reprocess. Transcription is kept. |
+| `MODEL_UNAVAILABLE` | A model is not in the cache (the worker is offline) | Open Preferences and press Download models (or run `meeting-scribe prefetch-models`; the install only reports `models: PENDING`), or check `TRANSCRIPTION_MODEL` / `SPEAKERS_PIPELINE`, then Reprocess. |
 | `WORKER_TIMEOUT` | A worker exceeded its stage timeout | Reprocess. For very long meetings raise `PROCESSING_WORKER_TIMEOUT_FACTOR` or `PROCESSING_WORKER_MIN_TIMEOUT_SECONDS`. |
 | `WORKER_CRASHED` | A worker exited abnormally | Read the end of `processing.log` in the meeting folder (yourself, privately), then Reprocess. |
-| `WORKER_PROTOCOL_ERROR` | A worker spoke an unexpected protocol | Reinstall with `make install` (service and worker must be the same version). |
+| `WORKER_PROTOCOL_ERROR` | A worker spoke an unexpected protocol | Reinstall with `./install.sh` (service and worker must be the same version). |
 | `MEETING_AUDIO_MISSING` | The recording has no audio chunk with frames | Nothing to process; the recording itself failed. |
 | `MEETING_CORRUPT` / `MEETING_SCHEMA_UNSUPPORTED` | `meeting.json` is damaged or from a newer version | The meeting is never processed or rewritten; restore the file or upgrade the service. |
 | `MEETING_STORAGE_FAILED` | The meetings folder could not be read or written | Check disk space and permissions; the job is retried a few times and can be Reprocessed. |
@@ -92,6 +101,14 @@ Unfinished meetings resume by themselves when the service starts.
 | Service exits 4 | The processing loop did not stop at shutdown | See [`record-via-gdbus.md`](record-via-gdbus.md) troubleshooting and GO-026. |
 
 Every code is listed in [`../architecture/error-codes-catalog.md`](../architecture/error-codes-catalog.md).
+
+## Verify the offline, token-free load
+
+Proof that processing needs no token (only with the models already cached, never downloads, never audio):
+`uv run pytest -m gpu -s tests/gpu/test_offline_cached_load.py`. It loads the cached pipeline in a subprocess with
+`HF_TOKEN` unset, `HF_HUB_OFFLINE=1`, `HF_HUB_DISABLE_IMPLICIT_TOKEN=1` and `HF_TOKEN_PATH` pointing at a file that
+does not exist, so no token source is available and a successful load shows none is needed. The offline cache check is covered by `tests/unit/test_prefetch_check_offline.py`, which runs
+`prefetch-models --check` on a fake cache in a throwaway HOME.
 
 ## Verify
 

@@ -1,12 +1,14 @@
 """``meeting-scribe prefetch-models``: downloads once, with fakes only (never the network)."""
 
 import io
+import json
 import sys
 import types
 
 import pytest
 
-from meeting_scribe.prefetch import prefetch_models
+from meeting_scribe.prefetch import check_models, prefetch_models
+from tests.unit.hf_fakes import make_snapshot
 
 WHISPER = "large-v3-turbo"
 PIPELINE = "pyannote/speaker-diarization-community-1"
@@ -21,6 +23,7 @@ class Calls:
         self, whisper_error: Exception | None = None, pipeline_error: Exception | None = None
     ) -> None:
         self.order: list[str] = []
+        self.tokens: list[str | None] = []
         self.whisper_error = whisper_error
         self.pipeline_error = pipeline_error
 
@@ -29,8 +32,9 @@ class Calls:
         if self.whisper_error:
             raise self.whisper_error
 
-    def pipeline(self, pipeline: str) -> None:
+    def pipeline(self, pipeline: str, token: str | None = None) -> None:
         self.order.append(f"pipeline:{pipeline}")
+        self.tokens.append(token)
         if self.pipeline_error:
             raise self.pipeline_error
 
@@ -60,7 +64,8 @@ def test_a_gated_pipeline_says_what_to_do_and_the_other_model_is_still_fetched()
 
     assert code == 1
     assert "DIARIZATION_MODEL_ACCESS_DENIED" in text
-    assert "hf auth login" in text
+    assert "Preferences" in text
+    assert "Download models" in text
     assert f"https://hf.co/{PIPELINE}" in text
     assert f"whisper:{WHISPER}" in calls.order
     assert "1 of 2" in text
@@ -72,7 +77,7 @@ def test_a_missing_login_or_unknown_repo_is_the_same_actionable_message(name: st
     code, text = _run(Calls(pipeline_error=_hub_error(name)))
 
     assert code == 1
-    assert "hf auth login" in text
+    assert "Preferences" in text
 
 
 def test_a_network_failure_on_whisper_is_a_model_unavailable_failure() -> None:
@@ -193,3 +198,267 @@ def test_the_pyannote_fetch_fails_when_the_library_returns_nothing(
 
     with pytest.raises(RuntimeError):
         RealPyannoteBackend().fetch_pipeline("pyannote/x")
+
+
+# -- F6.4: the token on stdin, the progress lines and the offline check --------------------------
+
+WHISPER_FILES = (
+    "config.json",
+    "preprocessor_config.json",
+    "model.bin",
+    "tokenizer.json",
+    "vocabulary.json",
+)
+SENTINEL = "hf_SENTINELtoken0123456789"
+
+
+def _json_lines(text: str) -> list[dict[str, object]]:
+    return [json.loads(line) for line in text.splitlines()]
+
+
+def test_the_token_is_passed_to_the_pipeline_fetcher_only() -> None:
+    calls = Calls()
+    out = io.StringIO()
+
+    code = prefetch_models(
+        WHISPER, PIPELINE, calls.whisper, calls.pipeline, out=out, token=SENTINEL
+    )
+
+    assert code == 0
+    assert calls.tokens == [SENTINEL]
+    assert SENTINEL not in out.getvalue()
+
+
+def test_without_a_token_the_pipeline_fetcher_gets_none() -> None:
+    calls = Calls()
+
+    _run(calls)
+
+    assert calls.tokens == [None]
+
+
+def test_a_token_that_is_not_shaped_like_one_is_still_scrubbed_from_a_failure() -> None:
+    plain = "plain-secret-without-prefix"
+    calls = Calls(pipeline_error=RuntimeError(f"401 for {plain}"))
+    out = io.StringIO()
+
+    code = prefetch_models(WHISPER, PIPELINE, calls.whisper, calls.pipeline, out=out, token=plain)
+
+    assert code == 1
+    assert plain not in out.getvalue()
+
+
+def test_progress_json_prints_one_object_per_line_pipeline_first_then_whisper() -> None:
+    calls = Calls()
+    out = io.StringIO()
+
+    code = prefetch_models(
+        WHISPER, PIPELINE, calls.whisper, calls.pipeline, out=out, progress_json=True
+    )
+
+    assert code == 0
+    assert _json_lines(out.getvalue()) == [
+        {"event": "step", "model": "pipeline", "step": 1, "total_steps": 2},
+        {"event": "step", "model": "whisper", "step": 2, "total_steps": 2},
+        {"event": "finished", "ready": True},
+    ]
+
+
+def test_progress_json_reports_each_failure_with_its_code_and_never_a_token() -> None:
+    calls = Calls(pipeline_error=_hub_error("GatedRepoError", f"403 {SENTINEL} gated"))
+    out = io.StringIO()
+
+    code = prefetch_models(
+        WHISPER,
+        PIPELINE,
+        calls.whisper,
+        calls.pipeline,
+        out=out,
+        token=SENTINEL,
+        progress_json=True,
+    )
+
+    lines = _json_lines(out.getvalue())
+    assert code == 1
+    errors = [line for line in lines if line["event"] == "error"]
+    assert [(e["model"], e["error_code"]) for e in errors] == [
+        ("pipeline", "DIARIZATION_MODEL_ACCESS_DENIED")
+    ]
+    assert lines[-1] == {"event": "finished", "ready": False}
+    assert f"whisper:{WHISPER}" in calls.order  # the other model is still attempted
+    assert SENTINEL not in out.getvalue()
+
+
+def test_check_prints_one_json_line_and_exits_zero_when_both_are_cached() -> None:
+    out = io.StringIO()
+    asked: list[str] = []
+
+    def cached(name: str) -> bool:
+        asked.append(name)
+        return True
+
+    code = check_models(WHISPER, PIPELINE, cached, cached, out=out)
+
+    assert code == 0
+    assert json.loads(out.getvalue()) == {"whisper": True, "pipeline": True}
+    assert out.getvalue().count("\n") == 1
+    assert sorted(asked) == sorted([WHISPER, PIPELINE])
+
+
+def test_check_exits_one_when_a_model_is_missing() -> None:
+    out = io.StringIO()
+
+    code = check_models(WHISPER, PIPELINE, lambda _: True, lambda _: False, out=out)
+
+    assert code == 1
+    assert json.loads(out.getvalue()) == {"whisper": True, "pipeline": False}
+
+
+def test_check_treats_a_crashing_probe_as_not_cached() -> None:
+    def boom(_: str) -> bool:
+        raise RuntimeError("no hub")
+
+    out = io.StringIO()
+
+    assert check_models(WHISPER, PIPELINE, boom, boom, out=out) == 1
+    assert json.loads(out.getvalue()) == {"whisper": False, "pipeline": False}
+
+
+def test_the_whisper_backend_cache_check_is_local_only_and_needs_every_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    from meeting_scribe.transcription.infrastructure.faster_whisper_backend import (  # noqa: PLC0415
+        FasterWhisperBackend,
+    )
+
+    files = dict.fromkeys(WHISPER_FILES, b"x")
+    snapshot = make_snapshot(tmp_path, files, repo="x--y")
+    seen: list[tuple[str, bool]] = []
+
+    def download_model(model: str, local_files_only: bool = False) -> str:
+        seen.append((model, local_files_only))
+        return str(snapshot)
+
+    utils = _fake_module(monkeypatch, "faster_whisper.utils", download_model=download_model)
+    _fake_module(monkeypatch, "faster_whisper", utils=utils)
+
+    assert FasterWhisperBackend().is_model_cached("large-v3-turbo") is True
+    assert seen == [("large-v3-turbo", True)]
+
+    (snapshot / "model.bin").unlink()  # a missing weight file is not cached
+
+    assert FasterWhisperBackend().is_model_cached("large-v3-turbo") is False
+
+
+def test_the_whisper_cache_check_is_false_for_an_uncached_or_unknown_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from meeting_scribe.transcription.infrastructure.faster_whisper_backend import (  # noqa: PLC0415
+        FasterWhisperBackend,
+    )
+
+    def download_model(*_: object, **__: object) -> str:
+        raise _hub_error("LocalEntryNotFoundError")
+
+    utils = _fake_module(monkeypatch, "faster_whisper.utils", download_model=download_model)
+    _fake_module(monkeypatch, "faster_whisper", utils=utils)
+
+    assert FasterWhisperBackend().is_model_cached("large-v3-turbo") is False
+
+
+def test_a_whisper_model_without_a_preprocessor_config_is_cached(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """faster_whisper downloads ``preprocessor_config.json`` only when the repo has one."""
+    from meeting_scribe.transcription.infrastructure.faster_whisper_backend import (  # noqa: PLC0415
+        FasterWhisperBackend,
+    )
+
+    files = {name: b"x" for name in WHISPER_FILES if name != "preprocessor_config.json"}
+    snapshot = make_snapshot(tmp_path, files, repo="x--y")
+
+    def download_model(*_: object, **__: object) -> str:
+        return str(snapshot)
+
+    utils = _fake_module(monkeypatch, "faster_whisper.utils", download_model=download_model)
+    _fake_module(monkeypatch, "faster_whisper", utils=utils)
+
+    assert FasterWhisperBackend().is_model_cached("large-v3-turbo") is True
+
+
+def test_leftover_incomplete_blobs_are_discarded_only_after_both_models_succeed() -> None:
+    calls = Calls()
+    seen: list[str] = []
+
+    code = prefetch_models(
+        WHISPER,
+        PIPELINE,
+        calls.whisper,
+        calls.pipeline,
+        out=io.StringIO(),
+        discard_whisper=lambda name: seen.append(f"whisper:{name}"),
+        discard_pipeline=lambda name: seen.append(f"pipeline:{name}"),
+    )
+
+    assert code == 0
+    assert sorted(seen) == [f"pipeline:{PIPELINE}", f"whisper:{WHISPER}"]
+
+
+def test_nothing_is_discarded_when_a_model_failed() -> None:
+    calls = Calls(whisper_error=_hub_error("LocalEntryNotFoundError"))
+    seen: list[str] = []
+
+    code = prefetch_models(
+        WHISPER,
+        PIPELINE,
+        calls.whisper,
+        calls.pipeline,
+        out=io.StringIO(),
+        discard_whisper=seen.append,
+        discard_pipeline=seen.append,
+    )
+
+    assert code == 1
+    assert seen == []  # a stalled blob of a failed run is not an orphan
+
+
+def test_a_failing_discard_never_fails_the_download() -> None:
+    calls = Calls()
+
+    def boom(_: str) -> None:
+        raise OSError("read-only cache")
+
+    code = prefetch_models(
+        WHISPER,
+        PIPELINE,
+        calls.whisper,
+        calls.pipeline,
+        out=io.StringIO(),
+        discard_whisper=boom,
+        discard_pipeline=boom,
+    )
+
+    assert code == 0
+
+
+def test_the_whisper_backend_discards_the_leftovers_of_its_repo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    from meeting_scribe.transcription.infrastructure.faster_whisper_backend import (  # noqa: PLC0415
+        FasterWhisperBackend,
+    )
+
+    snapshot = make_snapshot(tmp_path, dict.fromkeys(WHISPER_FILES, b"x"), repo="x--y")
+    orphan = snapshot.parents[1] / "blobs" / "old.incomplete"
+    orphan.write_bytes(b"half")
+
+    def download_model(*_: object, **__: object) -> str:
+        return str(snapshot)
+
+    utils = _fake_module(monkeypatch, "faster_whisper.utils", download_model=download_model)
+    _fake_module(monkeypatch, "faster_whisper", utils=utils)
+
+    FasterWhisperBackend().discard_incomplete("large-v3-turbo")
+
+    assert not orphan.exists()
+    assert FasterWhisperBackend().is_model_cached("large-v3-turbo") is True

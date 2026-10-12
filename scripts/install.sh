@@ -1,30 +1,93 @@
 #!/usr/bin/env bash
 # One-command install: service (uv tool), systemd --user unit, D-Bus activation, GNOME extension.
-# Idempotent; safe to re-run to upgrade. Refuses to run while a recording is in progress, or its
-# state is unknown unless FORCE=1 (FORCE never overrides a recording).
+# Run it as ./install.sh (the root wrapper) or `make install` (alias; `make install ARGS=--check`).
+# Idempotent; safe to re-run to upgrade. It first runs the read-only preflight (scripts/preflight.sh)
+# and stops with zero changes when a prerequisite is missing; it never runs sudo and never prompts.
+# Then it refuses to run while a recording is in progress, or its state is unknown unless FORCE=1
+# (FORCE never overrides a recording).
 #
 # Every run installs into a fresh versions/<id>/ directory, verifies it, and only then repoints the
 # `current` symlink atomically, so the environment a running service was loaded from is never
 # replaced. Old versions are pruned only once the service runs the new one. If the new version
 # fails to start, `current` (or, on a migration, the unit) is restored to what worked before.
 #
-# The ML models are downloaded as a visible step AFTER the switch (OQ-7): recording never needs
-# them, so a missing network or Hugging Face login must not block installing the service. A failed
-# download is reported in the summary (the worker runs offline and says MODEL_UNAVAILABLE until a
-# later `make install` fetches them); it never fails the install. The download is bounded by
-# MEETING_SCRIBE_PREFETCH_TIMEOUT seconds (default 3600) and skipped when the install rolled back.
+# The install never downloads the ML models and never talks to the network: recording needs none of
+# them. After the switch it only runs `prefetch-models --check` (offline, bounded by
+# MEETING_SCRIBE_MODELS_CHECK_TIMEOUT seconds, default 30) and reports `models: ready (cached)` or
+# `models: PENDING`. The models arrive from the Preferences window (Download models).
 #
-# Ollama and the local summary model are only CHECKED, read-only (`ollama list`, bounded by
-# MEETING_SCRIBE_OLLAMA_TIMEOUT seconds, default 10): the install never starts Ollama, never pulls a
-# model and never sends a prompt. A gap only warns with the command to fix it.
+# Ollama and the local summary model are checked by the preflight (read-only: one GET of /api/tags):
+# the install never starts Ollama, never pulls a model and never sends a prompt. A gap stops the
+# install before any change, with the command to fix it printed.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/_common.sh
 source "$REPO_ROOT/scripts/_common.sh"
 
+# shellcheck source=scripts/preflight.sh
+source "$REPO_ROOT/scripts/preflight.sh"
+
+usage() {
+  cat <<'USAGE'
+Usage: ./install.sh [--check [--json]] [--help]   (alias: make install ARGS=--check)
+
+Installs the service, the systemd user unit, the D-Bus activation file, the review app and the
+GNOME extension. It first checks every prerequisite (read-only) and stops with zero changes when
+one is missing. It never elevates privileges and never asks anything: it prints the commands to run.
+
+  --check   Run only the preflight, change nothing, call no service.
+  --json    With --check: print one JSON document on stdout (the prose goes to stderr).
+  --help    Show this text.
+
+Environment: FORCE=1 installs over an unreadable recording state (never over a recording).
+
+Exit codes:
+  0   success: installed, or --check found nothing that blocks
+  1   an install stage failed or was refused (recording in progress, service or extension step)
+  2   usage error
+  10  blocked: at least one FIX item (a printed command fixes it)
+  11  blocked: only HUMAN items remain (only the user can resolve them)
+USAGE
+}
+
+check_only=0
+json_output=0
+for arg in "$@"; do
+  case "$arg" in
+    --check) check_only=1 ;;
+    --json) json_output=1 ;;
+    -h | --help) usage; exit 0 ;;
+    *) echo "error: unknown option: $arg" >&2; usage >&2; exit 2 ;;
+  esac
+done
+if ((json_output && !check_only)); then
+  echo "error: --json is only valid with --check" >&2
+  usage >&2
+  exit 2
+fi
+
+# The preflight comes first and is read-only: nothing below runs while a prerequisite is missing.
+preflight_run
+preflight_code="$(pf_exit_code)"
+if ((check_only)); then
+  if ((json_output)); then
+    pf_report json
+    pf_report text >&2
+  else
+    pf_report text
+  fi
+  exit "$preflight_code"
+fi
+if ((preflight_code != 0)); then
+  pf_report text
+  exit "$preflight_code"
+fi
+echo "==> Prerequisites: all present"
+pf_items_text WARN
+
 # Decide before touching anything.
-refuse_unless_safe "'make install'" unknown || exit 1
+refuse_unless_safe "'./install.sh'" unknown || exit 1
 
 # Repoints `current` atomically through a uniquely named temporary link, so a leftover link from
 # an interrupted run can never collide. $1 is the link target, relative to $INSTALL_ROOT.
@@ -190,31 +253,15 @@ elif ((legacy_tool)) && [[ -z "$rolled_back" ]]; then
   migration_note="the old uv tool is kept while the old service may still run; remove it later with: uv tool uninstall meeting-scribe"
 fi
 
-# Bounded (MEETING_SCRIBE_PREFETCH_TIMEOUT seconds, default 3600) so a stalled download cannot hang
-# the install. Skipped after a rollback: the new version failed to start, which is the real problem.
-readonly PREFETCH_TIMEOUT_DEFAULT=3600
-readonly EXIT_TIMED_OUT=124 # timeout(1): the command ran past the limit (SIGTERM)
-readonly EXIT_KILLED=137    # timeout --kill-after: SIGTERM was ignored, so it was SIGKILLed (128+9)
-prefetch_timeout="${MEETING_SCRIBE_PREFETCH_TIMEOUT:-$PREFETCH_TIMEOUT_DEFAULT}"
-if ! [[ "$prefetch_timeout" =~ ^[1-9][0-9]*$ ]]; then
-  echo "warning: MEETING_SCRIBE_PREFETCH_TIMEOUT='$prefetch_timeout' is not a positive integer of seconds; using $PREFETCH_TIMEOUT_DEFAULT." >&2
-  prefetch_timeout="$PREFETCH_TIMEOUT_DEFAULT"
-fi
-prefetch_cmd="$CURRENT_LINK/bin/meeting-scribe prefetch-models"
-models_state="downloaded (Hugging Face cache; processing runs offline)"
-models_status=ok # ok | failed | timed_out | skipped_rollback
-if [[ -n "$rolled_back" ]]; then
-  models_status=skipped_rollback
-else
-  echo "==> Downloading the speech models (Hugging Face cache; needs the network and 'hf auth login')"
-  prefetch_status=0
-  timeout --kill-after=10 "$prefetch_timeout" "$version_dir/bin/meeting-scribe" prefetch-models \
-    || prefetch_status=$?
-  case "$prefetch_status" in
-    0) ;;
-    "$EXIT_TIMED_OUT" | "$EXIT_KILLED") models_status=timed_out ;;
-    *) models_status=failed ;;
-  esac
+# Offline and bounded: never a download. The version in charge (after a rollback, the previous
+# one) answers; a missing or failing check is reported as pending, which is not a failure.
+readonly MODELS_CHECK_TIMEOUT_DEFAULT=30
+models_check_timeout="$(pf_seconds "${MEETING_SCRIBE_MODELS_CHECK_TIMEOUT:-}" "$MODELS_CHECK_TIMEOUT_DEFAULT")"
+models_ready=0
+if [[ -x "$CURRENT_LINK/bin/meeting-scribe" ]] \
+  && timeout --kill-after=5 "$models_check_timeout" "$CURRENT_LINK/bin/meeting-scribe" \
+    prefetch-models --check >/dev/null 2>&1; then
+  models_ready=1
 fi
 
 echo "==> Installing the GNOME extension"
@@ -234,68 +281,6 @@ elif ! gnome-extensions enable "$EXTENSION_UUID" 2>/dev/null \
     echo "Extension installed: log out and back in once so GNOME Shell discovers it (the service is already running)."
   else
     echo "Extension installed: log out and back in once so GNOME Shell discovers it (the service is NOT active, see the summary)."
-  fi
-fi
-
-# Read-only check of the system toolkit; a gap only warns (like the extension and the models).
-review_missing=()
-if ! "$REVIEW_APP_PYTHON" -c 'import gi' >/dev/null 2>&1; then
-  review_missing=(python3-gobject gtk4 libadwaita)
-else
-  "$REVIEW_APP_PYTHON" -c 'import gi; gi.require_version("Gtk", "4.0")' >/dev/null 2>&1 \
-    || review_missing+=(gtk4)
-  "$REVIEW_APP_PYTHON" -c 'import gi; gi.require_version("Adw", "1")' >/dev/null 2>&1 \
-    || review_missing+=(libadwaita)
-fi
-
-# The value of a `KEY=value` line: CR removed, surrounding spaces trimmed; a quoted value ends at its
-# closing quote (so a trailing comment is dropped); an unquoted one ends at a ` #` comment.
-parse_env_value() {
-  local value="${1%$'\r'}" quote
-  value="${value#"${value%%[![:space:]]*}"}"
-  case "$value" in
-    \"* | \'*)
-      quote="${value:0:1}"
-      value="${value:1}"
-      value="${value%%"$quote"*}" ;;
-    *) value="${value%%[[:space:]]\#*}" ;;
-  esac
-  value="${value%"${value##*[![:space:]]}"}"
-  printf '%s' "$value"
-}
-
-# The configured local model, with the service's precedence: SUMMARIES_LOCAL_MODEL from the environment,
-# else that one line of `.env` (nothing else in it is read), else the `summaries.local_model` entry of
-# the Preferences file `settings.json` (nothing else in it is read; a value with JSON escapes is ignored),
-# else the default. The `.env` value is parsed by `parse_env_value` (above).
-readonly OLLAMA_MODEL_DEFAULT="qwen3:4b-instruct-2507-q4_K_M"
-readonly OLLAMA_TIMEOUT_DEFAULT=10
-ollama_model="${SUMMARIES_LOCAL_MODEL:-}"
-if [[ -z "$ollama_model" && -f "$CONFIG_HOME/meeting-scribe/.env" ]]; then
-  ollama_model="$(grep -m1 '^SUMMARIES_LOCAL_MODEL=' "$CONFIG_HOME/meeting-scribe/.env" 2>/dev/null || true)"
-  ollama_model="$(parse_env_value "${ollama_model#SUMMARIES_LOCAL_MODEL=}")"
-fi
-if [[ -z "$ollama_model" && -f "$CONFIG_HOME/meeting-scribe/settings.json" ]]; then
-  ollama_model="$(grep -o '"summaries\.local_model"[[:space:]]*:[[:space:]]*"[^"\\]*"' \
-    "$CONFIG_HOME/meeting-scribe/settings.json" 2>/dev/null | head -n1 || true)"
-  ollama_model="${ollama_model#*:}"
-  ollama_model="$(printf '%s' "$ollama_model" | sed -e 's/^[[:space:]]*"//' -e 's/"$//')"
-fi
-ollama_model="${ollama_model:-$OLLAMA_MODEL_DEFAULT}"
-ollama_timeout="${MEETING_SCRIBE_OLLAMA_TIMEOUT:-$OLLAMA_TIMEOUT_DEFAULT}"
-if ! [[ "$ollama_timeout" =~ ^[1-9][0-9]*$ ]]; then ollama_timeout="$OLLAMA_TIMEOUT_DEFAULT"; fi
-ollama_status=missing # ok | missing | unreachable | no_model
-if command -v ollama >/dev/null 2>&1; then
-  if ollama_list="$(timeout --kill-after=2 "$ollama_timeout" ollama list 2>/dev/null)"; then
-    ollama_status=no_model
-    while read -r listed _; do
-      if [[ "$listed" == "$ollama_model" || "$listed" == "$ollama_model:latest" ]]; then
-        ollama_status=ok
-        break
-      fi
-    done <<<"$ollama_list"
-  else
-    ollama_status=unreachable
   fi
 fi
 
@@ -333,48 +318,14 @@ if [[ -n "$extension_failed" ]]; then
 else
   echo "  extension: $extension_state ($EXTENSION_UUID)"
 fi
-if ((${#review_missing[@]})); then
-  echo "  review app: NOT usable (missing: ${review_missing[*]}); install with: sudo dnf install ${review_missing[*]}"
-  echo "             Sample playback also needs gstreamer1-plugins-good. The extension menu item stays; re-run 'make install' to re-check."
+echo "  review app: ready ($DESKTOP_ENTRY_NAME)"
+if ((models_ready)); then
+  echo "  models:    ready (cached)"
 else
-  echo "  review app: ready ($DESKTOP_ENTRY_NAME)"
+  echo "  models:    PENDING: add your Hugging Face token in Preferences and press Download models; recording works meanwhile"
 fi
-case "$models_status" in
-  skipped_rollback)
-    echo "  models:    NOT downloaded, the install rolled back (the start failure is the real problem)."
-    echo "             Fix it, run 'make install' again, or fetch them later with: $prefetch_cmd"
-    ;;
-  timed_out)
-    echo "  models:    NOT downloaded, the download timed out after $prefetch_timeout s; recording works,"
-    echo "             processing will fail with MODEL_UNAVAILABLE. Retry with: $prefetch_cmd"
-    echo "             (MEETING_SCRIBE_PREFETCH_TIMEOUT sets the limit in seconds)."
-    ;;
-  failed)
-    echo "  models:    NOT downloaded; recording works, processing will fail with MODEL_UNAVAILABLE."
-    echo "             See the download output above for the cause (for a gated model: accept its terms"
-    echo "             and run 'hf auth login' once). Then retry with: $prefetch_cmd"
-    ;;
-  *)
-    echo "  models:    $models_state"
-    ;;
-esac
-case "$ollama_status" in
-  ok)
-    echo "  ollama:    reachable; model $ollama_model present"
-    ;;
-  no_model)
-    echo "  ollama:    reachable; model $ollama_model NOT found (summaries stay unavailable until it is pulled)"
-    echo "             Pull it with: ollama pull $ollama_model"
-    ;;
-  unreachable)
-    echo "  ollama:    found but not reachable (summaries stay unavailable; recording and processing are unaffected)"
-    echo "             Start it with: systemctl start ollama (or run: ollama serve), then re-run 'make install' to re-check."
-    ;;
-  *)
-    echo "  ollama:    NOT found (summaries stay unavailable; recording and processing are unaffected)"
-    echo "             Install it from https://ollama.com/download, then run: ollama pull $ollama_model"
-    ;;
-esac
+# This is the result of the preflight taken at the start of the run, not a new probe.
+echo "  ollama:    reachable at preflight; model $PF_OLLAMA_MODEL present"
 echo "  config:    open Preferences from the Meeting Scribe menu (saved in $CONFIG_HOME/meeting-scribe/settings.json)"
 echo "             .env in the same folder stays an optional developer override (see .env.example)"
 if ((start_failed || reload_failed)) || [[ -n "$extension_failed" ]]; then

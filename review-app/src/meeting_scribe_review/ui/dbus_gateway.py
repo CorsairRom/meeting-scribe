@@ -1,4 +1,4 @@
-"""``Gio.DBusProxy`` implementation of ``MeetingsGateway`` and ``SummariesGateway`` (spec 6).
+"""``Gio.DBusProxy`` implementation of the Meetings, Summaries, Settings and Models gateways.
 
 Each interface has its own proxy (``InterfaceProxy``); calls are asynchronous and answer on the
 GLib main loop, exactly once. Nothing here logs a name, a transcript or a summary.
@@ -15,6 +15,8 @@ from meeting_scribe_review.core.availability import AvailabilityFilter
 from meeting_scribe_review.core.constants import (
     BUS_NAME,
     MEETINGS_INTERFACE,
+    MODELS_CALL_TIMEOUT_MS,
+    MODELS_INTERFACE,
     PROPERTIES_INTERFACE,
     SETTINGS_INTERFACE,
     SUMMARIES_INTERFACE,
@@ -23,12 +25,14 @@ from meeting_scribe_review.core.errors import INVALID_REPLY, ServiceError
 from meeting_scribe_review.core.gateway import (
     Callback,
     GatewayListener,
+    ModelsListener,
     SettingsListener,
     SummaryListener,
 )
 from meeting_scribe_review.core.models import (
     MeetingSummary,
     ModelList,
+    ModelsStatus,
     ProviderRow,
     SetOutcome,
     SettingsField,
@@ -39,6 +43,7 @@ from meeting_scribe_review.core.models import (
 )
 from meeting_scribe_review.core.result import Err, Ok, Result
 from meeting_scribe_review.core.signals import (
+    dispatch_models_signal,
     dispatch_settings_signal,
     dispatch_signal,
     dispatch_summary_signal,
@@ -62,10 +67,12 @@ class DBusGateway:
         self._meetings = InterfaceProxy(bus_type, MEETINGS_INTERFACE, self._on_signal)
         self._summaries = InterfaceProxy(bus_type, SUMMARIES_INTERFACE, self._on_summary_signal)
         self._settings = InterfaceProxy(bus_type, SETTINGS_INTERFACE, self._on_settings_signal)
+        self._models = InterfaceProxy(bus_type, MODELS_INTERFACE, self._on_models_signal)
         self._properties = InterfaceProxy(bus_type, PROPERTIES_INTERFACE, lambda _n, _a: None)
         self._listeners: list[GatewayListener] = []
         self._settings_listeners: list[SettingsListener] = []
         self._summary_listeners: list[SummaryListener] = []
+        self._models_listeners: list[ModelsListener] = []
         self._availability = AvailabilityFilter()
         self._watch_id = 0
 
@@ -181,6 +188,42 @@ class DBusGateway:
         self._summary_listeners.append(listener)
         self._summaries.with_proxy(lambda _proxy: None)
 
+    def models_status(self, done: Callback[ModelsStatus]) -> None:
+        self._models.call(
+            "GetStatus",
+            "",
+            (),
+            parsers.parse_models_status,
+            done,
+            timeout_ms=MODELS_CALL_TIMEOUT_MS,
+        )
+
+    def download_models(self, done: Callback[str]) -> None:
+        self._models.call(
+            "Download",
+            "",
+            (),
+            parsers.parse_download_reply,
+            done,
+            timeout_ms=MODELS_CALL_TIMEOUT_MS,
+        )
+
+    def cancel_download(self, done: Callback[bool]) -> None:
+        self._models.call("CancelDownload", "", (), parsers.parse_cancelled, done)
+
+    def watch_models(self, listener: ModelsListener) -> None:
+        """Receive ``Models1`` signals and the bus name's availability (told at once if known)."""
+        self._models_listeners.append(listener)
+        self._watch_name()
+        self._models.with_proxy(lambda _proxy: None)
+        known = self._availability.known
+        if known is not None:  # the baseline was reported before this listener existed
+            listener.on_service_available(known)
+
+    def unwatch_models(self, listener: ModelsListener) -> None:
+        if listener in self._models_listeners:
+            self._models_listeners.remove(listener)
+
     def close(self) -> None:
         if self._watch_id:
             Gio.bus_unwatch_name(self._watch_id)
@@ -188,12 +231,19 @@ class DBusGateway:
         self._listeners.clear()
         self._summary_listeners.clear()
         self._settings_listeners.clear()
+        self._models_listeners.clear()
 
     def _announce(self, *, available: bool) -> None:
         if self._availability.changed(available=available) is None:
             return
-        for listener in [*self._listeners, *self._settings_listeners]:
+        for listener in [*self._listeners, *self._settings_listeners, *self._models_listeners]:
             listener.on_service_available(available)
+
+    def _on_models_signal(self, name: str, args: Any) -> None:
+        for listener in list(self._models_listeners):
+            if not dispatch_models_signal(listener, name, args):
+                _LOG.warning("ignored the signal %s", name)
+                return
 
     def _on_settings_signal(self, name: str, args: Any) -> None:
         for listener in list(self._settings_listeners):

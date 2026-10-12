@@ -8,63 +8,22 @@ import threading
 from typing import Annotated
 
 import pytest
-from dbus_fast import Variant
 from dbus_fast.aio import MessageBus
-from dbus_fast.annotations import DBusSignature, DBusStr
-from dbus_fast.service import ServiceInterface, dbus_method
+from dbus_fast.annotations import DBusSignature
+from dbus_fast.service import dbus_method
 from returns.result import Failure, Success
 
-from meeting_scribe.summaries.infrastructure import secret_service_store
+from meeting_scribe.base.infrastructure import secret_service
 from meeting_scribe.summaries.infrastructure.secret_service_store import SecretServiceKeyStore
+from tests.e2e.fake_secret_service import (
+    FAKE_SECRET,
+    ITEM,
+    NAME,
+    PATH,
+    FakeSecretService,
+)
 
 pytestmark = pytest.mark.dbus
-
-NAME = "org.freedesktop.secrets"
-PATH = "/org/freedesktop/secrets"
-SESSION = "/org/freedesktop/secrets/session/s1"
-ITEM = "/org/freedesktop/secrets/collection/login/1"
-FAKE_SECRET = "test-key-not-a-secret"  # noqa: S105
-
-
-class FakeSecretService(ServiceInterface):
-    def __init__(self, *, unlocked: list[str], locked: list[str], secret: bytes) -> None:
-        super().__init__("org.freedesktop.Secret.Service")
-        self._unlocked, self._locked, self._secret = unlocked, locked, secret
-        self.opened: list[str] = []
-        self.searched: list[dict[str, str]] = []
-        self.unlock_calls = 0
-
-    @dbus_method()
-    def OpenSession(  # noqa: N802
-        self,
-        algorithm: DBusStr,
-        input: Annotated[Variant, DBusSignature("v")],  # noqa: A002, ARG002
-    ) -> Annotated[tuple[Variant, str], DBusSignature("vo")]:
-        self.opened.append(algorithm)
-        return Variant("s", ""), SESSION
-
-    @dbus_method()
-    def SearchItems(  # noqa: N802
-        self, attributes: Annotated[dict[str, str], DBusSignature("a{ss}")]
-    ) -> Annotated[tuple[list[str], list[str]], DBusSignature("aoao")]:
-        self.searched.append(dict(attributes))
-        return list(self._unlocked), list(self._locked)
-
-    @dbus_method()
-    def Unlock(  # noqa: N802
-        self,
-        objects: Annotated[list[str], DBusSignature("ao")],  # noqa: ARG002
-    ) -> Annotated[tuple[list[str], str], DBusSignature("aoo")]:
-        self.unlock_calls += 1
-        return [], "/"
-
-    @dbus_method()
-    def GetSecrets(  # noqa: N802
-        self,
-        items: Annotated[list[str], DBusSignature("ao")],
-        session: Annotated[str, DBusSignature("o")],
-    ) -> Annotated[dict[str, list[object]], DBusSignature("a{o(oayays)}")]:
-        return {item: [session, b"", self._secret, "text/plain"] for item in items}
 
 
 def lookup(bus_address: str, service: FakeSecretService | None):
@@ -181,7 +140,7 @@ def test_the_failure_log_carries_no_secret(
             super().disconnect()
             raise RuntimeError(FAKE_SECRET)  # a failure after the secret was read
 
-    monkeypatch.setattr(secret_service_store, "MessageBus", FailingDisconnect)
+    monkeypatch.setattr(secret_service, "MessageBus", FailingDisconnect)
     service = FakeSecretService(unlocked=[ITEM], locked=[], secret=FAKE_SECRET.encode())
 
     result = lookup(bus_address, service)

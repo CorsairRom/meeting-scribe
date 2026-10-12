@@ -52,6 +52,7 @@ lint.ignore = [
     "S101",
     "PLR2004",
     "SLF001",
+    "S105",  # a fake secret or a text of a field named "token" is compared, never a real one
 ]
 
 # Fakes and scripted behaviours implement ports and callbacks and ignore some arguments. Listed

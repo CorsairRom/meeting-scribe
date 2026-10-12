@@ -1,16 +1,22 @@
-"""``ApiKeyStore`` on libsecret: the cloud key goes to the GNOME Keyring and nowhere else (BR-005).
+"""``ApiKeyStore`` and ``TokenStore`` on libsecret: a secret goes to the GNOME Keyring (BR-005).
 
-The item is the one ``secret-tool`` makes and the service reads (same schema name, attributes and
-label). The key never crosses the service's D-Bus API and is never logged: a failure logs a code
-only. libsecret may prompt to unlock the keyring; that is acceptable because the user just asked
-to store the key.
+One class, parametrised by the item: the cloud API key (the default) and the Hugging Face token
+(``hugging_face_token_store``). Each item is the one ``secret-tool`` makes and the service reads
+(same schema name, attributes and label). A secret never crosses the service's D-Bus API and is
+never logged: a failure logs a code only. libsecret may prompt to unlock the keyring; that is
+acceptable because the user just asked to store the secret.
 """
 
 import logging
 
 from gi.repository import Gio, GLib
 
-from meeting_scribe_review.core.constants import KEY_ATTRIBUTES, KEY_LABEL
+from meeting_scribe_review.core.constants import (
+    HF_ATTRIBUTES,
+    HF_LABEL,
+    KEY_ATTRIBUTES,
+    KEY_LABEL,
+)
 from meeting_scribe_review.core.errors import (
     KEYRING_REMOVE_FAILED,
     KEYRING_STORE_FAILED,
@@ -40,12 +46,22 @@ def _failure(error: GLib.Error, code_when_reachable: str) -> ServiceError:
     return ServiceError(KEYRING_UNAVAILABLE if unreachable else code_when_reachable)
 
 
-def _schema() -> "Secret.Schema":
-    kinds = dict.fromkeys(KEY_ATTRIBUTES, Secret.SchemaAttributeType.STRING)
-    return Secret.Schema.new(_SCHEMA_NAME, Secret.SchemaFlags.DONT_MATCH_NAME, kinds)
-
-
 class SecretKeyStore:
+    def __init__(
+        self,
+        attributes: dict[str, str] = KEY_ATTRIBUTES,
+        label: str = KEY_LABEL,
+        subject: str = "the api key",
+    ) -> None:
+        """``subject`` only words the log line; it never holds a value."""
+        self._attributes = dict(attributes)
+        self._label = label
+        self._subject = subject
+
+    def _schema(self) -> "Secret.Schema":
+        kinds = dict.fromkeys(self._attributes, Secret.SchemaAttributeType.STRING)
+        return Secret.Schema.new(_SCHEMA_NAME, Secret.SchemaFlags.DONT_MATCH_NAME, kinds)
+
     def store(self, secret: str, done: Callback[None]) -> None:
         if Secret is None:
             done(Err(ServiceError(KEYRING_UNAVAILABLE)))
@@ -56,13 +72,19 @@ class SecretKeyStore:
                 Secret.password_store_finish(result)
             except GLib.Error as error:
                 failure = _failure(error, KEYRING_STORE_FAILED)
-                _LOG.warning("storing the api key failed: %s", failure.code)
+                _LOG.warning("storing %s failed: %s", self._subject, failure.code)
                 done(Err(failure))
                 return
             done(Ok(None))
 
         Secret.password_store(
-            _schema(), KEY_ATTRIBUTES, Secret.COLLECTION_DEFAULT, KEY_LABEL, secret, None, finished
+            self._schema(),
+            self._attributes,
+            Secret.COLLECTION_DEFAULT,
+            self._label,
+            secret,
+            None,
+            finished,
         )
 
     def is_stored(self, done: Callback[KeyStatus]) -> None:
@@ -76,7 +98,7 @@ class SecretKeyStore:
                 items = service.search_finish(result)
             except GLib.Error as error:
                 failure = _failure(error, KEYRING_UNAVAILABLE)
-                _LOG.warning("looking for the api key failed: %s", failure.code)
+                _LOG.warning("looking for %s failed: %s", self._subject, failure.code)
                 done(Err(failure))
                 return
             if not items:
@@ -89,10 +111,10 @@ class SecretKeyStore:
                 service = Secret.Service.get_finish(result)
             except GLib.Error as error:
                 failure = _failure(error, KEYRING_UNAVAILABLE)
-                _LOG.warning("looking for the api key failed: %s", failure.code)
+                _LOG.warning("looking for %s failed: %s", self._subject, failure.code)
                 done(Err(failure))
                 return
-            service.search(_schema(), KEY_ATTRIBUTES, Secret.SearchFlags.NONE, None, found)
+            service.search(self._schema(), self._attributes, Secret.SearchFlags.NONE, None, found)
 
         # ServiceFlags.NONE: no session is opened and no collection or item is loaded.
         Secret.Service.get(Secret.ServiceFlags.NONE, None, connected)
@@ -107,9 +129,14 @@ class SecretKeyStore:
                 Secret.password_clear_finish(result)  # False: there was nothing to remove
             except GLib.Error as error:
                 failure = _failure(error, KEYRING_REMOVE_FAILED)
-                _LOG.warning("removing the api key failed: %s", failure.code)
+                _LOG.warning("removing %s failed: %s", self._subject, failure.code)
                 done(Err(failure))
                 return
             done(Ok(None))
 
-        Secret.password_clear(_schema(), KEY_ATTRIBUTES, None, finished)
+        Secret.password_clear(self._schema(), self._attributes, None, finished)
+
+
+def hugging_face_token_store() -> SecretKeyStore:
+    """The item the service reads to download the models (spec install 6, ADR-011)."""
+    return SecretKeyStore(HF_ATTRIBUTES, HF_LABEL, "the Hugging Face token")

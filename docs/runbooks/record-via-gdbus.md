@@ -1,7 +1,7 @@
 ---
 type: runbook
 status: active
-last_updated: 2026-10-09
+last_updated: 2026-10-12
 phase: F1
 verifiable_by:
   - docs/architecture/api-contracts.md
@@ -27,7 +27,7 @@ output format without listening to it.
 
 ## Preconditions
 
-- `make install` done (the service runs as a user service). For development without installing: `make setup`, and stop the installed one first with `systemctl --user stop meeting-scribe.service`.
+- `./install.sh` done ([`install.md`](install.md); the service runs as a user service). For development without installing: `make setup`, and stop the installed one first with `systemctl --user stop meeting-scribe.service`.
 - PipeWire (with the PulseAudio shim) running, and a real microphone set as the default source (not a monitor).
 - `ffmpeg`, `ffprobe`, `pactl` and `gdbus` installed.
 - Optional config in `${XDG_CONFIG_HOME:-~/.config}/meeting-scribe/.env` (template: `.env.example`).
@@ -99,12 +99,12 @@ Delete the test session folder (`rm -r <session-dir>`) once you have checked the
 
 ## Install as a user service
 
-`make install` (F2.5) installs everything, `make uninstall` removes it. Two packaging files are involved:
+`./install.sh` (alias `make install`) installs everything after a read-only preflight, `./uninstall.sh` (alias `make uninstall`) removes it; steps, exit codes and troubleshooting are in [`install.md`](install.md). Two packaging files are involved:
 
 - `packaging/systemd/meeting-scribe.service.in`: the `systemd --user` unit template (`Type=dbus`, restart on failure
   but not on exit 1, ordered after PipeWire). `scripts/install.sh` renders `@EXEC_START@` with the stable `.../meeting-scribe/current/bin/meeting-scribe` path
   (each install lives in `.../meeting-scribe/versions/<timestamp>/`, see the README).
   Both scripts read the recording state first (bounded by a timeout) and refuse while it is `RECORDING` or cannot be read;
-  `FORCE=1` overrides an unreadable state for both, and additionally a running recording for `make uninstall` only.
+  `FORCE=1` overrides an unreadable state for both, and additionally a running recording for the uninstall only.
 - `packaging/dbus/dev.meetingscribe.Service.service`: the D-Bus activation file; it hands activation to
   `meeting-scribe.service`, so the first call on the bus starts the service.

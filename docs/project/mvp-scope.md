@@ -34,9 +34,9 @@ and generate a summary — all running locally on the developer's machine.
 | F2 GNOME extension | Panel button with a drop-down menu to start/stop, timer, status | start/stop from the top-bar menu | done |
 | F3 Processing | Queued transcription + diarization on stop, per-speaker voice samples, "Me" auto-label, desktop notification | get "Done: N speakers" | done |
 | F4 Review app | Native GTK4 + libadwaita app opened from the extension menu: listen per speaker, rename, merge, view transcript (ADR-005) | do speaker review in a native window | done |
-| F5 Summaries | "Generate summary" button, Ollama/OpenCode Go choice, export `.md` | complete the end-to-end flow | in progress |
+| F5 Summaries | "Generate summary" button, Ollama/OpenCode Go choice, export `.md` | complete the end-to-end flow | done |
 | F2.5 Install | `make install` / `make uninstall`: service as a `uv` tool, systemd user unit, D-Bus activation, extension enabled; idempotent | install everything with one command, never start the service by hand | done |
-| F6 Hardening | Install runbook (update, troubleshoot), resilience checks | use it daily | pending |
+| F6 Install | Robust install from the repo: root `install.sh` with a read-only preflight (`--check`), no sudo, models downloaded from Preferences with a keyring token, install runbook (update, troubleshoot) | install from a clean clone and update with `git pull` | in progress |
 
 **Status**: done, in progress, pending (checked by `tests/unit/test_docs_sync.py`).
 
@@ -77,7 +77,7 @@ and generate a summary — all running locally on the developer's machine.
 | FR-4 voice samples, notification | F3 | `src/meeting_scribe/speakers/` (samples); `src/meeting_scribe/meetings/` (notification, `Meetings1`) | `tests/unit/speakers/` |
 | FR-5 review: listen, rename, merge | F4 | `src/meeting_scribe/speakers/`, `src/meeting_scribe/meetings/`, `review-app/src/meeting_scribe_review/`, `gnome-extension/` | `tests/unit/speakers/`, `tests/unit/review_app/`, `tests/e2e/meetings/`, `gnome-extension/tests/` |
 | FR-6 summary via LLM provider | F5 | `src/meeting_scribe/summaries/`, `src/meeting_scribe/preferences/`, `src/meeting_scribe/meetings/` (`SummaryController`, `Summaries1`), `review-app/src/meeting_scribe_review/`, `gnome-extension/` | `tests/unit/summaries/`, `tests/unit/preferences/`, `tests/unit/meetings/`, `tests/unit/review_app/`, `tests/e2e/summaries/`, `tests/e2e/preferences/`, `tests/e2e/meetings/`, `gnome-extension/tests/` |
-| FR-7 install | F2.5 (runbook in F6) | `scripts/install.sh`, `scripts/uninstall.sh` | `tests/unit/test_install_scripts.py` |
+| FR-7 install | F2.5, F6 | `install.sh`, `uninstall.sh`, `scripts/install.sh`, `scripts/uninstall.sh`, `scripts/preflight.sh`, `src/meeting_scribe/model_setup/`, `src/meeting_scribe/prefetch.py`, `review-app/src/meeting_scribe_review/` (Speech models), `docs/runbooks/install.md` | `tests/unit/test_install_scripts.py`, `tests/unit/test_preflight.py`, `tests/unit/test_readme_prerequisites.py`, `tests/unit/model_setup/`, `tests/e2e/model_setup/`, `tests/unit/review_app/test_models_presenter.py`, `tests/unit/test_prefetch.py` |
 
 > When you add a deliverable, fill its row. If a column is empty, that deliverable is not finished.
 
@@ -91,3 +91,4 @@ and generate a summary — all running locally on the developer's machine.
 | 2026-10-09 | Phase status brought in line with the code: F0, F1, F2, F2.5 done, F3 in progress; traceability filled for FR-1 to FR-4. |
 | 2026-10-09 | F3 done (tracker #52 merged); F4 in progress. |
 | 2026-10-11 | F4 done (tracker #82 merged); F5 in progress. |
+| 2026-10-12 | F5 done (tracker #99 merged); F6 in progress and renamed from Hardening to Install (owner decisions of 2026-10-12). |

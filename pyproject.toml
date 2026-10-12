@@ -3,8 +3,10 @@ name = "meeting-scribe"
 version = "0.1.0"
 description = "Local GPU-accelerated meeting assistant: record, transcribe, diarize and summarize"
 readme = "README.md"
+license = "GPL-2.0-or-later"
+license-files = ["LICENSE"]
 authors = [
-    { name = "Richard", email = "rromero@heligrafics.net" },
+    { name = "Richard Romero", email = "richard.romero@hotmail.cl" },
 ]
 requires-python = "~=3.12.0"
 dependencies = [
@@ -72,6 +74,7 @@ modules = [
     "meeting_scribe.speakers",
     "meeting_scribe.summaries",
     "meeting_scribe.preferences",
+    "meeting_scribe.model_setup",
 ]
 
 [[tool.importlinter.contracts]]
@@ -86,6 +89,7 @@ containers = [
     "meeting_scribe.summaries",
     "meeting_scribe.meetings",
     "meeting_scribe.preferences",
+    "meeting_scribe.model_setup",
 ]
 
 [[tool.importlinter.contracts]]
@@ -115,6 +119,7 @@ forbidden_modules = [
     "meeting_scribe.summaries",
     "meeting_scribe.meetings",
     "meeting_scribe.preferences",
+    "meeting_scribe.model_setup",
 ]
 
 [[tool.importlinter.contracts]]
@@ -128,6 +133,7 @@ source_modules = [
     "meeting_scribe.summaries.domain",
     "meeting_scribe.meetings.domain",
     "meeting_scribe.preferences.domain",
+    "meeting_scribe.model_setup.domain",
 ]
 forbidden_modules = ["pydantic_settings", "dbus_fast", "gi"]
 
@@ -135,6 +141,12 @@ forbidden_modules = ["pydantic_settings", "dbus_fast", "gi"]
 name = "Preferences application stays free of D-Bus and settings libraries"
 type = "forbidden"
 source_modules = ["meeting_scribe.preferences.application"]
+forbidden_modules = ["dbus_fast", "pydantic_settings", "gi"]
+
+[[tool.importlinter.contracts]]
+name = "Model setup application stays free of D-Bus and settings libraries"
+type = "forbidden"
+source_modules = ["meeting_scribe.model_setup.application"]
 forbidden_modules = ["dbus_fast", "pydantic_settings", "gi"]
 
 [[tool.importlinter.contracts]]
@@ -154,6 +166,7 @@ source_modules = [
     "meeting_scribe.summaries",
     "meeting_scribe.meetings",
     "meeting_scribe.preferences",
+    "meeting_scribe.model_setup",
 ]
 forbidden_modules = ["meeting_scribe.main", "meeting_scribe.settings"]
 

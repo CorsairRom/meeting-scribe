@@ -1,7 +1,7 @@
 ---
 type: runbook
 status: active
-last_updated: 2026-10-11
+last_updated: 2026-10-12
 phase: F3
 verifiable_by:
   - gnome-extension/meeting-scribe@meetingscribe.dev/lib/indicatorModel.js
@@ -33,7 +33,7 @@ and install it in your real session. The extension is a thin D-Bus client of the
 
 - GNOME Shell 50 (`metadata.json` declares `shell-version: ["50"]`) on Wayland; `gjs` and the `gnome-extensions`
   CLI installed.
-- For the real session: `make install` does everything below (service, unit, extension) in one command. For the nested shell only: `make setup`, so the service can run (`make run`).
+- For the real session: `./install.sh` (alias `make install`; [`install.md`](install.md)) does everything below (service, unit, extension) in one command. For the nested shell only: `make setup`, so the service can run (`make run`).
 - For the nested shell on GNOME 49 and later: the `mutter-devkit` package (Fedora, Arch). Source:
   [gjs.guide, Creating an Extension](https://gjs.guide/extensions/development/creating.html).
 
@@ -63,14 +63,14 @@ separator. It never changes what a click does: every click opens the menu and no
 
 **Review last meeting** (F4.7) is the last item of the recording group when the state is `IDLE`, `STOPPED` or
 `FAILED` (hidden while recording, in an unknown state, with the service unavailable and while a call is in flight). It launches the review app through its desktop
-entry (`dev.meetingscribe.Review.desktop`, installed by `make install`), with no argument and no meeting data; the app
+entry (`dev.meetingscribe.Review.desktop`, installed by `./install.sh`), with no argument and no meeting data; the app
 picks the newest `DONE` meeting itself, and shows an empty state when there is none. If the launch fails, one
-notification says to run `make install`. Steps and troubleshooting: [`review-app.md`](review-app.md).
+notification says to run `./install.sh`. Steps and troubleshooting: [`review-app.md`](review-app.md).
 
 **Preferences...** (F5.10) ends every menu that can open (also with the service unavailable, where the dialog explains).
 It asks the review app to open its Preferences dialog through the `preferences` action of the same desktop entry
-(`Exec=<launcher> --preferences`, written by `make install`; an install older than this feature has no action, so the
-same notification says to run `make install`). The gear in the Extensions app runs `prefs.js`, which does the same and
+(`Exec=<launcher> --preferences`, written by `./install.sh`; an install older than this feature has no action, so the
+same notification says to run `./install.sh`). The gear in the Extensions app runs `prefs.js`, which does the same and
 then closes its own window; it holds no setting, no D-Bus client and no key. Everything configurable lives in the
 review app and the service ([`../specs/preferences.md`](../specs/preferences.md)).
 
@@ -153,7 +153,7 @@ terminal inside the nested window are the least-documented parts; if either misb
 
 ## Install in your session
 
-Run `make install`: it installs and starts the service, then packs, installs and enables the extension. If it
+Run `./install.sh` (it checks the prerequisites first): it installs and starts the service, then packs, installs and enables the extension. If it
 prints "log out and back in", do that once (Wayland cannot restart the shell); the service is already running.
 
 Manual steps, for development of the extension only:
@@ -174,7 +174,7 @@ Manual steps, for development of the extension only:
    gnome-extensions enable meeting-scribe@meetingscribe.dev
    ```
 
-4. Make sure the service runs (`make install` starts it; `make run` only for development) and look at the top bar.
+4. Make sure the service runs (`./install.sh` starts it; `make run` only for development) and look at the top bar.
 
 ## Verify
 
@@ -191,7 +191,7 @@ journalctl --user -f -o cat /usr/bin/gnome-shell
 
 ## Rollback
 
-`make uninstall` removes the extension together with the service. To remove only the extension:
+`./uninstall.sh` removes the extension together with the service. To remove only the extension:
 
 ```bash
 gnome-extensions disable meeting-scribe@meetingscribe.dev
@@ -204,7 +204,7 @@ The extension's code stays cached by the running shell until the next login.
 
 | Symptom | Cause and fix |
 |---|---|
-| Indicator is `○`, "service is not running" | The service does not own `dev.meetingscribe.Service` on this session bus. Run `make install` (or `systemctl --user start meeting-scribe.service`); `make run` is for development. The extension never launches the service itself. In a nested shell, see "Seeing something other than service unavailable". |
+| Indicator is `○`, "service is not running" | The service does not own `dev.meetingscribe.Service` on this session bus. Run `./install.sh` (or `systemctl --user start meeting-scribe.service`); `make run` is for development. The extension never launches the service itself. In a nested shell, see "Seeing something other than service unavailable". |
 | After starting a recording: "No default microphone found" | `AUDIO_DEVICE_NOT_FOUND`: no default microphone, or the default source is a monitor. Pick a real input with `pactl set-default-source <name>`. |
 | Indicator missing from the top bar | `gnome-extensions info meeting-scribe@meetingscribe.dev` and Looking Glass (`lg`) show state and error. `OUT OF DATE` means `metadata.json` does not list your shell major version (it lists only 50). |
 | `State: ERROR` | Read the error in Looking Glass or in the journal command above; fix, re-run `make extension-install` and log out and in (cached code). |

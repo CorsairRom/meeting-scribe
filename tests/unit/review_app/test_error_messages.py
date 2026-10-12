@@ -142,3 +142,20 @@ def test_a_busy_restart_says_to_wait_and_an_unreachable_one_gives_the_command() 
     assert "ends" in message_for(ServiceError("SETTINGS_RESTART_BUSY")).text
     unavailable = message_for(ServiceError("SETTINGS_RESTART_UNAVAILABLE"))
     assert unavailable.hint == "systemctl --user restart meeting-scribe.service"
+
+
+def test_every_model_setup_code_a_client_can_see_has_a_message() -> None:
+    codes = {
+        code
+        for code in _catalog_codes()
+        if code.startswith("MODELS_") and code != "MODELS_DOWNLOAD_REPORTED"  # internal
+    } | {"DIARIZATION_MODEL_ACCESS_DENIED", "MODEL_UNAVAILABLE"}
+    assert {"MODELS_TOKEN_KEYRING_LOCKED", "MODELS_DOWNLOAD_TIMEOUT"} <= codes
+    for code in sorted(codes):
+        text = message_for(ServiceError(code)).text
+        assert code not in text, f"{code} has no specific message in core/errors.py"
+
+
+def test_an_unknown_interface_means_the_service_is_older_than_the_app() -> None:
+    error = error_from_dbus_name("org.freedesktop.DBus.Error.UnknownInterface")
+    assert error == ServiceError(SERVICE_OUTDATED)

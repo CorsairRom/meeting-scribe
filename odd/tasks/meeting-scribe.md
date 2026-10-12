@@ -526,7 +526,7 @@ Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv 
       ready, Meetings1 review methods confirmed by introspection); the owner opened the app from the menu and
       reported it works. Docs gate: read-only audit (5 P1, 5 P2 doc drifts, no code issue) fixed in `6718079`;
       language scan clean; `make check` green (1123 python / 122 gjs, 12 contracts). Tracker #82 marked ready.
-### F5 Summaries — in progress (integration `feat/summaries`)
+### F5 Summaries — done (tracker #99 merged 2026-10-12)
 TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: delegated direct.
 - [x] F5.0a Phase start: F4 done, F5 in progress (mvp-scope, AGENTS, backlog, README, spec statuses).
 - [x] F5.0b Design spec `docs/specs/summaries.md` (approved) + ADR-008 (Decisions section). Owner decisions
@@ -603,7 +603,7 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
         Evidence: `make lint` contracts 15 kept; `make check` 1901 python passed, packaging 1 passed, gjs 163
         passed; Spanish language scan over docs/ scripts/ src/ README.md AGENTS.md: no matches. Validation with
         consent is F5.9 below.
-- [ ] F5.9 validation with consent (local run; cloud only on explicit go), docs gate.
+- [x] F5.9 validation with consent (local run; cloud only on explicit go), docs gate. Closed 2026-10-12: the owner merged #99.
       make install done 2026-10-12 (version 20261012015947-1358289; ollama reachable,
       qwen3:4b-instruct-2507-q4_K_M present). Owner tested a local summary and a cloud summary (OpenCode Go)
       successfully on 2026-10-12.
@@ -613,7 +613,93 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
       Evidence: `make check` 1901 python passed, packaging 1 passed, gjs 163 passed; citation check over
       `docs/specs/*.md` and `rules-registry.md`: 99 citations, 0 broken (22 repointed); Spanish scan only the known
       fixtures and `doc-sync-protocol.md`. Remaining: owner reviews and merges the integration PR.
-### F6 Install — pending
+### F6 Install — in progress (integration `feat/install`)
+Spec: `docs/specs/install.md` (approved 2026-10-12 under the owner's delegation). TDD: strict, runner `uv run pytest` / `make check`
+(source: AGENTS.md). Route: delegated direct (one writer per task, 2+ non-trivial files each).
+Delivery: integration branch `feat/install` from `main` (F5 merged); the tracker PR to `main` is still to be
+created (it needs the owner's go to push); work-unit PRs of about 400 authored lines target `feat/install` and the
+owner merges the tracker. Docs gate before the tracker is ready (see `docs/project/doc-sync-protocol.md`).
+Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers are a separate phase after F6.
+- [x] F6.0a Phase start: F5 done, F6 in progress (mvp-scope, AGENTS, backlog, README, F5 spec statuses, this document).
+- [x] F6.0b Design spec `docs/specs/install.md`, ADR-010 and ADR-011 written and approved 2026-10-12 under the owner's delegation; OQ-1 to OQ-3 answered with their recommendations.
+- [x] F6.1 Root `install.sh` and `uninstall.sh` entry points (thin wrappers over `scripts/`), `make install` alias,
+      option parsing (`--check`, `--json`, `--help`), exit-code contract and report formatter, with fakes-based tests.
+      Evidence: RED = 36 failed in `tests/unit/test_preflight.py` (no wrappers, no `scripts/preflight.sh`); GREEN =
+      `make check` 1945 python passed, packaging 1 passed, gjs 163 passed. Sandbox moved to `tests/unit/install_sandbox.py`
+      (shared with the preflight tests, stdin closed, fake `sudo` that fails loudly). Commit `7ed0cbf` `feat(install): add the single entry point and the preflight report`.
+- [x] F6.2 Preflight, system checks: GNOME Wayland session, GNOME Shell version from the extension metadata, `uv`,
+      `ffmpeg`, `pactl`, `systemctl`, `gdbus`, `gnome-extensions`, GTK4, libadwaita, PyGObject, libsecret; the README
+      prerequisites list and the drift test that keeps it equal to the check ids.
+      Evidence: RED = 29 failed in `tests/unit/test_preflight.py` plus 2 errors in `test_readme_prerequisites.py` (no checks,
+      no README table); GREEN = `make check` 1986 python passed, packaging 1 passed, gjs 163 passed. The old "review app: NOT
+      usable" warning tests became the zero-change stop (AC-2). Commit `664727f` `feat(install): check the session, the shell and the review app toolkit`.
+- [x] F6.3 Preflight, hardware and services: NVIDIA driver, VRAM, free disk by filesystem, Ollama installed, reachable,
+      default model present; the install stops with zero changes; summary line "models: pending" replaces the model download step.
+      Evidence: RED = 60 failed across `test_preflight.py`, `test_install_scripts.py` (new fakes: `nvidia-smi`, `df`, `curl`);
+      GREEN = `make check` 2016 python passed, packaging 1 passed, gjs 163 passed, lint clean. The no-write proof
+      (`test_check_changes_nothing`) passed before the smoke run `./install.sh --check` on the real machine: exit 0, all 22
+      checks OK. `MEETING_SCRIBE_PREFETCH_TIMEOUT` removed everywhere; decisions recorded in `docs/specs/install.md`.
+      Note: `prefetch-models --check` arrives in F6.4, so the real summary says `models: PENDING` until then. Commit `c341e41` `feat(install): check the gpu, the disk and ollama and stop before any change`.
+- [x] F6.4 Token-free processing: the pyannote loader uses no token, the fetcher takes one on stdin, `prefetch-models`
+      gets `--check` and machine-readable progress, error texts point to Preferences; offline verification without a login.
+      Evidence: RED = 15 failed plus 2 collection errors across `test_prefetch.py`, `test_cli.py`, `test_pyannote_backend.py`,
+      `test_pyannote_diarizer.py`, `test_faster_whisper_transcriber.py`, `test_hf_cache.py` (no `check_models`, no `hf_cache`, loader still
+      `token=True`, old error texts); GREEN = `make check` 2078 python passed, packaging 1 passed, gjs 163 passed, lint and import contracts clean. Offline proof:
+      `uv run pytest -m gpu -s tests/gpu/test_offline_cached_load.py` passed: the offline load of the real cached pipeline succeeded with no token sources (`HF_TOKEN` unset,
+      `HF_HUB_OFFLINE=1`, `HF_HUB_DISABLE_IMPLICIT_TOKEN=1`, `HF_TOKEN_PATH` redirected to a missing file). Commit `9bf7cdf` `feat(speakers): load cached models without a token and fetch with one on stdin` (about 1,000 changed lines with tests and docs).
+- [x] F6.5 `model_setup` domain and `dev.meetingscribe.Models1` (status, download, cancel, progress, finished), keyring
+      reader moved to the shared kernel, new error codes, api-contracts and catalog, e2e on a private bus.
+      Evidence: RED = collection errors for every new module (`meeting_scribe.base.infrastructure.secret_service`,
+      `meeting_scribe.model_setup`, `keyring_token_source`, `model_setup_settings`) across `tests/e2e/base`, `tests/e2e/summaries`,
+      `tests/unit/model_setup`, `tests/e2e/model_setup`; GREEN = `make check` 2165 python passed, packaging 1 passed, gjs 163 passed, lint and 16 import contracts clean. The token is proved absent from argv,
+      environment, logs (the fake child prints it to stderr), events, status, errors and every D-Bus message (a bus monitor records
+      the private bus). Larger than 400 lines (about 2,900 changed with tests and docs, about 1,300 of them source) because the domain, the two child-process adapters,
+      the shared keyring reader, the interface and the composition are one coherent unit with their proofs. Decisions recorded in
+      `docs/specs/install.md`. Commit `9749d87` `feat(model-setup): download the models over models1 with the keyring token`.
+- [x] F6.6 Review app core: Hugging Face token key store (libsecret), `Models1` gateway, presenter and tests.
+      Evidence: RED = 19 collection errors across `tests/unit/review_app` (the fakes import `ModelsListener`, which did not exist),
+      2 failed in `test_hf_token_store.py` (no `hugging_face_token_store`), 3 failed in `tests/e2e/model_setup/test_review_app_models_gateway.py`
+      (no `watch_models`); GREEN = `make check` 2261 python passed, packaging 1 passed, gjs 163 passed, lint and 16 import contracts clean.
+      Route: delegated direct, one writer (single thread). The three F5 follow-ups (late keyring write after cancel, stale success after a newer failure,
+      state surviving a closed dialog) are tests in `test_models_presenter.py`; a sentinel token is absent from presenter state, gateway calls and client output.
+      Decisions recorded in `docs/specs/install.md`. Commit `feat(review-app): add the speech models core`.
+- [x] F6.7 Review app UI: "Speech models" group in Preferences (token field, terms link, Download models with progress and cancel).
+      Also remove the interim line `(until then: meeting-scribe prefetch-models)` that `scripts/install.sh` prints after `models: PENDING`
+      (and its assertion in `tests/unit/test_install_scripts.py`).
+      Evidence: RED = 4 failed (`test_install_reports_models_pending_and_still_succeeds` with the interim line gone, and 3 static UI tests in
+      `test_ui_imports_on_system_python.py`: one password-entry holder rule, the token field emptied once and read once, the group wired in);
+      GREEN = `make check` 2266 python passed, packaging 1 passed, gjs 163 passed, lint and 16 import contracts clean. The widgets were also built and driven on a private Broadway display (no user
+      session): apply emptied the field and called the presenter once, buttons and progress followed the state, the pulse started and stopped.
+      Not run: the real window on the GNOME session (human steps in `docs/runbooks/preferences.md`). Route: delegated direct, one writer.
+      Decisions recorded in `docs/specs/install.md`. Commit `feat(review-app): add the speech models group to preferences`.
+- [x] F6.8 Update and uninstall: idempotent re-run proof, uninstall mirrors the entry point and lists what it keeps, existing `hf auth login` still works.
+      Evidence: RED = 1 failed (`test_uninstall_lists_what_it_keeps`: the uninstall printed no keep-list, and named only the cloud key); the idempotence
+      test `test_update_keeps_user_data_and_is_idempotent` passed at once (three runs: identical unit, activation and desktop entry bytes, identical
+      extension calls, the same user files, exactly one version directory), so there was no code gap there. GREEN = `scripts/uninstall.sh` prints
+      `Kept (not removed):` with the four items; `test_the_runbook_keep_list_is_the_text_uninstall_prints` ties it to the runbook (AC-22).
+      The `hf auth login` fallback is already covered, not duplicated: `tests/unit/model_setup/test_download_models.py::test_without_a_keyring_token_the_runner_gets_none_so_the_ambient_login_is_used`,
+      `test_download_runner.py::test_without_a_token_the_child_gets_no_token_option_and_keeps_the_ambient_login`, `test_pyannote_backend.py::test_fetch_pipeline_without_a_token_uses_the_ambient_login`
+      and `tests/e2e/model_setup/test_keyring_token_source.py`. Commit `ba1b874` `test(install): prove the update is idempotent and the uninstall keep-list`.
+- [ ] F6.9 Docs and validation: `docs/runbooks/install.md`, README section "Install (humans and AI agents)", the other runbooks,
+      ADR-010 and ADR-011 active, docs gate, validation with consent on the real machine (no recording, no audio).
+  - [x] Docs part: `docs/runbooks/install.md`, the README section, the other runbooks (`processing`, `review-app`, `preferences`, `summaries`, `gnome-extension`,
+        `record-via-gdbus`), `ARCHITECTURE.md`, D-Bus names frozen (OQ-3: api-contracts, error catalog, CR-011, ADR-001 note), FR-7 traceability row, backlog (F6 epic checked,
+        five F6-review follow-ups added to the post-F6 epic), spec and its README row `in-progress`, Definition of Done ticked except the docs gate.
+        Evidence: `make check` 2275 python passed, packaging 1 passed, gjs 163 passed, lint and 16 import contracts clean. Commit `e5ae89b` `docs(install): add the install runbook and the agent-friendly readme section`.
+  - [x] Docs gate (2026-10-12): the read-only audit found P1 5 / P2 10 / P3 7, all fixed on branch `f6/docs-gate`. Evidence: `make check` green (2275 python passed, packaging 1 passed, gjs 163 passed, lint and import contracts clean); `uv run pytest -q tests/unit/test_docs_sync.py tests/unit/test_readme_prerequisites.py` passed; `rg -n '[áéíóúñ¿¡]' docs README.md AGENTS.md ARCHITECTURE.md PRD.md` hits only the two known lines in `docs/project/doc-sync-protocol.md`; a case-insensitive scan for the two private repository names finds nothing outside this sentence's description.
+  - [x] Manual validation with the owner's go (2026-10-12): `make install` ran, version `20261012132139-1807266`. The summary showed the service active, the extension enabled, `review app: ready`, `models: ready (cached)` and `ollama: reachable at preflight`. `Models1.GetStatus` returned `READY`, whisper and pipeline cached, `token_stored` false.
+  - [x] Owner's UI check (2026-10-12): Preferences > Speech models shows Ready with no token stored, and a new short test recording was
+        processed with no token (offline from the cache); the owner reported that everything works.
+- [x] F6.10 Prepare the repo to become public (owner scope added 2026-10-12; done in #140 and #141; the owner may make it
+      public after the F6 merge; see `docs/specs/install.md` section 11):
+  - [x] (a) `LICENSE` added (GPL-2.0 text copied from a local system copy, `/usr/share/licenses/desktop-file-utils/COPYING`; no network) and declared in `pyproject.toml`
+        (`license = "GPL-2.0-or-later"` plus `license-files`; the SPDX form replaces the license classifier, which PEP 639 deprecates next to it) and in the README.
+        The extension `metadata.json` has no license field, so it is not declared there. `make test-packaging` passes.
+  - [x] (b, file part) The author in `pyproject.toml` is now Richard Romero, `richard.romero@hotmail.cl`.
+  - [x] (b, history) Not rewritten, by owner decision 2026-10-12: GitHub keeps `refs/pull/*` pointing at the original commits, so a
+        force-push could not hide the previous work email. Future commits use `richard.romero@hotmail.cl` (repository `user.email`).
+  - [x] (c) The references to the two private repositories were rephrased neutrally in this document, the spec section 11 and `docs/_templates/README.md`;
+        a case-insensitive search for the two repository names finds none. Commit `chore: license the project under gpl-2.0-or-later and drop private references`.
 
 ## Route log
 
@@ -622,6 +708,9 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
 | Mapping | delegated (2 Explore mappers, parallel) | prototype = 5 files; conventions = 3 repos |
 | F0.1 + F0.2 | delegated (1 writer) | 2+ non-trivial files (pyproject, settings, main, kernel, tests) |
 | F5.10 P7 | delegated (1 writer) | 2+ non-trivial files (runbook, install.sh, summaries.md, tests) |
+| F6.0 | delegated (1 docs writer) | 2+ non-trivial doc files (phase start, spec, ADR) and reading that prepares the write |
+| F6.1 + F6.2 + F6.3 | delegated (1 writer for all three, one commit each) | 2+ non-trivial files per task (scripts, tests, README, docs) |
+| F6.8 + F6.9 (docs) + F6.10 (files) | delegated (1 writer, single thread) | 2+ non-trivial files per task (scripts, tests, 15+ docs) |
 | gitignore fix | inline | one mechanical file, root cause already understood |
 | F0.3 + F0.4 | delegated (1 writer, ran in parallel with the code review — disjoint files) | 30+ doc files |
 | review suggestions | inline | two mechanical one-line doc edits |
@@ -630,9 +719,9 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
 ## Accepted deviations from HANDOFF (verified by mapping)
 
 - Per-domain settings with `env_prefix` exist in no reference repo: introduced here as a new convention.
-- `create_app` pattern comes from qforest-chatbot (qforest-be is Django, not FastAPI).
+- The `create_app` pattern comes from an earlier internal project (the other reference project is Django, not FastAPI).
 - Dev tools live in the `quality-assurance` optional extra (chatbot style), not dependency groups.
-- donde-compro templates are Spanish and have no PRD template: translated to English; PRD modelled on its root `PRD.md`.
+- The doc templates came from an earlier internal project, were Spanish and had no PRD template: translated to English; the PRD is modelled on that project's root `PRD.md`.
 - `make install` reserved for F6; dev bootstrap is `make setup`.
 - ~~Service binds `127.0.0.1:8765`~~ → superseded in F0 review: D-Bus session bus, no HTTP.
 

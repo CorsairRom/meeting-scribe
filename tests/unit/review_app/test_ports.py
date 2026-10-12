@@ -2,17 +2,21 @@
 
 from meeting_scribe_review.core.gateway import (
     MeetingsGateway,
+    ModelsGateway,
     SamplePlayer,
     SettingsGateway,
     SummariesGateway,
+    TokenStore,
 )
 from meeting_scribe_review.core.models import Speaker
 from meeting_scribe_review.core.result import Ok
 from tests.unit.review_app.fakes import (
     FakeGateway,
+    FakeModelsGateway,
     FakePlayer,
     FakeSettingsGateway,
     FakeSummariesGateway,
+    FakeTokenStore,
     speaker,
 )
 
@@ -40,3 +44,11 @@ def test_the_fake_summaries_gateway_is_a_summaries_gateway() -> None:
 
 def test_the_fake_settings_gateway_is_a_settings_gateway() -> None:
     assert isinstance(FakeSettingsGateway(), SettingsGateway)
+
+
+def test_the_fake_models_gateway_is_a_models_gateway() -> None:
+    assert isinstance(FakeModelsGateway(), ModelsGateway)
+
+
+def test_the_fake_token_store_is_a_token_store() -> None:
+    assert isinstance(FakeTokenStore(), TokenStore)

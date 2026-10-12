@@ -1,7 +1,7 @@
 ---
 type: architecture
 status: active
-last_updated: 2026-10-09
+last_updated: 2026-10-12
 verifiable_by:
   - src/meeting_scribe/base/domain/errors.py
   - src/meeting_scribe/recording/domain/errors.py
@@ -30,8 +30,8 @@ it with dbus-fast as `DBusError("dev.meetingscribe.Error.<ERROR_CODE>", message)
 | Error name | `dev.meetingscribe.Error.<ERROR_CODE>` | Stable, machine-readable. Clients (extension, review app) map on this. Example: `dev.meetingscribe.Error.ENTITY_NOT_FOUND`. |
 | Message | `string` | English debug description (for example `Meeting 'abc123' does not exist.`). Not intended for direct display. |
 
-The error-name prefix is proposed and renamable until F6, together with the bus name
-([ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md)). Inspect errors with `gdbus call` or `busctl --user call`.
+The error-name prefix is frozen as of F6 (owner decision 2026-10-12), together with the bus name
+([ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md)); any later rename needs an ADR. Inspect errors with `gdbus call` or `busctl --user call`.
 
 > **Current behavior**: `to_dbus_error` (`src/meeting_scribe/base/infrastructure/dbus/errors.py`) builds this error
 > from any `MeetingScribeError` using the instance `error_code` (so detail codes carry through); the `Recording1`
@@ -75,7 +75,7 @@ All classes derive from `MeetingScribeError` in `src/meeting_scribe/base/domain/
 | `GpuOutOfMemoryError` | `GPU_OUT_OF_MEMORY` | `base`: the GPU ran out of memory; no automatic CPU retry | `dev.meetingscribe.Error.GPU_OUT_OF_MEMORY` |
 | `ModelUnavailableError` | `MODEL_UNAVAILABLE` | `base`: a model is neither cached nor downloadable (offline or unknown name) | `dev.meetingscribe.Error.MODEL_UNAVAILABLE` |
 | `DiarizationError` | `DIARIZATION_FAILED` | `speakers`: the pipeline or the `turns.json` cache failed for a reason not covered by a more specific code | `dev.meetingscribe.Error.DIARIZATION_FAILED` |
-| `DiarizationModelAccessError` | `DIARIZATION_MODEL_ACCESS_DENIED` | `speakers`: the pyannote pipeline is gated or there is no Hugging Face login; the message names the model page and `hf auth login`; `words.json` is kept | `dev.meetingscribe.Error.DIARIZATION_MODEL_ACCESS_DENIED` |
+| `DiarizationModelAccessError` | `DIARIZATION_MODEL_ACCESS_DENIED` | `speakers`: the pyannote pipeline is gated or there is no Hugging Face login; the message names the model page and says to add the token in Preferences and press Download models; `words.json` is kept | `dev.meetingscribe.Error.DIARIZATION_MODEL_ACCESS_DENIED` |
 | `SpeakerNameTakenError` | `SPEAKER_NAME_TAKEN` | `speakers`: a speaker name equals, ignoring case, another active speaker's display name or default label (subclass of `InvalidValueError`); the message carries the speaker id, never the name | `dev.meetingscribe.Error.SPEAKER_NAME_TAKEN` |
 | `SpeakerMergeInvalidError` | `SPEAKER_MERGE_INVALID` | `speakers`: self merge, a merged-away source or target, "Me" as the source, or a rename of a merged-away speaker (subclass of `InvalidValueError`) | `dev.meetingscribe.Error.SPEAKER_MERGE_INVALID` |
 | `TranscriptCorruptError` | `TRANSCRIPT_CORRUPT` | `speakers`: `utterances.json` is unreadable or has an invalid shape, or the stored speaker review state is inconsistent (unknown ids, merge chain or cycle); the message never quotes its content; `meetings` maps it to `MEETING_CORRUPT` at the boundary | internal until mapped |
@@ -109,6 +109,12 @@ All classes derive from `MeetingScribeError` in `src/meeting_scribe/base/domain/
 | `SummaryStorageError` | `SUMMARY_STORAGE_FAILED` | `meetings`: `summary.md` could not be written or rotated; check disk space and permissions; the previous summary is kept | `dev.meetingscribe.Error.SUMMARY_STORAGE_FAILED` |
 | `TranscriptionError` | `TRANSCRIPTION_FAILED` | `transcription`: the model or the `words.json` cache failed for a reason not covered by a more specific code | `dev.meetingscribe.Error.TRANSCRIPTION_FAILED` |
 | `NotificationError` | `NOTIFICATION_FAILED` | `meetings`: the desktop notification could not be delivered (no notification service, bus lost, timeout); logged at WARNING, never changes a job and never reaches a client | not exposed |
+| `ModelsDownloadActiveError` | `MODELS_DOWNLOAD_ACTIVE` | `model_setup`: `Models1.Download` while a download is running; wait or cancel | `dev.meetingscribe.Error.MODELS_DOWNLOAD_ACTIVE` |
+| `ModelsDownloadFailedError` | `MODELS_DOWNLOAD_FAILED` | `model_setup`: the download process failed for a reason not covered by `DIARIZATION_MODEL_ACCESS_DENIED` or `MODEL_UNAVAILABLE` (a non-zero exit with no report, the process could not start, or the models were still not completely cached afterwards); carried in `ModelsFinished` and `GetStatus.failure_code` | not raised to a client |
+| `ModelsDownloadReportedError` | `MODELS_DOWNLOAD_REPORTED` | `model_setup`: the download process reported its own `error_code` (the instance carries it); internal, `FailurePolicy` keeps `DIARIZATION_MODEL_ACCESS_DENIED` and `MODEL_UNAVAILABLE` and turns any other into `MODELS_DOWNLOAD_FAILED`, so this class code never reaches a client | not exposed |
+| `ModelsDownloadTimeoutError` | `MODELS_DOWNLOAD_TIMEOUT` | `model_setup`: the download exceeded `MODEL_SETUP_DOWNLOAD_TIMEOUT_SECONDS`; the process is stopped and the cache resumes on the next Download | not raised to a client |
+| `ModelsDownloadCancelledError` | `MODELS_DOWNLOAD_CANCELLED` | `model_setup`: cancelled by the user; internal, reported as the `CANCELLED` state with an empty `error_code` (as a `Download` reply it reaches a client only when the service is already shutting down) | `dev.meetingscribe.Error.MODELS_DOWNLOAD_CANCELLED` (only from `Download` during shutdown) |
+| `ModelsTokenKeyringLockedError` | `MODELS_TOKEN_KEYRING_LOCKED` | `model_setup`: the keyring is locked, so the Hugging Face token cannot be read; the message says to unlock it; the service never prompts; carried in `ModelsFinished` and `GetStatus.failure_code` | not raised to a client |
 | `WorkerCancelledError` | `WORKER_CANCELLED` | `meetings`: the worker was stopped on request (preemption or shutdown); internal, the job is not failed and it never reaches a client | not exposed |
 | (no class) | `WORKER_UNKNOWN_STAGE` | `worker.py`: the worker was asked for a stage name it does not know; reported as a worker `error` event | the worker's code under `dev.meetingscribe.Error.` |
 | (no class) | `WORKER_STAGE_UNAVAILABLE` | `worker.py`: the stage is known but not implemented in this build (for example diarize before F3.3b); reported as a worker `error` event | the worker's code under `dev.meetingscribe.Error.` |

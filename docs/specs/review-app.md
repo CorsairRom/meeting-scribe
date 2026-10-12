@@ -17,7 +17,7 @@ verifiable_by:
   - tests/unit/review_app/
   - tests/unit/test_install_scripts.py
   - gnome-extension/tests/
-last_updated: 2026-10-09
+last_updated: 2026-10-12
 ai_instructions:
   - "This spec is a contract. Do NOT implement anything that is not in it."
   - "If you need to change the spec, update this doc FIRST and ask for confirmation."
@@ -268,6 +268,10 @@ THEN the extension shows one notification telling the user to run make install
 **Test**: `gnome-extension/tests/indicatorModel.test.js`, `gnome-extension/tests/indicatorController.test.js`
 
 ### AC-17: Install and uninstall
+
+> Partly superseded by F6: a missing toolkit package now blocks the install in the preflight (the `gtk.*` FIX
+> items, [install.md](install.md)), and the summary line is always `review app: ready`. The text below is the
+> original F4 behaviour.
 
 ```gherkin
 GIVEN make install runs
@@ -620,8 +624,9 @@ rollback restores both, and `current` switches them together:
 4. Check system Python read-only: `/usr/bin/python3 -c 'import gi; gi.require_version("Gtk","4.0"); gi.require_version("Adw","1")'`.
    A failure is reported in the summary with the package names to install (`python3-gobject`, `gtk4`,
    `libadwaita`, `gstreamer1-plugins-good`) and never fails the install (like the extension and the models).
+   Superseded by F6: the preflight blocks on a missing toolkit package (`gtk.*` FIX items).
 5. Run `update-desktop-database` on the applications directory when it exists (best effort).
-6. Summary line: `review app: ready` or `review app: NOT usable (missing: ...)`.
+6. Summary line: `review app: ready` or `review app: NOT usable (missing: ...)`. Superseded by F6: the line is always `review app: ready`.
 
 `make uninstall` removes the desktop entry; the launcher and the app go with `versions/`. Neither touches
 meetings. Old versions are pruned by the existing logic. A `make run-review-app` development target starts

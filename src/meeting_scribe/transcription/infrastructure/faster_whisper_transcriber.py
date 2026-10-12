@@ -201,7 +201,7 @@ def map_whisper_error(error: Exception, model: str) -> MeetingScribeError:
     ):
         return ModelUnavailableError(
             f"The model '{model}' is not in the Hugging Face cache and the worker runs offline "
-            f"({type(error).__name__}). Run `make install` again to download the models "
+            f"({type(error).__name__}). Open Preferences and press Download models "
             "(or check TRANSCRIPTION_MODEL), then reprocess the meeting."
         )
     if isinstance(error, ImportError):
