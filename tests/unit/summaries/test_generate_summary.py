@@ -448,10 +448,44 @@ def test_a_two_hour_meeting_is_one_pass_at_the_local_defaults() -> None:
     assert len(provider.requests) == 1
 
 
-def test_the_usable_input_reserves_the_larger_output_budget() -> None:
-    assert request(context_tokens=16384, max_output_tokens=3072).usable_input_tokens == 12712
-    notes_bigger = request(context_tokens=4000, max_output_tokens=300, notes_output_tokens=900)
-    assert notes_bigger.usable_input_tokens == 4000 - 900 - 600
+def test_each_kind_of_step_reserves_its_own_output_budget() -> None:
+    req = request(context_tokens=16384, max_output_tokens=3072, notes_output_tokens=768)
+
+    assert req.usable_input_tokens == 16384 - 3072 - 600
+    assert req.usable_notes_input_tokens == 16384 - 768 - 600
+    same = request(context_tokens=16384, max_output_tokens=3072)
+    assert same.usable_notes_input_tokens == same.usable_input_tokens
+
+
+def test_map_chunks_are_sized_with_the_notes_budget_and_not_the_final_one() -> None:
+    # About 1010 estimated tokens: too much for the final budget (800), fine for notes (1300).
+    lines = tuple(line("Person A", float(n * 10), "word " * 96) for n in range(6))
+    req = request(lines=lines, context_tokens=2000, max_output_tokens=600, notes_output_tokens=100)
+    provider = FakeProvider()
+
+    result = _use_case(provider).run(req, FakeCancel())
+
+    assert (
+        req.usable_notes_input_tokens
+        == 1300
+        > estimate_tokens("\n".join(format_line(item) for item in lines))
+        > req.usable_input_tokens
+    )
+    assert result.unwrap().chunks == 1
+    assert [lim.max_output_tokens for lim in provider.limits] == [100, 600]
+
+
+def test_the_reduce_request_still_fits_the_final_budget() -> None:
+    notes = "- " + "note " * 90  # about 150 tokens each, merged until the payload fits 800
+    provider = FakeProvider(by_prompt_kind(notes=notes))
+    lines = tuple(line("Person A", float(n * 10), "word " * 96) for n in range(24))
+    req = request(lines=lines, context_tokens=2000, max_output_tokens=600, notes_output_tokens=100)
+
+    result = _use_case(provider).run(req, FakeCancel())
+
+    assert isinstance(result, Success)
+    final_request = provider.requests[-1]
+    assert estimate_tokens(final_request[1].content) <= req.usable_input_tokens
 
 
 def test_notes_steps_get_the_small_budget_and_the_final_summary_the_large_one() -> None:

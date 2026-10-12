@@ -91,10 +91,13 @@ _MESSAGES: dict[str, UserMessage] = {
     "SUMMARY_AUTH_FAILED": UserMessage("The provider rejected the API key. Set the key again."),
     "SUMMARY_RATE_LIMITED": UserMessage("The provider is busy. Try again in a few minutes."),
     "SUMMARY_PROVIDER_REJECTED": UserMessage("The provider rejected the request."),
+    "SUMMARY_MODEL_RUN_FAILED": UserMessage(
+        "Ollama could not run the model. Check the memory or pick a smaller model."
+    ),
     "SUMMARY_TIMEOUT": UserMessage("The model took too long to answer. Try again."),
     "SUMMARY_CONTEXT_TOO_LARGE": UserMessage(
-        "The transcript does not fit the model. Raise the Ollama context and "
-        "SUMMARIES_LOCAL_CONTEXT_TOKENS together."
+        "The transcript does not fit the model. Raise SUMMARIES_LOCAL_CONTEXT_TOKENS "
+        "or pick a smaller model."
     ),
     "SUMMARY_OUTPUT_LIMIT_REACHED": UserMessage(
         "The model used its whole output limit before finishing, often on hidden reasoning. "

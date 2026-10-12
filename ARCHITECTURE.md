@@ -285,7 +285,7 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | `SUMMARIES_PROVIDER` | `SummariesSettings.provider` | `local` | Provider the "Generate summary" button uses, `local` or `cloud` (choosing `cloud` is the opt-in and also needs a key; `SUMMARIES_CLOUD_ENABLED` was removed) |
 | `SUMMARIES_LOCAL_BASE_URL` | `SummariesSettings.local_base_url` | `http://127.0.0.1:11434/v1` | Local Ollama; the host must be `127.0.0.1`, `::1` or `localhost`. Local summaries use the native API at the same origin (`/api/chat`), so the `/v1` path is ignored |
 | `SUMMARIES_LOCAL_MODEL` | `SummariesSettings.local_model` | `qwen3:4b-instruct-2507-q4_K_M` | Ollama model name; fits 100% on an 8 GB GPU at 16k |
-| `SUMMARIES_LOCAL_CONTEXT_TOKENS` | `SummariesSettings.local_context_tokens` | `16384` | Context the service sends as `num_ctx` on every local request and plans against (must exceed the larger output limit + 600) |
+| `SUMMARIES_LOCAL_CONTEXT_TOKENS` | `SummariesSettings.local_context_tokens` | `16384` | Context the service sends as `num_ctx` on every local request and plans against (at least 1880; output limits are clamped to fit it) |
 | `SUMMARIES_UNLOAD_LOCAL_MODEL` | `SummariesSettings.unload_local_model` | `true` | Ask Ollama to unload the model after a local summary |
 | `SUMMARIES_CLOUD_PROVIDER` | `SummariesSettings.cloud_provider` | `opencode-go` | The cloud provider choice (one option today); decides the default name and base URL below |
 | `SUMMARIES_CLOUD_PROVIDER_NAME` | `SummariesSettings.cloud_provider_name` | `OpenCode Go` | Name shown in the "cloud" label (for example `cloud: OpenCode Go, deepseek-v4-pro`) |

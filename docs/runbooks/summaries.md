@@ -109,6 +109,7 @@ A finished summary appears in the Summary tab and as `summary.md` next to the me
 | Install says `found but not reachable` | The server is stopped. `sudo systemctl start ollama` or `ollama serve`, then re-run `make install`. |
 | Install says `model ... NOT found` | `ollama pull <model>` (the command is in the install output). The install never pulls. |
 | `SUMMARY_PROVIDER_UNAVAILABLE` | Ollama is unreachable from the service. Start it; `SUMMARIES_LOCAL_BASE_URL` must point at it. |
+| `SUMMARY_MODEL_RUN_FAILED` | Ollama is up but could not run the model (load failure or out of memory). Check `ollama ps` and `journalctl -u ollama`, free GPU memory or pick a smaller model. It is not retried. |
 | `SUMMARY_MODEL_NOT_FOUND` | The model is not in `ollama list`: pull it or fix `SUMMARIES_LOCAL_MODEL`. |
 | `SUMMARY_CONTEXT_TOO_LARGE` | The prompt reached the context window (Ollama would drop its start). Raise `SUMMARIES_LOCAL_CONTEXT_TOKENS` if the GPU still holds the model 100% (check `ollama ps`), or pick a smaller model. |
 | `SUMMARY_OUTPUT_LIMIT_REACHED` | The model used its whole output limit. Raise `SUMMARIES_MAX_OUTPUT_TOKENS` (final summary) or `SUMMARIES_NOTES_MAX_OUTPUT_TOKENS` (notes steps), or choose another model. |

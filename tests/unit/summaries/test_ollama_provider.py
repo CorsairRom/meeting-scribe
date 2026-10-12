@@ -13,6 +13,7 @@ from meeting_scribe.summaries.domain.errors import (
     SummaryCancelledError,
     SummaryContextTooLargeError,
     SummaryModelNotFoundError,
+    SummaryModelRunFailedError,
     SummaryOutputLimitReachedError,
     SummaryProviderRejectedError,
     SummaryProviderUnavailableError,
@@ -197,7 +198,9 @@ def test_the_local_client_never_trusts_the_proxy_environment(
         (404, SummaryModelNotFoundError),
         (400, SummaryProviderRejectedError),
         (401, SummaryProviderRejectedError),
-        (500, SummaryProviderUnavailableError),
+        (500, SummaryModelRunFailedError),
+        (501, SummaryModelRunFailedError),
+        (502, SummaryProviderUnavailableError),
         (503, SummaryProviderUnavailableError),
     ],
 )
@@ -229,6 +232,20 @@ def test_a_read_timeout_maps_to_timeout() -> None:
         raise httpx2.ReadTimeout("slow", request=request)
 
     assert isinstance(complete(make(slow)).failure(), SummaryTimeoutError)
+
+
+def test_a_server_error_of_a_reachable_ollama_is_not_called_unreachable_and_not_retried() -> None:
+    seen: list[httpx2.Request] = []
+
+    failure = complete(
+        make(lambda _r: httpx2.Response(500, text=BODY_MARKER), max_retries=3, requests=seen)
+    ).failure()
+
+    assert isinstance(failure, SummaryModelRunFailedError)
+    assert "unreachable" not in str(failure)
+    assert "memory" in str(failure)
+    assert "smaller model" in str(failure)
+    assert len(seen) == 1
 
 
 def test_a_server_error_is_retried_then_succeeds() -> None:
@@ -265,13 +282,43 @@ def test_a_failure_in_the_middle_of_a_stream_is_retried_once() -> None:
     assert len(seen) == 2
 
 
-def test_an_error_line_in_the_stream_is_unavailable_and_not_quoted() -> None:
+def test_an_error_line_in_the_stream_is_a_model_failure_not_quoted_and_not_retried() -> None:
+    seen: list[httpx2.Request] = []
     body = ndjson(part("partial"), {"error": BODY_MARKER})
 
-    failure = complete(make(lambda _r: ndjson_response(body))).failure()
+    failure = complete(
+        make(lambda _r: ndjson_response(body), max_retries=3, requests=seen)
+    ).failure()
+
+    assert isinstance(failure, SummaryModelRunFailedError)
+    assert BODY_MARKER not in str(failure)
+    assert "unreachable" not in str(failure)
+    assert len(seen) == 1
+
+
+@pytest.mark.parametrize("bad_line", ["this is not json", "[1, 2]", '"text"', "42"])
+def test_a_malformed_line_is_a_failed_stream_never_an_exception(bad_line: str) -> None:
+    seen: list[httpx2.Request] = []
+    body = ndjson(part("partial")) + bad_line.encode() + b"\n"
+
+    failure = complete(
+        make(lambda _r: ndjson_response(body), max_retries=1, requests=seen)
+    ).failure()
 
     assert isinstance(failure, SummaryProviderUnavailableError)
-    assert BODY_MARKER not in str(failure)
+    assert "unreachable" not in str(failure)
+    assert len(seen) == 2
+
+
+def test_a_null_or_missing_message_counts_as_no_text() -> None:
+    body = ndjson(
+        {"done": False, "message": None},
+        {"done": False},
+        part("answer"),
+        final(),
+    )
+
+    assert complete(make(lambda _r: ndjson_response(body))).unwrap().text == "answer"
 
 
 def test_a_stream_that_never_finishes_is_a_failure_not_a_summary() -> None:

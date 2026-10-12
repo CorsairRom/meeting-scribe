@@ -3,6 +3,7 @@
 The cloud API key is deliberately not a setting: it lives in the GNOME Keyring (ADR-009, spec 8a).
 """
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any, Literal, Self
@@ -18,6 +19,10 @@ from meeting_scribe.summaries.domain.request import MARGIN_TOKENS, CompletionLim
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 _LANGUAGE = re.compile(r"auto|[a-z]{2,3}")
 MAX_MODEL_NAME = 200
+MIN_INPUT_TOKENS = 1024
+"""Room a request must keep for its input: a larger output budget is clamped to leave this much."""
+MIN_FINAL_OUTPUT_TOKENS = 256
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -113,20 +118,17 @@ class SummariesSettings(MeetingScribeSettings):
         return value
 
     @model_validator(mode="after")
-    def _contexts_hold_the_output(self) -> Self:
-        needed = max(self.max_output_tokens, self.notes_max_output_tokens) + MARGIN_TOKENS
-        if self.local_context_tokens <= needed:
-            raise ValueError(
-                "SUMMARIES_LOCAL_CONTEXT_TOKENS must exceed the larger of "
-                "SUMMARIES_MAX_OUTPUT_TOKENS and SUMMARIES_NOTES_MAX_OUTPUT_TOKENS + "
-                f"{MARGIN_TOKENS}"
-            )
-        if self.cloud_context_tokens <= needed:
-            raise ValueError(
-                "SUMMARIES_CLOUD_CONTEXT_TOKENS must exceed the larger of "
-                "SUMMARIES_MAX_OUTPUT_TOKENS and SUMMARIES_NOTES_MAX_OUTPUT_TOKENS + "
-                f"{MARGIN_TOKENS}"
-            )
+    def _contexts_leave_room_for_input(self) -> Self:
+        """Reject only a context that cannot hold a useful request at all.
+
+        A context smaller than the output budgets asks for is not an error: ``limits_for`` clamps
+        the budgets, so a context saved before the 3072 default keeps loading.
+        """
+        needed = MIN_FINAL_OUTPUT_TOKENS + MARGIN_TOKENS + MIN_INPUT_TOKENS
+        if self.local_context_tokens < needed:
+            raise ValueError(f"SUMMARIES_LOCAL_CONTEXT_TOKENS must be at least {needed}")
+        if self.cloud_context_tokens < needed:
+            raise ValueError(f"SUMMARIES_CLOUD_CONTEXT_TOKENS must be at least {needed}")
         return self
 
     @property
@@ -143,10 +145,24 @@ class SummariesSettings(MeetingScribeSettings):
         return CLOUD_PROVIDERS[self.cloud_provider].session_header
 
     def limits_for(self, *, cloud: bool) -> CompletionLimits:
+        context = self.cloud_context_tokens if cloud else self.local_context_tokens
+        cap = context - MARGIN_TOKENS - MIN_INPUT_TOKENS
+        final, notes = min(self.max_output_tokens, cap), min(self.notes_max_output_tokens, cap)
+        if (final, notes) != (self.max_output_tokens, self.notes_max_output_tokens):
+            logger.warning(
+                "The context of %d tokens is too small for SUMMARIES_MAX_OUTPUT_TOKENS=%d and "
+                "SUMMARIES_NOTES_MAX_OUTPUT_TOKENS=%d; using %d and %d. Raise the context or "
+                "lower the output limits.",
+                context,
+                self.max_output_tokens,
+                self.notes_max_output_tokens,
+                final,
+                notes,
+            )
         return CompletionLimits(
             model=self.cloud_model if cloud else self.local_model,
             temperature=self.temperature,
-            max_output_tokens=self.max_output_tokens,
-            notes_output_tokens=self.notes_max_output_tokens,
-            context_tokens=self.cloud_context_tokens if cloud else self.local_context_tokens,
+            max_output_tokens=final,
+            context_tokens=context,
+            notes_output_tokens=notes,
         )

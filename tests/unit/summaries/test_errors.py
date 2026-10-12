@@ -11,6 +11,7 @@ CODES = {
     errors.SummaryRateLimitedError: "SUMMARY_RATE_LIMITED",
     errors.SummaryProviderRejectedError: "SUMMARY_PROVIDER_REJECTED",
     errors.SummaryTimeoutError: "SUMMARY_TIMEOUT",
+    errors.SummaryModelRunFailedError: "SUMMARY_MODEL_RUN_FAILED",
     errors.SummaryContextTooLargeError: "SUMMARY_CONTEXT_TOO_LARGE",
     errors.SummaryOutputLimitReachedError: "SUMMARY_OUTPUT_LIMIT_REACHED",
     errors.SummaryOutputInvalidError: "SUMMARY_OUTPUT_INVALID",

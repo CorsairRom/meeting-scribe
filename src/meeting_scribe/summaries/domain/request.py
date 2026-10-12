@@ -36,10 +36,6 @@ class CompletionLimits(BaseModel):
             return self
         return self.model_copy(update={"max_output_tokens": self.notes_output_tokens})
 
-    @property
-    def largest_output_tokens(self) -> int:
-        return max(self.max_output_tokens, self.notes_output_tokens or 0)
-
 
 class SummaryRequest(BaseModel):
     """Everything a summary needs; carries no meeting id, path or secret (AC-7)."""
@@ -57,5 +53,11 @@ class SummaryRequest(BaseModel):
 
     @property
     def usable_input_tokens(self) -> int:
-        """Context minus the largest output budget minus the margin: what one request may carry."""
-        return self.limits.context_tokens - self.limits.largest_output_tokens - MARGIN_TOKENS
+        """Context minus the final output budget minus the margin: the final request's input."""
+        return self.limits.context_tokens - self.limits.max_output_tokens - MARGIN_TOKENS
+
+    @property
+    def usable_notes_input_tokens(self) -> int:
+        """What a map or merge request may carry: its own, smaller output budget is reserved."""
+        notes = self.limits.for_notes().max_output_tokens
+        return self.limits.context_tokens - notes - MARGIN_TOKENS

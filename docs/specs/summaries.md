@@ -548,8 +548,10 @@ The real context window is the weak point of the local path, so the design assum
   `SUMMARIES_MAX_OUTPUT_TOKENS` (default 3072). The prompts also bound the length (section 3), because the token cap
   only cuts the answer, it does not make it shorter.
 - **Token estimate**: characters divided by 3 (conservative for Spanish and English; no tokenizer dependency).
-- **Usable input per request** = context - the larger output budget (3072 by default) - 600 (instructions and margin):
-  12712 tokens at the defaults, so a 2-hour meeting (about 10k estimated tokens) is a single pass.
+- **Usable input per request** = context - the output budget of that kind of step - 600 (instructions and margin).
+  The final request (single pass and reduce) reserves 3072: 12712 tokens at the defaults, so a 2-hour meeting (about
+  10k estimated tokens) is a single pass. Map and merge steps reserve the notes budget (768): 15016 tokens, so long
+  meetings use fewer, larger chunks.
 - **Single pass** when the whole transcript fits. Otherwise **map-reduce**:
   1. *Chunk* on utterance boundaries to the usable budget (an oversized utterance is split on sentences, then characters).
   2. *Map*: each chunk yields partial notes (topics, decisions, action items with owner, open questions) in compact Markdown.
@@ -748,6 +750,7 @@ New classes derive from `MeetingScribeError`; each is registered in `error-codes
 | `SUMMARY_AUTH_FAILED` | 401 or 403 | Check the key |
 | `SUMMARY_RATE_LIMITED` | 429 after the retries | Try again later |
 | `SUMMARY_PROVIDER_REJECTED` | Another 4xx (HTTP status only) | Check the provider settings |
+| `SUMMARY_MODEL_RUN_FAILED` | A reachable Ollama answers HTTP 500, or sends an error line in the stream (model load or out of memory); never retried | Check memory (`ollama ps`, `journalctl -u ollama`) or pick a smaller model |
 | `SUMMARY_TIMEOUT` | Step or total timeout | Retry; raise the timeout |
 | `SUMMARY_CONTEXT_TOO_LARGE` | Truncation guard, or no room or budget for the transcript | Raise the context and the matching setting |
 | `SUMMARY_OUTPUT_LIMIT_REACHED` | The model used the whole output limit | Raise `SUMMARIES_MAX_OUTPUT_TOKENS` (`SUMMARIES_NOTES_MAX_OUTPUT_TOKENS` for notes) or choose another model |
@@ -991,7 +994,8 @@ The owner answered all eight questions on 2026-10-11.
   applies to both.
 - **F5.3**: `SUMMARIES_CLOUD_PROVIDER_NAME` (default `OpenCode Go`) is a setting so the service builds the label
   `cloud: <name>, <model>`. `SUMMARIES_LOCAL_CONTEXT_TOKENS` and `SUMMARIES_CLOUD_CONTEXT_TOKENS` must exceed
-  the larger of `SUMMARIES_MAX_OUTPUT_TOKENS` and `SUMMARIES_NOTES_MAX_OUTPUT_TOKENS` plus 600.
+  at least 1880 (256 output + 600 margin + 1024 input); a context smaller than the output budgets plus the margin is not
+  rejected: the effective output budgets are clamped to `context - 600 - 1024` with a warning in the log.
 - **F5.3**: a connect or first-byte wait cannot be interrupted by a cancel (no stream exists yet); it is bounded by
   the connect timeout (5 s) and the read timeout capped by the time left.
 - **F5.9 (2026-10-12)**: the button says just "Generate summary"; a small caption under it names where it runs and

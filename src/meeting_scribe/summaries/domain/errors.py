@@ -36,6 +36,12 @@ class SummaryProviderRejectedError(SummaryError):
     error_code = "SUMMARY_PROVIDER_REJECTED"
 
 
+class SummaryModelRunFailedError(SummaryError):
+    """A reachable Ollama could not run the model (load failure, out of memory, server error)."""
+
+    error_code = "SUMMARY_MODEL_RUN_FAILED"
+
+
 class SummaryTimeoutError(SummaryError):
     error_code = "SUMMARY_TIMEOUT"
 

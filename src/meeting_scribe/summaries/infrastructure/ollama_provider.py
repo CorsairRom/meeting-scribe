@@ -28,6 +28,7 @@ from meeting_scribe.summaries.domain.errors import (
     SummaryContextTooLargeError,
     SummaryError,
     SummaryModelNotFoundError,
+    SummaryModelRunFailedError,
     SummaryOutputLimitReachedError,
     SummaryProviderRejectedError,
     SummaryProviderUnavailableError,
@@ -37,9 +38,9 @@ from meeting_scribe.summaries.domain.ports import CancelSignal, Completion, Mess
 from meeting_scribe.summaries.domain.request import CompletionLimits
 from meeting_scribe.summaries.infrastructure.provider_support import (
     CONNECT_TIMEOUT_SECONDS,
+    HTTP_SERVER_ERROR,
     Outcome,
     Watchdog,
-    is_transient_status,
     retry_after,
     run_with_retries,
     stopped_outcome,
@@ -49,6 +50,17 @@ TRUNCATION_MARGIN_TOKENS = 16
 """A prompt this close to ``num_ctx`` may already have lost its start."""
 _HTTP_NOT_FOUND = 404
 _HTTP_ERROR = 400
+_HTTP_RETRIABLE = frozenset({408, 409, 429, 502, 503, 504})
+"""Busy or in-between answers worth a retry. A plain 500 from a reachable Ollama means it could not
+run the model (load failure, out of memory); repeating it only loads the GPU again."""
+
+
+class _ModelFailureError(Exception):
+    """The stream reported an error line: Ollama is up but the model run failed."""
+
+
+class _BadStreamError(Exception):
+    """A line of the stream was not a JSON object."""
 
 
 class OllamaChatProvider:
@@ -120,10 +132,15 @@ class OllamaChatProvider:
                     watchdog.attach(response)
                     completion = self._read(response)
             except Exception as error:  # mapped below; nothing here may raise to the caller
-                return stopped_outcome(cancel, watchdog) or Outcome(
-                    Failure(self._map_error(error)), kind="midstream" if started else "transient"
-                )
+                return stopped_outcome(cancel, watchdog) or self._error_outcome(error, started)
         return stopped_outcome(cancel, watchdog) or self._finished(completion, limits)
+
+    def _error_outcome(self, error: Exception, started: bool) -> Outcome:
+        if isinstance(error, _ModelFailureError):
+            return Outcome(Failure(self._model_run_failed()))  # final: never retried
+        return Outcome(
+            Failure(self._map_error(error)), kind="midstream" if started else "transient"
+        )
 
     def _finished(self, completion: Completion | None, limits: CompletionLimits) -> Outcome:
         if completion is None:
@@ -139,10 +156,17 @@ class OllamaChatProvider:
         for line in response.iter_lines():
             if not line.strip():
                 continue
-            event = json.loads(line)
+            try:
+                event = json.loads(line)
+            except ValueError as error:
+                raise _BadStreamError from error
+            if not isinstance(event, dict):
+                raise _BadStreamError
             if "error" in event:
-                raise httpx2.ReadError("The Ollama stream reported an error.")
-            parts.append(event.get("message", {}).get("content") or "")
+                raise _ModelFailureError
+            message = event.get("message")
+            content = message.get("content") if isinstance(message, dict) else None
+            parts.append(content if isinstance(content, str) else "")
             if event.get("done"):
                 return Completion(
                     text="".join(parts).strip(),
@@ -155,7 +179,7 @@ class OllamaChatProvider:
     def _status_outcome(self, response: httpx2.Response, limits: CompletionLimits) -> Outcome:
         status = response.status_code
         failure = self._map_status(status, limits)
-        if is_transient_status(status):
+        if status in _HTTP_RETRIABLE:
             return Outcome(Failure(failure), kind="transient", delay=retry_after(response))
         return Outcome(Failure(failure))
 
@@ -188,6 +212,10 @@ class OllamaChatProvider:
             return SummaryTimeoutError(
                 "Ollama sent no data in time. Retry, or raise SUMMARIES_TIMEOUT_SECONDS."
             )
+        if isinstance(error, _BadStreamError):
+            return SummaryProviderUnavailableError(
+                "Ollama sent an answer the service could not read. Try again."
+            )
         return self._unavailable()
 
     def _map_status(self, status: int, limits: CompletionLimits) -> SummaryError:
@@ -196,10 +224,18 @@ class OllamaChatProvider:
                 f"The model is not available in Ollama. Run `ollama pull {limits.model}` "
                 "or fix SUMMARIES_LOCAL_MODEL."
             )
-        if is_transient_status(status):
+        if status in _HTTP_RETRIABLE:
             return self._unavailable()
+        if status >= HTTP_SERVER_ERROR:
+            return self._model_run_failed()
         return SummaryProviderRejectedError(
             f"Ollama rejected the request (HTTP {status}). Check the provider settings."
+        )
+
+    @staticmethod
+    def _model_run_failed() -> SummaryModelRunFailedError:
+        return SummaryModelRunFailedError(
+            "Ollama could not run the model; check memory or pick a smaller model."
         )
 
     @staticmethod

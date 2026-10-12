@@ -148,14 +148,14 @@ class GenerateSummary:
         if not request.lines:
             return Failure(SummaryNoSpeechError("There is nothing to summarize."))
         usable = request.usable_input_tokens
-        if usable <= 0:
+        if usable <= 0 or request.usable_notes_input_tokens <= 0:
             return Failure(_too_large("The context leaves no room for the transcript."))
         transcript = SEPARATOR.join(format_line(item) for item in request.lines)
         if fits(transcript, usable):
             chunks = 1
             final = self._ask(run, run.prompts.single_pass(transcript))
         else:
-            parts = chunk_transcript(request.lines, usable)
+            parts = chunk_transcript(request.lines, request.usable_notes_input_tokens)
             chunks = len(parts)
             run.total = chunks + 1
             reduced = self._map_reduce(run, parts, usable)
@@ -185,8 +185,12 @@ class GenerateSummary:
             if isinstance(answer, Failure):
                 return answer
             notes.append(answer.unwrap())
+        # The reduce request carries the final output budget (``usable``); a merge, which writes
+        # notes, may carry more.
         while not fits(run.prompts.notes_payload(notes), usable):
-            batches = pack_texts(notes, usable, run.prompts.notes_payload)
+            batches = pack_texts(
+                notes, run.request.usable_notes_input_tokens, run.prompts.notes_payload
+            )
             if len(batches) >= len(notes):
                 return Failure(_too_large("The partial notes cannot be merged within the context."))
             run.total += sum(1 for batch in batches if len(batch) > 1)

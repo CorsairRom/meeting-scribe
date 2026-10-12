@@ -152,16 +152,41 @@ def test_invalid_values_fail_at_load(
         SummariesSettings()
 
 
-def test_a_context_that_cannot_hold_the_output_and_the_margin_fails() -> None:
+def test_a_context_too_small_for_any_useful_input_still_fails() -> None:
     with pytest.raises(ValidationError, match="SUMMARIES_LOCAL_CONTEXT_TOKENS"):
-        SummariesSettings(local_context_tokens=2048, max_output_tokens=2048)
+        SummariesSettings(local_context_tokens=1500)
+    with pytest.raises(ValidationError, match="SUMMARIES_CLOUD_CONTEXT_TOKENS"):
+        SummariesSettings(cloud_context_tokens=1500)
 
 
-def test_a_context_that_cannot_hold_the_notes_output_and_the_margin_fails() -> None:
-    with pytest.raises(ValidationError, match="SUMMARIES_LOCAL_CONTEXT_TOKENS"):
-        SummariesSettings(
-            local_context_tokens=2048, max_output_tokens=256, notes_max_output_tokens=2000
-        )
+@pytest.mark.parametrize("context", [2649, 3000, 3672])
+def test_an_older_smaller_context_loads_and_the_final_output_is_clamped(
+    context: int, caplog: pytest.LogCaptureFixture
+) -> None:
+    settings = SummariesSettings(local_context_tokens=context)
+
+    with caplog.at_level("WARNING"):
+        local = settings.limits_for(cloud=False)
+
+    assert settings.max_output_tokens == 3072  # the saved value is kept
+    assert local.max_output_tokens == context - 600 - 1024
+    assert local.notes_output_tokens == 768
+    assert local.context_tokens == context
+    assert "SUMMARIES_MAX_OUTPUT_TOKENS" in caplog.text
+
+
+def test_a_context_that_holds_the_output_is_not_clamped(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level("WARNING"):
+        local = SummariesSettings().limits_for(cloud=False)
+
+    assert (local.max_output_tokens, local.notes_output_tokens) == (3072, 768)
+    assert caplog.text == ""
+
+
+def test_the_context_from_the_environment_is_clamped_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SUMMARIES_LOCAL_CONTEXT_TOKENS", "3000")
+
+    assert SummariesSettings().limits_for(cloud=False).max_output_tokens == 1376
 
 
 def test_labels_and_limits_come_from_the_settings() -> None:
