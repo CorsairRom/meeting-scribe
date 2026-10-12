@@ -38,7 +38,7 @@ def test_a_saved_value_has_the_file_source_and_is_not_locked(tmp_path: Path) -> 
 
     row = rows["summaries.local_model"]
     assert (row.value, row.source, row.locked) == ("m-file", "file", False)
-    assert row.default == "qwen3.5:9b"
+    assert row.default == "qwen3:4b-instruct-2507-q4_K_M"
 
 
 def test_the_environment_locks_the_field(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

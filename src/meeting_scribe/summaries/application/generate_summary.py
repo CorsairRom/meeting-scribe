@@ -181,7 +181,7 @@ class GenerateSummary:
     ) -> Result[list[str], SummaryError]:
         notes: list[str] = []
         for number, part in enumerate(parts, start=1):
-            answer = self._ask(run, run.prompts.map_notes(part, number, len(parts)))
+            answer = self._ask(run, run.prompts.map_notes(part, number, len(parts)), notes=True)
             if isinstance(answer, Failure):
                 return answer
             notes.append(answer.unwrap())
@@ -195,7 +195,7 @@ class GenerateSummary:
                 if len(batch) == 1:
                     merged.append(batch[0])
                     continue
-                answer = self._ask(run, run.prompts.merge_notes(batch))
+                answer = self._ask(run, run.prompts.merge_notes(batch), notes=True)
                 if isinstance(answer, Failure):
                     return answer
                 merged.append(answer.unwrap())
@@ -214,14 +214,18 @@ class GenerateSummary:
                 return body
         return Success(render_summary(run.request, body.unwrap(), headings))
 
-    def _ask(self, run: _Run, messages: list[Message]) -> Result[str, SummaryError]:
+    def _ask(
+        self, run: _Run, messages: list[Message], *, notes: bool = False
+    ) -> Result[str, SummaryError]:
         """One planned step: the request, then the progress report."""
-        answer = self._request(run, messages)
+        answer = self._request(run, messages, notes=notes)
         if isinstance(answer, Success):
             run.advance()
         return answer
 
-    def _request(self, run: _Run, messages: list[Message]) -> Result[str, SummaryError]:
+    def _request(
+        self, run: _Run, messages: list[Message], *, notes: bool = False
+    ) -> Result[str, SummaryError]:
         if (stopped := self._stopped(run)) is not None:
             return Failure(stopped)
         remaining = None
@@ -232,7 +236,7 @@ class GenerateSummary:
             remaining = max(remaining, MIN_CALL_SECONDS)
         completed = self._provider.complete(
             messages,
-            run.request.limits,
+            run.request.limits.for_notes() if notes else run.request.limits,
             _Either(run.cancel, run.stop),
             remaining,
             session_id=run.session_id,
@@ -279,7 +283,8 @@ def _accepted(completion: Completion) -> Result[str, SummaryError]:
         return Failure(
             SummaryOutputLimitReachedError(
                 "The model used its whole output limit before finishing the summary. "
-                "Raise SUMMARIES_MAX_OUTPUT_TOKENS or choose another model."
+                "Raise SUMMARIES_MAX_OUTPUT_TOKENS (or SUMMARIES_NOTES_MAX_OUTPUT_TOKENS for "
+                "the notes) or choose another model."
             )
         )
     if not completion.text.strip():

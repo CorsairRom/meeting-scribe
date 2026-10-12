@@ -25,7 +25,20 @@ class CompletionLimits(BaseModel):
     model: str
     temperature: float
     max_output_tokens: int
+    """Output budget of the final summary (and its repair)."""
     context_tokens: int
+    notes_output_tokens: int | None = None
+    """Output budget of a map or merge step, which writes short notes; ``None`` means the same."""
+
+    def for_notes(self) -> "CompletionLimits":
+        """The limits of a notes step: the same, with the small notes output budget."""
+        if self.notes_output_tokens is None:
+            return self
+        return self.model_copy(update={"max_output_tokens": self.notes_output_tokens})
+
+    @property
+    def largest_output_tokens(self) -> int:
+        return max(self.max_output_tokens, self.notes_output_tokens or 0)
 
 
 class SummaryRequest(BaseModel):
@@ -44,5 +57,5 @@ class SummaryRequest(BaseModel):
 
     @property
     def usable_input_tokens(self) -> int:
-        """Context minus the output limit minus the margin: what one request may carry."""
-        return self.limits.context_tokens - self.limits.max_output_tokens - MARGIN_TOKENS
+        """Context minus the largest output budget minus the margin: what one request may carry."""
+        return self.limits.context_tokens - self.limits.largest_output_tokens - MARGIN_TOKENS

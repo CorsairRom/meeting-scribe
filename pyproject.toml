@@ -166,6 +166,8 @@ ignore_imports = [
     "meeting_scribe.summaries.infrastructure.openai_provider -> openai",
     "meeting_scribe.summaries.infrastructure.openai_provider -> httpx2",
     "meeting_scribe.summaries.infrastructure.ollama_releaser -> httpx2",
+    "meeting_scribe.summaries.infrastructure.ollama_provider -> httpx2",
+    "meeting_scribe.summaries.infrastructure.provider_support -> httpx2",
     "meeting_scribe.summaries.infrastructure.model_listing -> httpx2",
 ]
 

@@ -33,6 +33,7 @@ from meeting_scribe.summaries.application.list_models import ListModels
 from meeting_scribe.summaries.domain.errors import SummaryModelsUnavailableError
 from meeting_scribe.summaries.domain.headings import EnglishHeadingCatalog
 from meeting_scribe.summaries.domain.ports import ModelEntry
+from meeting_scribe.summaries.infrastructure.ollama_provider import OllamaChatProvider
 from meeting_scribe.summaries.infrastructure.openai_provider import OpenAiCompatibleProvider
 from meeting_scribe.summaries.infrastructure.secret_service_store import SecretServiceKeyStore
 from meeting_scribe.summaries.infrastructure.summaries_settings import SummariesSettings
@@ -374,14 +375,12 @@ def test_the_real_summary_adapters_are_built_from_the_settings_without_any_call(
 
     assert isinstance(adapters.files, FilesystemSummaryFiles)
     assert isinstance(adapters.keys, SecretServiceKeyStore)
-    assert isinstance(adapters.local_provider, OpenAiCompatibleProvider)
+    assert isinstance(adapters.local_provider, OllamaChatProvider)
     assert isinstance(adapters.cloud_provider, OpenAiCompatibleProvider)
-    assert adapters.local_provider._reasoning_effort == "none"
+    assert adapters.local_provider._url == "http://127.0.0.1:11434/api/chat"
     assert adapters.cloud_provider._reasoning_effort is None
     assert adapters.cloud_provider._session_header == "x-opencode-session"
     assert str(adapters.cloud_provider._user_agent).startswith("meeting-scribe/")
-    assert adapters.local_provider._session_header is None
-    assert adapters.local_provider._user_agent is None
 
 
 def test_the_summary_controller_gets_its_providers_and_labels_from_the_settings() -> None:

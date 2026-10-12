@@ -9,10 +9,8 @@ read from the ``CloudKeyStore`` for each request and kept only for it.
 """
 
 import re
-import threading
 import time
-from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import httpx2
 import openai
@@ -40,46 +38,28 @@ from meeting_scribe.summaries.domain.ports import (
 )
 from meeting_scribe.summaries.domain.request import CompletionLimits
 from meeting_scribe.summaries.domain.session import new_session_id
+from meeting_scribe.summaries.infrastructure.provider_support import (
+    CONNECT_TIMEOUT_SECONDS,
+    HTTP_RATE_LIMITED,
+    HTTP_SERVER_ERROR,
+    HTTP_TRANSIENT,
+    Outcome,
+    Watchdog,
+    is_transient_status,
+    retry_after,
+    run_with_retries,
+    stopped_outcome,
+)
 
 LOCAL_PLACEHOLDER_KEY = "ollama"
 """Ollama requires an API key and ignores it."""
 LOCAL_REASONING_EFFORT = "none"
 """Turns the hidden thinking of local models off (verified on qwen3.5:9b, Ollama 0.18)."""
 TRUNCATION_MARGIN_TOKENS = 16
-CONNECT_TIMEOUT_SECONDS = 5.0
-_POLL_SECONDS = 0.05
 _THINK = re.compile(r"\A\s*<think>.*?</think>\s*", re.DOTALL)
 _HTTP_UNAUTHORIZED, _HTTP_FORBIDDEN, _HTTP_NOT_FOUND = 401, 403, 404
-_HTTP_RATE_LIMITED, _HTTP_SERVER_ERROR = 429, 500
-_HTTP_TRANSIENT = frozenset({408, 409})
-_BACKOFF_START_SECONDS = 0.5
-_BACKOFF_MAX_SECONDS = 8.0
-_RETRY_AFTER_MAX_SECONDS = 60.0
-
-
-@dataclass
-class _Outcome:
-    result: Result[Completion, SummaryError]
-    kind: Literal["final", "transient", "midstream"] = "final"
-    """``transient`` failed before the stream (retry with backoff); ``midstream`` broke after it."""
-    delay: float | None = None
-    """The provider's own ``Retry-After`` hint in seconds, when it sent one."""
-
-
-def _retry_after(response: httpx2.Response) -> float | None:
-    """The provider's ``retry-after-ms`` or ``retry-after`` (seconds) hint; ``None`` if absent.
-
-    A hint that is not a number or lies outside ``0..60`` seconds is ignored, so the caller falls
-    back to its own exponential backoff.
-    """
-    for header, divisor in (("retry-after-ms", 1000.0), ("retry-after", 1.0)):
-        try:
-            seconds = float(response.headers[header]) / divisor
-        except (KeyError, ValueError):
-            continue
-        if 0 <= seconds <= _RETRY_AFTER_MAX_SECONDS:
-            return seconds
-    return None
+_HTTP_RATE_LIMITED, _HTTP_SERVER_ERROR = HTTP_RATE_LIMITED, HTTP_SERVER_ERROR
+_HTTP_TRANSIENT = HTTP_TRANSIENT
 
 
 def _wire(messages: list[Message]) -> list[ChatCompletionMessageParam]:
@@ -87,51 +67,6 @@ def _wire(messages: list[Message]) -> list[ChatCompletionMessageParam]:
         "list[ChatCompletionMessageParam]",
         [{"role": m.role, "content": m.content} for m in messages],
     )
-
-
-class _Watchdog:
-    """Closes the stream when the user cancels or the time is up (only real time wakes a stall)."""
-
-    def __init__(self, cancel: CancelSignal, deadline: float | None) -> None:
-        self._cancel = cancel
-        self._deadline = deadline
-        self._lock = threading.Lock()
-        self._done = threading.Event()
-        self._stream: openai.Stream[ChatCompletionChunk] | None = None
-        self.reason: str | None = None
-        self._thread = threading.Thread(target=self._run, daemon=True)
-
-    def __enter__(self) -> "_Watchdog":
-        self._thread.start()
-        return self
-
-    def __exit__(self, *_exc: object) -> None:
-        self._done.set()
-        self._thread.join()
-
-    def attach(self, stream: "openai.Stream[ChatCompletionChunk]") -> None:
-        with self._lock:
-            self._stream = stream
-            if self.reason is not None:
-                stream.close()
-
-    def _run(self) -> None:
-        while not self._done.is_set():
-            wait = _POLL_SECONDS
-            if self._deadline is not None:
-                wait = min(wait, max(self._deadline - time.monotonic(), 0.0))
-            if self._cancel.wait(wait):
-                self._fire("cancel")
-                return
-            if self._deadline is not None and time.monotonic() >= self._deadline:
-                self._fire("deadline")
-                return
-
-    def _fire(self, reason: str) -> None:
-        with self._lock:
-            self.reason = reason
-            if self._stream is not None:
-                self._stream.close()
 
 
 class OpenAiCompatibleProvider:
@@ -189,36 +124,12 @@ class OpenAiCompatibleProvider:
         )
         options = self._extra_options(session_id or new_session_id())
         deadline = None if timeout_seconds is None else time.monotonic() + timeout_seconds
-        # ``max_retries`` is a budget per kind: up to that many transient retries, plus at most one
-        # mid-stream retry (none when it is 0), so a request can make 1 + max_retries + 1 attempts.
-        transient_retries = 0
-        midstream_retried = False
-        while True:
-            outcome = self._attempt(client, messages, limits, cancel, deadline, options)
-            if outcome.kind == "transient" and transient_retries < self._max_retries:
-                delay = outcome.delay
-                if delay is None:
-                    delay = min(_BACKOFF_START_SECONDS * 2**transient_retries, _BACKOFF_MAX_SECONDS)
-                transient_retries += 1
-            elif outcome.kind == "midstream" and not midstream_retried and self._max_retries > 0:
-                midstream_retried = True
-                delay = 0.0
-            else:
-                return outcome.result
-            stopped = self._pause(delay, cancel, deadline)
-            if stopped is not None:
-                return stopped.result
-
-    @staticmethod
-    def _pause(delay: float, cancel: CancelSignal, deadline: float | None) -> _Outcome | None:
-        """Wait ``delay`` seconds, ending early on a cancel or when the time left runs out."""
-        if deadline is not None:
-            delay = min(delay, max(deadline - time.monotonic(), 0.0))
-        if cancel.wait(delay) or cancel.is_set():
-            return _Outcome(Failure(SummaryCancelledError("The summary was cancelled.")))
-        if deadline is not None and time.monotonic() >= deadline:
-            return _Outcome(Failure(SummaryTimeoutError("The summary ran out of time.")))
-        return None
+        return run_with_retries(
+            lambda: self._attempt(client, messages, limits, cancel, deadline, options),
+            max_retries=self._max_retries,
+            cancel=cancel,
+            deadline=deadline,
+        )
 
     def _key(self) -> Result[str, SummaryError]:
         if not self._cloud:
@@ -235,14 +146,14 @@ class OpenAiCompatibleProvider:
         cancel: CancelSignal,
         deadline: float | None,
         options: dict[str, Any],
-    ) -> _Outcome:
+    ) -> Outcome:
         left = None if deadline is None else deadline - time.monotonic()
         if left is not None and left <= 0:
-            return _Outcome(Failure(SummaryTimeoutError("The summary ran out of time.")))
+            return Outcome(Failure(SummaryTimeoutError("The summary ran out of time.")))
         read = self._read_timeout if left is None else min(self._read_timeout, left)
         connect = CONNECT_TIMEOUT_SECONDS if left is None else min(CONNECT_TIMEOUT_SECONDS, left)
         started = False
-        with _Watchdog(cancel, deadline) as watchdog:
+        with Watchdog(cancel, deadline) as watchdog:
             try:
                 stream = client.chat.completions.create(
                     model=limits.model,
@@ -259,16 +170,16 @@ class OpenAiCompatibleProvider:
                 completion = self._read(stream)
             except Exception as error:  # mapped below; nothing here may raise to the caller
                 failure = self._map_error(error, limits)
-                return self._stopped(cancel, watchdog) or self._failed(error, failure, started)
-        stopped = self._stopped(cancel, watchdog)
+                return stopped_outcome(cancel, watchdog) or self._failed(error, failure, started)
+        stopped = stopped_outcome(cancel, watchdog)
         if stopped is not None:
             return stopped
         if completion is None:
-            return _Outcome(
+            return Outcome(
                 Failure(SummaryProviderUnavailableError("The provider stream ended early.")),
                 kind="midstream",
             )
-        return _Outcome(self._guard(completion, limits))
+        return Outcome(self._guard(completion, limits))
 
     def _extra_options(self, session_id: str) -> dict[str, Any]:
         options: dict[str, Any] = {}
@@ -279,29 +190,17 @@ class OpenAiCompatibleProvider:
         return options
 
     @staticmethod
-    def _failed(error: Exception, failure: SummaryError, started: bool) -> _Outcome:
+    def _failed(error: Exception, failure: SummaryError, started: bool) -> Outcome:
         result: Result[Completion, SummaryError] = Failure(failure)
         if started:
             # A status error cannot happen after the first byte; anything else is a broken stream.
-            return _Outcome(result, kind="midstream")
+            return Outcome(result, kind="midstream")
         if isinstance(error, openai.APIStatusError):
             status = error.status_code
-            if (
-                status in _HTTP_TRANSIENT
-                or status == _HTTP_RATE_LIMITED
-                or status >= _HTTP_SERVER_ERROR
-            ):
-                return _Outcome(result, kind="transient", delay=_retry_after(error.response))
-            return _Outcome(result)
-        return _Outcome(result, kind="transient")
-
-    @staticmethod
-    def _stopped(cancel: CancelSignal, watchdog: _Watchdog) -> _Outcome | None:
-        if cancel.is_set():
-            return _Outcome(Failure(SummaryCancelledError("The summary was cancelled.")))
-        if watchdog.reason == "deadline":
-            return _Outcome(Failure(SummaryTimeoutError("The summary ran out of time.")))
-        return None
+            if is_transient_status(status):
+                return Outcome(result, kind="transient", delay=retry_after(error.response))
+            return Outcome(result)
+        return Outcome(result, kind="transient")
 
     @staticmethod
     def _read(stream: "openai.Stream[ChatCompletionChunk]") -> Completion | None:

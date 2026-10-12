@@ -71,7 +71,7 @@ def test_explicit_init_values_still_win_over_everything(monkeypatch: pytest.Monk
 def test_the_file_layer_does_not_leak_into_later_loads() -> None:
     Settings.load(file_values={"summaries.local_model": "m-file"})
 
-    assert Settings.load().summaries.local_model == "qwen3.5:9b"
+    assert Settings.load().summaries.local_model == "qwen3:4b-instruct-2507-q4_K_M"
 
 
 def test_the_meetings_dir_comes_from_the_file_as_a_path(tmp_path: Path) -> None:
