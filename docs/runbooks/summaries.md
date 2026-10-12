@@ -82,8 +82,10 @@ The cloud is off by default. A cloud summary sends the transcript, with speaker 
 1. Store the API key in the GNOME Keyring, never in a file (BR-005):
    [`store-cloud-api-key.md`](store-cloud-api-key.md). The review app also has a **Set API key** action once the
    cloud is enabled; it writes to the same keyring entry.
-2. In the settings file set `SUMMARIES_CLOUD_ENABLED=true`. To make the button use the cloud, also set
-   `SUMMARIES_PROVIDER=cloud`; the button then says "(cloud)" and asks for confirmation before it sends anything.
+2. Choose the cloud as the provider: set `SUMMARIES_PROVIDER=cloud` (the Preferences window does the same).
+   That is the whole opt-in; the button then says "(cloud)" and asks for confirmation before it sends anything.
+   `SUMMARIES_CLOUD_ENABLED` no longer exists: a line that sets it to `false` while the provider is `cloud` keeps the
+   provider local (and the field locked) until you delete it.
    `SUMMARIES_CLOUD_MODEL` accepts any model the gateway serves on `/chat/completions` (default `deepseek-v4-pro`).
 3. Restart the service and press **Generate summary**; read the confirmation dialog and confirm only if you accept
    that the transcript leaves this computer.
@@ -111,7 +113,7 @@ A finished summary appears in the Summary tab and as `summary.md` next to the me
 | `SUMMARY_CONTEXT_TOO_LARGE`, or an answer cut short | Raise the Ollama context and `SUMMARIES_LOCAL_CONTEXT_TOKENS` together (above); the cut-short case also has `SUMMARIES_MAX_OUTPUT_TOKENS`. |
 | `SUMMARY_TIMEOUT` | The provider sent no data in time; retry, or raise `SUMMARIES_TIMEOUT_SECONDS`. A model that spills to the CPU is slow. |
 | `SUMMARY_GPU_BUSY`, `SUMMARY_BUSY` | A recording, processing or another summary holds the GPU. Wait; processing resumes by itself. |
-| `SUMMARY_CLOUD_DISABLED` | Set `SUMMARIES_CLOUD_ENABLED=true` and restart the service. |
+| `SUMMARY_CLOUD_DISABLED` | The provider is not `cloud`: set `SUMMARIES_PROVIDER=cloud` (or choose Cloud in Preferences). |
 | `SUMMARY_CLOUD_KEY_MISSING`, `..._LOCKED`, `..._UNAVAILABLE` | Store, unlock or reach the keyring: see [`store-cloud-api-key.md`](store-cloud-api-key.md). |
 | `SUMMARY_AUTH_FAILED`, `SUMMARY_RATE_LIMITED` | The gateway refused the key, or the plan limit is reached. Check the subscription and store the key again. |
 | "Open last summary" does nothing | No app is set for Markdown files. `xdg-mime default <app>.desktop text/markdown`. |

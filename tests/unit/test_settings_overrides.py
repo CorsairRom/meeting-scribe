@@ -1,5 +1,6 @@
 """``Settings.with_overrides`` and precedence (AC-3, AC-10): one rule set, a fixed order."""
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -8,7 +9,13 @@ from returns.result import Failure, Success
 from meeting_scribe.settings import Settings
 from meeting_scribe.summaries.infrastructure.summaries_settings import SummariesSettings
 
-_ENV = ("SUMMARIES_LOCAL_MODEL", "SUMMARIES_PROVIDER", "SUMMARIES_LANGUAGE", "STORAGE_MEETINGS_DIR")
+_ENV = (
+    "SUMMARIES_CLOUD_ENABLED",
+    "SUMMARIES_LOCAL_MODEL",
+    "SUMMARIES_PROVIDER",
+    "SUMMARIES_LANGUAGE",
+    "STORAGE_MEETINGS_DIR",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -139,3 +146,77 @@ def test_exposed_value_and_default_are_strings() -> None:
     assert settings.exposed_default("storage.meetings_dir") == str(
         Path.home() / "Documents" / "meetings"
     )
+
+
+# -- AC-13: the legacy SUMMARIES_CLOUD_ENABLED switch --
+
+
+def test_legacy_cloud_enabled_absent_is_ignored(caplog: pytest.LogCaptureFixture) -> None:
+    settings = Settings.load(file_values={"summaries.provider": "cloud"})
+
+    assert settings.summaries.provider == "cloud"
+    assert "SUMMARIES_CLOUD_ENABLED" not in caplog.text
+
+
+def test_legacy_cloud_enabled_false_keeps_the_cloud_off(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("SUMMARIES_CLOUD_ENABLED", "false")
+    monkeypatch.setenv("SUMMARIES_PROVIDER", "cloud")
+
+    with caplog.at_level(logging.WARNING):
+        settings = Settings.load()
+
+    assert settings.summaries.provider == "local"
+    source = settings.source_of("summaries.provider")
+    assert (source.source, source.locked, source.lock_reason) == ("env", True, "LEGACY_SETTING")
+    warnings = [r for r in caplog.records if "SUMMARIES_CLOUD_ENABLED" in r.getMessage()]
+    assert len(warnings) == 1
+    assert "false" not in warnings[0].getMessage().lower()
+
+
+def test_legacy_false_from_dotenv_also_overrides_a_saved_cloud(tmp_path: Path) -> None:
+    _dotenv(tmp_path, "SUMMARIES_CLOUD_ENABLED=false\n")
+
+    settings = Settings.load(file_values={"summaries.provider": "cloud"})
+
+    assert settings.summaries.provider == "local"
+    assert settings.source_of("summaries.provider").source == "dotenv"
+    assert settings.source_of("summaries.provider").lock_reason == "LEGACY_SETTING"
+
+
+def test_legacy_false_with_the_local_provider_changes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SUMMARIES_CLOUD_ENABLED", "false")
+
+    settings = Settings.load()
+
+    assert settings.summaries.provider == "local"
+    assert settings.source_of("summaries.provider").lock_reason == ""
+
+
+def test_legacy_cloud_enabled_true_is_ignored_with_one_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("SUMMARIES_CLOUD_ENABLED", "true")
+
+    with caplog.at_level(logging.WARNING):
+        settings = Settings.load()
+
+    assert settings.summaries.provider == "local"  # true never switches the cloud on
+    assert settings.source_of("summaries.provider").locked is False
+    warnings = [r for r in caplog.records if "SUMMARIES_CLOUD_ENABLED" in r.getMessage()]
+    assert len(warnings) == 1
+    assert "obsolete" in warnings[0].getMessage()
+
+
+def test_with_overrides_does_not_repeat_the_legacy_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("SUMMARIES_CLOUD_ENABLED", "true")
+
+    with caplog.at_level(logging.WARNING):
+        Settings.with_overrides({"summaries.language": "es"}).unwrap()
+
+    assert "SUMMARIES_CLOUD_ENABLED" not in caplog.text

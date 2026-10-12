@@ -25,8 +25,8 @@ Give the service the OpenCode Go API key without writing it to any file (ADR-009
 
    Paste the key when prompted and press Enter.
 
-2. Enable the cloud provider in your settings: `SUMMARIES_CLOUD_ENABLED=true` (and `SUMMARIES_PROVIDER=cloud` to make
-   it the button's provider). The key is not a setting.
+2. Choose the cloud provider in your settings: `SUMMARIES_PROVIDER=cloud` (choosing it is the whole opt-in; there is no
+   separate switch). The key is not a setting.
 
 ## Verify
 

@@ -1,5 +1,6 @@
 """Application settings: a root ``Settings`` composed of per-domain settings classes."""
 
+import logging
 import os
 from collections.abc import Mapping
 from functools import lru_cache
@@ -7,7 +8,7 @@ from pathlib import Path
 from typing import Any, Literal, Self
 
 from dotenv import dotenv_values
-from pydantic import Field, PrivateAttr, ValidationError, field_validator
+from pydantic import Field, PrivateAttr, TypeAdapter, ValidationError, field_validator
 from pydantic_settings import SettingsConfigDict
 from returns.result import Failure, Result, Success
 
@@ -45,6 +46,11 @@ __all__ = [
     "xdg_settings_file",
 ]
 
+logger = logging.getLogger(__name__)
+
+LEGACY_CLOUD_ENABLED = "SUMMARIES_CLOUD_ENABLED"
+LEGACY_SETTING = "LEGACY_SETTING"
+
 type LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
@@ -76,7 +82,7 @@ class Settings(MeetingScribeSettings):
     _sources: dict[str, FieldSource] = PrivateAttr(default_factory=dict)
 
     @classmethod
-    def load(cls, file_values: Mapping[str, str] | None = None) -> Self:
+    def load(cls, file_values: Mapping[str, str] | None = None, *, log_legacy: bool = True) -> Self:
         """Build settings from the environment and note the env file in effect.
 
         ``file_values`` are the user's saved values (``settings.json``): they fill only what the
@@ -92,6 +98,9 @@ class Settings(MeetingScribeSettings):
             settings = cls()
         settings._env_files = env_files
         settings._sources = _field_sources(saved, env_files)
+        locked = _migrate_legacy_cloud_switch(settings, env_files, log=log_legacy)
+        if locked is not None:
+            settings._sources["summaries.provider"] = locked
         return settings
 
     @classmethod
@@ -113,7 +122,7 @@ class Settings(MeetingScribeSettings):
         if problems:
             return Failure(problems)
         try:
-            return Success(cls.load(file_values=values))
+            return Success(cls.load(file_values=values, log_legacy=False))
         except ValidationError as error:
             return Failure(_problems_of(error, ""))
 
@@ -207,3 +216,55 @@ def _problems_of(error: ValidationError, section: str) -> list[FieldProblem]:
         message = str(detail["msg"]).removeprefix("Value error, ")
         problems.append(FieldProblem(key, FieldCode.INVALID, message))
     return problems
+
+
+def _legacy_cloud_switch(
+    env_files: tuple[Path, ...],
+) -> tuple[Literal["env", "dotenv"], bool] | None:
+    """The obsolete ``SUMMARIES_CLOUD_ENABLED`` in the environment or ``.env`` (else None)."""
+    raw: str | None = None
+    layer: Literal["env", "dotenv"] = "env"
+    for name, value in os.environ.items():
+        if name.upper() == LEGACY_CLOUD_ENABLED:
+            raw = value
+    if raw is None:
+        layer = "dotenv"
+        for env_file in env_files:
+            for name, value in dotenv_values(env_file, encoding="utf-8").items():
+                if name.upper() == LEGACY_CLOUD_ENABLED and value is not None:
+                    raw = value
+    if raw is None:
+        return None
+    try:
+        return layer, TypeAdapter(bool).validate_python(raw.strip().lower())
+    except ValidationError:
+        return None
+
+
+def _migrate_legacy_cloud_switch(
+    settings: Settings, env_files: tuple[Path, ...], *, log: bool
+) -> FieldSource | None:
+    """Nobody who deliberately kept the cloud off is switched on by the upgrade (spec section 7).
+
+    Absent or true: ignored (true with one warning). Explicitly false while the provider is cloud:
+    the provider resolves to local, locked with the ``LEGACY_SETTING`` reason. Values are never
+    logged; nothing is rewritten. Returns the source that locks the provider, if any.
+    """
+    legacy = _legacy_cloud_switch(env_files)
+    if legacy is None:
+        return None
+    layer, enabled = legacy
+    if not enabled and settings.summaries.provider == "cloud":
+        settings.summaries = settings.summaries.model_copy(update={"provider": "local"})
+        if log:
+            logger.warning(
+                "%s is obsolete and keeps the cloud off: the provider stays local. "
+                "Delete that line to choose the provider in Preferences.",
+                LEGACY_CLOUD_ENABLED,
+            )
+        return FieldSource(layer, LEGACY_SETTING)
+    if log:
+        logger.warning(
+            "%s is obsolete and ignored: the provider setting decides.", LEGACY_CLOUD_ENABLED
+        )
+    return None

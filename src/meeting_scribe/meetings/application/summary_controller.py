@@ -62,6 +62,7 @@ logger = logging.getLogger(__name__)
 type ProviderId = Literal["local", "cloud"]
 type SummaryState = Literal["NONE", "RUNNING", "DONE", "FAILED"]
 type JobStarter = Callable[[Callable[[], None]], object]
+type SummaryConfigSource = Callable[[], "SummaryConfig"]
 
 
 @dataclass(frozen=True)
@@ -83,10 +84,14 @@ class ConfiguredProvider:
 class SummaryConfig:
     local: ConfiguredProvider
     cloud: ConfiguredProvider
-    cloud_enabled: bool
     default_provider: ProviderId
     language: str  # "auto" follows the meeting; anything else is an override
     total_timeout_seconds: float
+
+    @property
+    def cloud_enabled(self) -> bool:
+        """Choosing the cloud provider IS the opt-in; there is no separate switch."""
+        return self.default_provider == "cloud"
 
 
 @dataclass(frozen=True)
@@ -141,11 +146,16 @@ class _Job:
     """The one running summary: what to run, how to stop it and how far it got."""
 
     def __init__(
-        self, meeting_id: str, option: ConfiguredProvider, request: SummaryRequest
+        self,
+        meeting_id: str,
+        option: ConfiguredProvider,
+        request: SummaryRequest,
+        total_timeout_seconds: float,
     ) -> None:
         self.meeting_id = meeting_id
         self.option = option
         self.request = request
+        self.total_timeout_seconds = total_timeout_seconds  # the config the job started with
         self.cancel = threading.Event()
         self.step = 0
         self.total = 1
@@ -167,7 +177,7 @@ class SummaryController:
         clock: Clock,
         lease: GpuLease,
         keys: CloudKeyStore,
-        config: SummaryConfig,
+        config: SummaryConfigSource,
         *,
         events: SummaryEvents | None = None,
         start_job: JobStarter | None = None,
@@ -180,7 +190,7 @@ class SummaryController:
         self._clock = clock
         self._lease = lease
         self._keys = keys
-        self._config = config
+        self._config_source = config  # read once per request; a running job keeps its own copy
         self._events: SummaryEvents = events or NullSummaryEvents()
         self._start_job: JobStarter = start_job or _default_starter
         self._on_gpu_free = on_gpu_free
@@ -199,14 +209,15 @@ class SummaryController:
 
     def providers(self) -> tuple[ProviderRow, ProviderRow]:
         """Local is not probed; the cloud row says only whether it is enabled (no key read)."""
-        config = self._config
+        config = self._config_source()
         local, cloud = config.local, config.cloud
         return (
-            self._row(local, available=True, reason=""),
+            self._row(local, available=True, reason="", default_provider=config.default_provider),
             self._row(
                 cloud,
                 available=config.cloud_enabled,
                 reason="" if config.cloud_enabled else SummaryCloudDisabledError.error_code,
+                default_provider=config.default_provider,
             ),
         )
 
@@ -214,17 +225,18 @@ class SummaryController:
         self, meeting_id: str, provider_id: str, cloud_confirmed: bool
     ) -> Result[str, MeetingScribeError]:
         """Start a summary and return ``RUNNING`` at once; the model runs on the job thread."""
-        option = self._option(provider_id)
+        config = self._config_source()  # one reading: gate, snapshot and job agree
+        option = self._option(config, provider_id)
         if isinstance(option, Failure):
             return option
-        gated = self._cloud_gate(option.unwrap(), cloud_confirmed)
+        gated = self._cloud_gate(config, option.unwrap(), cloud_confirmed)
         if isinstance(gated, Failure):
             return gated
         with self._lock.hold():
-            snapshot = self._snapshot(meeting_id, option.unwrap())
+            snapshot = self._snapshot(config, meeting_id, option.unwrap())
         if isinstance(snapshot, Failure):
             return snapshot
-        job = _Job(meeting_id, option.unwrap(), snapshot.unwrap())
+        job = _Job(meeting_id, option.unwrap(), snapshot.unwrap(), config.total_timeout_seconds)
         claimed = self._claim(job)
         if isinstance(claimed, Failure):
             return claimed
@@ -364,7 +376,7 @@ class SummaryController:
                     job.request,
                     job.cancel,
                     lambda step, total: self._progress(job, step, total),
-                    self._config.total_timeout_seconds,
+                    job.total_timeout_seconds,
                 )
                 settled = self._settle(job, result)
             except Exception:  # the thread must always end the job
@@ -488,21 +500,25 @@ class SummaryController:
 
     # -- snapshot and reads (called with the lock held) --
 
-    def _option(self, provider_id: str) -> Result[ConfiguredProvider, MeetingScribeError]:
-        for option in (self._config.local, self._config.cloud):
+    @staticmethod
+    def _option(
+        config: SummaryConfig, provider_id: str
+    ) -> Result[ConfiguredProvider, MeetingScribeError]:
+        for option in (config.local, config.cloud):
             if option.id == provider_id:
                 return Success(option)
         return Failure(InvalidValueError(f"Unknown summary provider '{provider_id}'."))
 
+    @staticmethod
     def _cloud_gate(
-        self, option: ConfiguredProvider, confirmed: bool
+        config: SummaryConfig, option: ConfiguredProvider, confirmed: bool
     ) -> Result[None, MeetingScribeError]:
         if not option.cloud:
             return Success(None)
-        if not self._config.cloud_enabled:
+        if not config.cloud_enabled:
             return Failure(
                 SummaryCloudDisabledError(
-                    "The cloud provider is off. Enable SUMMARIES_CLOUD_ENABLED."
+                    "The cloud provider is not selected. Choose Cloud in Preferences."
                 )
             )
         if not confirmed:
@@ -533,7 +549,7 @@ class SummaryController:
         return found
 
     def _snapshot(
-        self, meeting_id: str, option: ConfiguredProvider
+        self, config: SummaryConfig, meeting_id: str, option: ConfiguredProvider
     ) -> Result[SummaryRequest, MeetingScribeError]:
         found = self._done(meeting_id)
         if isinstance(found, Failure):
@@ -545,7 +561,7 @@ class SummaryController:
         participants, lines = material.unwrap()
         if not lines:
             return Failure(SummaryNoSpeechError("There is nothing to summarize."))
-        language = self._config.language
+        language = config.language
         if language == "auto":
             language = meeting.processing.detected_language or "en"
         return Success(
@@ -654,12 +670,16 @@ class SummaryController:
         )
 
     def _label(self, info: SummaryInfo) -> str:
-        for option in (self._config.local, self._config.cloud):
+        config = self._config_source()
+        for option in (config.local, config.cloud):
             if option.id == info.provider:
                 return option.label
         return info.provider
 
-    def _row(self, option: ConfiguredProvider, *, available: bool, reason: str) -> ProviderRow:
+    @staticmethod
+    def _row(
+        option: ConfiguredProvider, *, available: bool, reason: str, default_provider: ProviderId
+    ) -> ProviderRow:
         return ProviderRow(
             id=option.id,
             label=option.label,
@@ -667,7 +687,7 @@ class SummaryController:
             model=option.model,
             available=available,
             reason=reason,
-            default=option.id == self._config.default_provider,
+            default=option.id == default_provider,
         )
 
 

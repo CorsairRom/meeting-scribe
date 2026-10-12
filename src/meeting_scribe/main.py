@@ -4,6 +4,7 @@ import asyncio
 import logging
 import signal
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from dbus_fast import NameFlag, RequestNameReply
@@ -139,6 +140,7 @@ class Application:
     events: ProcessingEventHub  # D-Bus signals and notifications subscribe here
     summaries: SummaryController  # one summary at a time, sharing the GPU lease
     summary_events: SummaryEventHub  # the Summaries1 signals subscribe here
+    summary_config: "LiveSummaryConfig"  # the live summary settings; ``apply`` swaps them
 
 
 def _real_recording_adapters(settings: Settings) -> RecordingAdapters:
@@ -222,11 +224,34 @@ def build_summary_config(settings: Settings, ports: SummaryAdapters) -> SummaryC
                 ports.cloud_provider, ports.cloud_releaser, catalog=ports.headings
             ),
         ),
-        cloud_enabled=summaries.cloud_enabled,
         default_provider=summaries.provider,
         language=summaries.language,
         total_timeout_seconds=summaries.total_timeout_seconds,
     )
+
+
+class LiveSummaryConfig:
+    """The summary config the controller reads on every request (``SummaryConfigSource``).
+
+    ``apply`` rebuilds the providers, labels and limits from new settings and swaps the reference
+    in one assignment: a running job keeps the config it started with, the next request sees the
+    new one. Nothing is sent and no key is read while rebuilding (spec preferences.md, A-5).
+    """
+
+    def __init__(
+        self,
+        settings: Settings,
+        ports_for: Callable[[Settings], SummaryAdapters],
+        initial_ports: SummaryAdapters,
+    ) -> None:
+        self._ports_for = ports_for
+        self._config = build_summary_config(settings, initial_ports)
+
+    def __call__(self) -> SummaryConfig:
+        return self._config
+
+    def apply(self, settings: Settings) -> None:
+        self._config = build_summary_config(settings, self._ports_for(settings))
 
 
 def build_processing_config(settings: Settings) -> ProcessingConfig:
@@ -267,7 +292,11 @@ def create_app(
         logger.info("config source: no .env file found, using process environment and defaults")
     adapters = recording_adapters or _real_recording_adapters(settings)
     processing_ports = processing_adapters or _real_processing_adapters(settings)
-    summary_ports = summary_adapters or _real_summary_adapters(settings)
+    ports_for: Callable[[Settings], SummaryAdapters] = (
+        _real_summary_adapters if summary_adapters is None else (lambda _settings: summary_adapters)
+    )
+    summary_ports = ports_for(settings)
+    summary_config = LiveSummaryConfig(settings, ports_for, summary_ports)
     lease = InMemoryGpuLease()  # one GPU rule for recording, processing and local summaries
     events = ProcessingEventHub()
     if settings.processing.notify:
@@ -306,7 +335,7 @@ def create_app(
         clock=processing_ports.clock,
         lease=lease,
         keys=summary_ports.keys,
-        config=build_summary_config(settings, summary_ports),
+        config=summary_config,
         events=summary_events,
         on_gpu_free=processing.wake,
     )
@@ -318,6 +347,7 @@ def create_app(
         events=events,
         summaries=summaries,
         summary_events=summary_events,
+        summary_config=summary_config,
     )
 
 

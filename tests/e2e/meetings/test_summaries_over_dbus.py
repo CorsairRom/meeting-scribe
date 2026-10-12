@@ -97,8 +97,8 @@ def test_the_providers_come_from_the_service_with_the_cloud_label(
     async def scenario(session: Session) -> None:
         rows = [_plain(row) for row in await session.summaries.call_providers()]
         assert [(r["id"], r["cloud"], r["available"], r["default"]) for r in rows] == [
-            ("local", False, True, True),
-            ("cloud", True, True, False),
+            ("local", False, True, False),
+            ("cloud", True, True, True),
         ]
         assert "cloud" in rows[1]["label"]
         assert rows[0]["label"].startswith("Local (")

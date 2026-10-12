@@ -126,8 +126,8 @@ def test_the_gateway_speaks_the_real_summaries_contract(tmp_path: Path, bus_addr
     results = out["results"]
     assert "timeout" not in results, out
     assert results["providers"] == [
-        ["local", False, True, True, False],
-        ["cloud", True, True, False, True],
+        ["local", False, True, False, False],
+        ["cloud", True, True, True, True],
     ]
     assert results["status_none"] == ["NONE", False, False, ""]
     assert results["not_confirmed"] == ["err", "SUMMARY_CLOUD_NOT_CONFIRMED"]

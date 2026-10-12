@@ -43,7 +43,6 @@ def test_defaults_follow_the_spec() -> None:
     assert settings.local_model == "qwen3.5:9b"
     assert settings.local_context_tokens == 4096
     assert settings.unload_local_model is True
-    assert settings.cloud_enabled is False
     assert settings.cloud_provider_name == "OpenCode Go"
     assert settings.cloud_base_url == "https://opencode.ai/zen/go/v1"
     assert settings.cloud_model == "deepseek-v4-pro"
@@ -58,18 +57,13 @@ def test_defaults_follow_the_spec() -> None:
 
 def test_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SUMMARIES_PROVIDER", "cloud")
-    monkeypatch.setenv("SUMMARIES_CLOUD_ENABLED", "true")
     monkeypatch.setenv("SUMMARIES_CLOUD_MODEL", "glm-test")
     monkeypatch.setenv("SUMMARIES_LANGUAGE", "es")
     monkeypatch.setenv("SUMMARIES_MAX_RETRIES", "0")
 
     settings = SummariesSettings()
 
-    assert (settings.provider, settings.cloud_enabled, settings.cloud_model) == (
-        "cloud",
-        True,
-        "glm-test",
-    )
+    assert (settings.provider, settings.cloud_model) == ("cloud", "glm-test")
     assert (settings.language, settings.max_retries) == ("es", 0)
 
 
