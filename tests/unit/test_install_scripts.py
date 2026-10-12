@@ -578,8 +578,10 @@ def test_wayland_log_out_hint_when_enable_fails(sandbox: Env) -> None:
 
 def test_install_prints_a_summary_with_the_config_location(sandbox: Env) -> None:
     result = sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_GDBUS_MODE="idle")
-    config = sandbox.home / ".config" / "meeting-scribe" / ".env"
-    assert str(config) in result.stdout
+    settings = sandbox.home / ".config" / "meeting-scribe" / "settings.json"
+    assert "Preferences" in result.stdout
+    assert str(settings) in result.stdout
+    assert "developer override" in result.stdout
     assert "service" in result.stdout.lower()
     assert "extension" in result.stdout.lower()
 
@@ -1316,3 +1318,35 @@ def test_a_model_name_containing_a_hash_is_kept_when_no_space_precedes_it(sandbo
     (config / ".env").write_text("SUMMARIES_LOCAL_MODEL=org/model#1\n")
     result = sandbox.run(INSTALL, **IDLE)
     assert "model org/model#1 NOT found" in _summary(result)
+
+
+def _write_settings_json(sandbox: Env, text: str) -> None:
+    config = sandbox.home / ".config" / "meeting-scribe"
+    config.mkdir(parents=True, exist_ok=True)
+    (config / "settings.json").write_text(text)
+
+
+def test_the_configured_model_comes_from_the_preferences_file(sandbox: Env) -> None:
+    _write_settings_json(
+        sandbox,
+        '{"version": 1, "values": {"summaries.provider": "local",'
+        ' "summaries.local_model": "gemma3:4b"}}\n',
+    )
+    result = sandbox.run(INSTALL, FAKE_OLLAMA_MODEL="gemma3:4b", **IDLE)
+    assert "model gemma3:4b present" in _summary(result)
+
+
+def test_the_environment_and_dotenv_override_the_preferences_file(sandbox: Env) -> None:
+    _write_settings_json(sandbox, '{"version":1,"values":{"summaries.local_model":"gemma3:4b"}}')
+    from_env = sandbox.run(INSTALL, SUMMARIES_LOCAL_MODEL="mistral:7b", **IDLE)
+    assert "model mistral:7b NOT found" in _summary(from_env)
+    config = sandbox.home / ".config" / "meeting-scribe"
+    (config / ".env").write_text("SUMMARIES_LOCAL_MODEL=llama3.2\n")
+    from_dotenv = sandbox.run(INSTALL, **IDLE)
+    assert "model llama3.2 present" in _summary(from_dotenv)
+
+
+def test_an_unreadable_preferences_file_falls_back_to_the_default_model(sandbox: Env) -> None:
+    _write_settings_json(sandbox, "not json at all")
+    result = sandbox.run(INSTALL, **IDLE)
+    assert "model qwen3:4b-instruct-2507-q4_K_M present" in _summary(result)

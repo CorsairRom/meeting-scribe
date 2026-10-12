@@ -32,4 +32,5 @@ rmdir "$INSTALL_ROOT" 2>/dev/null || true
 uv tool uninstall meeting-scribe || true
 
 echo
-echo "meeting-scribe uninstalled. Your meetings and $CONFIG_HOME/meeting-scribe/.env were left untouched."
+echo "meeting-scribe uninstalled. Your meetings, $CONFIG_HOME/meeting-scribe/settings.json and .env were left untouched."
+echo "(The cloud API key, if you stored one, stays in the GNOME Keyring: remove it in Seahorse.)"
