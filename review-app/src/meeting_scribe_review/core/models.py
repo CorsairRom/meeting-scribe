@@ -134,3 +134,24 @@ class SetOutcome:
     restart_required: tuple[str, ...]
     apply_failed: bool
     errors: tuple[FieldIssue, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ModelOption:
+    """One row of ``Settings1.ListModels``; an unsupported one is shown but never selectable."""
+
+    id: str
+    supported: bool
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ModelList:
+    """``Settings1.ListModels``: ``status`` is ``OK`` or the code of why there is no list."""
+
+    status: str
+    models: tuple[ModelOption, ...] = ()
+
+    @property
+    def available(self) -> bool:
+        return self.status == "OK"

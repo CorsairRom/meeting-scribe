@@ -11,7 +11,9 @@ import os
 from pathlib import Path
 
 import pytest
+from returns.result import Success
 
+from meeting_scribe.summaries.domain.ports import ModelEntry
 from tests.e2e.rig import ServiceRig, running
 from tests.system_python import INTERPRETER, skip_without_toolkit
 
@@ -57,6 +59,8 @@ late = Late()
 def shape(value):
     if isinstance(value, list):
         return [[row.key, row.value, row.source, row.locked, row.apply] for row in value]
+    if hasattr(value, "models"):
+        return [value.status, [[m.id, m.supported, m.reason] for m in value.models]]
     if hasattr(value, "errors"):
         return [list(value.applied), list(value.restart_required), value.apply_failed,
                 [[e.key, e.code] for e in value.errors]]
@@ -68,6 +72,7 @@ steps = [
     ("set_good", lambda d: gateway.set_values({"summaries.language": "es"}, d)),
     ("pending", lambda d: gateway.restart_required(d)),
     ("after", lambda d: gateway.get_all(d)),
+    ("models", lambda d: gateway.list_models("cloud", d)),
 ]
 
 def register_late(done):
@@ -130,6 +135,12 @@ async def _client(address: str) -> dict:
 def test_the_gateway_speaks_the_real_settings_contract(tmp_path: Path, bus_address: str) -> None:
     skip_without_toolkit()
     rig = ServiceRig(tmp_path, bus_address=bus_address)
+    rig.cloud_models.result = Success(
+        [
+            ModelEntry(id="glm-5"),
+            ModelEntry(id="gpt-5", supported=False, reason="NOT_SUPPORTED_YET"),
+        ]
+    )
 
     async def main() -> dict:
         async with running(rig, bus_address):
@@ -146,4 +157,8 @@ def test_the_gateway_speaks_the_real_settings_contract(tmp_path: Path, bus_addre
     assert results["after"][2][:3] == ["summaries.language", "es", "file"]
     assert ["changed", ["summaries.language"]] in out["events"]
     assert ["late", True] in out["events"]  # told the current availability on registering
+    assert results["models"] == [
+        "OK",
+        [["glm-5", True, ""], ["gpt-5", False, "NOT_SUPPORTED_YET"]],
+    ]
     assert results["unwatched"] is True

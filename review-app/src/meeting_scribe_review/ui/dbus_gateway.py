@@ -28,6 +28,7 @@ from meeting_scribe_review.core.gateway import (
 )
 from meeting_scribe_review.core.models import (
     MeetingSummary,
+    ModelList,
     ProviderRow,
     SetOutcome,
     SettingsField,
@@ -133,6 +134,9 @@ class DBusGateway:
 
     def restart(self, done: Callback[str]) -> None:
         self._settings.call("Restart", "", (), parsers.parse_restarting, done)
+
+    def list_models(self, scope: str, done: Callback[ModelList]) -> None:
+        self._settings.call("ListModels", "s", (scope,), parsers.parse_model_list, done)
 
     def watch_settings(self, listener: SettingsListener) -> None:
         """Receive ``SettingsChanged`` and the availability of the service's bus name."""

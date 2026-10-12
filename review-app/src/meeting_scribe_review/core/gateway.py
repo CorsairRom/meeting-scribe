@@ -11,6 +11,7 @@ from meeting_scribe_review.core.errors import ServiceError
 from meeting_scribe_review.core.models import (
     KeyStatus,
     MeetingSummary,
+    ModelList,
     ProviderRow,
     SetOutcome,
     SettingsField,
@@ -116,6 +117,10 @@ class SettingsGateway(Protocol):
     def restart_required(self, done: Callback[tuple[str, ...]]) -> None: ...
 
     def restart(self, done: Callback[str]) -> None: ...
+
+    def list_models(self, scope: str, done: Callback[ModelList]) -> None:
+        """The models a scope (``local`` or ``cloud``) offers; the key stays with the service."""
+        ...
 
     def watch_settings(self, listener: SettingsListener) -> None: ...
 

@@ -5,9 +5,16 @@ from typing import Any
 import pytest
 
 from meeting_scribe_review.core.errors import INVALID_REPLY, ServiceError
-from meeting_scribe_review.core.models import FieldIssue, SetOutcome, SettingsField
+from meeting_scribe_review.core.models import (
+    FieldIssue,
+    ModelList,
+    ModelOption,
+    SetOutcome,
+    SettingsField,
+)
 from meeting_scribe_review.core.parsers import (
     parse_keys,
+    parse_model_list,
     parse_restarting,
     parse_set_outcome,
     parse_settings_fields,
@@ -127,3 +134,39 @@ def test_the_settings_signal_reaches_the_listener_and_a_malformed_one_is_dropped
     assert not dispatch_settings_signal(rec, "SettingsChanged", ([1],))
     assert not dispatch_settings_signal(rec, "Other", (["x"],))
     assert rec.keys == [("summaries.language",)]
+
+
+def test_a_model_list_reply_becomes_a_model_list() -> None:
+    reply = {
+        "status": "OK",
+        "models": [["glm-5", True, ""], ["gpt-5", False, "NOT_SUPPORTED_YET"]],
+    }
+
+    assert parse_model_list(reply) == Ok(
+        ModelList(
+            "OK",
+            (ModelOption("glm-5", True, ""), ModelOption("gpt-5", False, "NOT_SUPPORTED_YET")),
+        )
+    )
+
+
+def test_an_unavailable_list_has_a_status_and_no_models() -> None:
+    reply = {"status": "SUMMARY_CLOUD_KEY_MISSING", "models": []}
+
+    assert parse_model_list(reply) == Ok(ModelList("SUMMARY_CLOUD_KEY_MISSING", ()))
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"models": []},
+        {"status": "OK"},
+        {"status": 1, "models": []},
+        {"status": "OK", "models": "glm"},
+        {"status": "OK", "models": [["glm-5", True]]},
+        {"status": "OK", "models": [["glm-5", "yes", ""]]},
+        [],
+    ],
+)
+def test_a_malformed_model_list_is_invalid(bad: Any) -> None:
+    assert parse_model_list(bad) == INVALID
