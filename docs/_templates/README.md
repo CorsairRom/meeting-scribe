@@ -1,7 +1,7 @@
 # Documentation Templates for AI-First Projects
 
 > Ready-to-copy templates for starting a project with an AI agent as the main builder.
-> Adapted (and translated) from the `donde-compro` template set.
+> Adapted (and translated to English) from an earlier internal project's template set.
 
 ## Why these templates
 

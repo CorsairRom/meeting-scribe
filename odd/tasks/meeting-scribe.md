@@ -672,18 +672,31 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
       session): apply emptied the field and called the presenter once, buttons and progress followed the state, the pulse started and stopped.
       Not run: the real window on the GNOME session (human steps in `docs/runbooks/preferences.md`). Route: delegated direct, one writer.
       Decisions recorded in `docs/specs/install.md`. Commit `feat(review-app): add the speech models group to preferences`.
-- [ ] F6.8 Update and uninstall: idempotent re-run proof, uninstall mirrors the entry point and lists what it keeps, existing `hf auth login` still works.
+- [x] F6.8 Update and uninstall: idempotent re-run proof, uninstall mirrors the entry point and lists what it keeps, existing `hf auth login` still works.
+      Evidence: RED = 1 failed (`test_uninstall_lists_what_it_keeps`: the uninstall printed no keep-list, and named only the cloud key); the idempotence
+      test `test_update_keeps_user_data_and_is_idempotent` passed at once (three runs: identical unit, activation and desktop entry bytes, identical
+      extension calls, the same user files, exactly one version directory), so there was no code gap there. GREEN = `scripts/uninstall.sh` prints
+      `Kept (not removed):` with the four items; `test_the_runbook_keep_list_is_the_text_uninstall_prints` ties it to the runbook (AC-22).
+      The `hf auth login` fallback is already covered, not duplicated: `tests/unit/model_setup/test_download_models.py::test_without_a_keyring_token_the_runner_gets_none_so_the_ambient_login_is_used`,
+      `test_download_runner.py::test_without_a_token_the_child_gets_no_token_option_and_keeps_the_ambient_login`, `test_pyannote_backend.py::test_fetch_pipeline_without_a_token_uses_the_ambient_login`
+      and `tests/e2e/model_setup/test_keyring_token_source.py`. Commit `ba1b874` `test(install): prove the update is idempotent and the uninstall keep-list`.
 - [ ] F6.9 Docs and validation: `docs/runbooks/install.md`, README section "Install (humans and AI agents)", the other runbooks,
       ADR-010 and ADR-011 active, docs gate, validation with consent on the real machine (no recording, no audio).
+  - [x] Docs part: `docs/runbooks/install.md`, the README section, the other runbooks (`processing`, `review-app`, `preferences`, `summaries`, `gnome-extension`,
+        `record-via-gdbus`), `ARCHITECTURE.md`, D-Bus names frozen (OQ-3: api-contracts, error catalog, CR-011, ADR-001 note), FR-7 traceability row, backlog (F6 epic checked,
+        five F6-review follow-ups added to the post-F6 epic), spec and its README row `in-progress`, Definition of Done ticked except the docs gate.
+        Evidence: `make check` 2275 python passed, packaging 1 passed, gjs 163 passed, lint and 16 import contracts clean. Commit `e5ae89b` `docs(install): add the install runbook and the agent-friendly readme section`.
+  - [ ] Still open: the docs gate (read-only audit plus language scan) and the validation with consent on the real machine (no recording, no audio).
 - [ ] F6.10 Prepare the repo to become public (owner scope added 2026-10-12; planned only, runs with the README task F6.9,
       the repo stays private until it is done; see `docs/specs/install.md` section 11):
-  - (a) Add the `LICENSE` file and declare it in `pyproject.toml` and, if the metadata format allows it, the extension
-        metadata. The owner chose GPL-2.0-or-later (decided 2026-10-12).
-  - (b) Change the author email in `pyproject.toml` to `richard.romero@hotmail.cl`, then rewrite the previous work email
-        out of the whole git history (every commit author and committer, main and all branches). This needs a force-push
-        of `main` and the branches: the owner confirms right before it, nothing is pushed without that go.
-  - (c) Remove the references to the private repos qforest-chatbot and donde-compro (`odd/tasks/meeting-scribe.md`,
-        "Accepted deviations" section, and `docs/_templates/README.md` line 4), keeping the facts that still matter.
+  - [x] (a) `LICENSE` added (GPL-2.0 text copied from a local system copy, `/usr/share/licenses/desktop-file-utils/COPYING`; no network) and declared in `pyproject.toml`
+        (`license = "GPL-2.0-or-later"` plus `license-files`; the SPDX form replaces the license classifier, which PEP 639 deprecates next to it) and in the README.
+        The extension `metadata.json` has no license field, so it is not declared there. `make test-packaging` passes.
+  - [x] (b, file part) The author in `pyproject.toml` is now Richard Romero, `richard.romero@hotmail.cl`.
+  - [ ] (b, history) Rewrite the previous work email out of the whole git history (every commit author and committer, main and all branches). This needs a
+        force-push of `main` and the branches: the owner confirms right before it, nothing is pushed without that go. Not done here.
+  - [x] (c) The references to the two private repositories were rephrased neutrally in this document, the spec section 11 and `docs/_templates/README.md`;
+        a case-insensitive search for the two repository names finds none. Commit `chore: license the project under gpl-2.0-or-later and drop private references`.
 
 ## Route log
 
@@ -694,6 +707,7 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
 | F5.10 P7 | delegated (1 writer) | 2+ non-trivial files (runbook, install.sh, summaries.md, tests) |
 | F6.0 | delegated (1 docs writer) | 2+ non-trivial doc files (phase start, spec, ADR) and reading that prepares the write |
 | F6.1 + F6.2 + F6.3 | delegated (1 writer for all three, one commit each) | 2+ non-trivial files per task (scripts, tests, README, docs) |
+| F6.8 + F6.9 (docs) + F6.10 (files) | delegated (1 writer, single thread) | 2+ non-trivial files per task (scripts, tests, 15+ docs) |
 | gitignore fix | inline | one mechanical file, root cause already understood |
 | F0.3 + F0.4 | delegated (1 writer, ran in parallel with the code review — disjoint files) | 30+ doc files |
 | review suggestions | inline | two mechanical one-line doc edits |
@@ -702,9 +716,9 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
 ## Accepted deviations from HANDOFF (verified by mapping)
 
 - Per-domain settings with `env_prefix` exist in no reference repo: introduced here as a new convention.
-- `create_app` pattern comes from qforest-chatbot (qforest-be is Django, not FastAPI).
+- The `create_app` pattern comes from an earlier internal project (the other reference project is Django, not FastAPI).
 - Dev tools live in the `quality-assurance` optional extra (chatbot style), not dependency groups.
-- donde-compro templates are Spanish and have no PRD template: translated to English; PRD modelled on its root `PRD.md`.
+- The doc templates came from an earlier internal project, were Spanish and had no PRD template: translated to English; the PRD is modelled on that project's root `PRD.md`.
 - `make install` reserved for F6; dev bootstrap is `make setup`.
 - ~~Service binds `127.0.0.1:8765`~~ → superseded in F0 review: D-Bus session bus, no HTTP.
 
