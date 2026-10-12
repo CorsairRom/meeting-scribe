@@ -21,6 +21,7 @@ ENTRY_TITLE = "Hugging Face token"
 TERMS_TITLE = "Accept the pyannote terms"
 DOWNLOAD_LABEL = "Download models"
 CANCEL_LABEL = "Cancel"
+RETRY_LABEL = "Try again"
 _PULSE_MILLISECONDS = 150
 _BAR_WIDTH = 160
 
@@ -30,6 +31,7 @@ class ModelsActions:
     submit_token: Callable[[str], None]
     download: Callable[[], None]
     cancel: Callable[[], None]
+    retry: Callable[[], None]
     open_terms: Callable[[], None]
 
 
@@ -54,9 +56,12 @@ class ModelsGroup(Adw.PreferencesGroup):
         self._status = Adw.ActionRow(use_markup=False)
         self._cancel = Gtk.Button(label=CANCEL_LABEL, valign=Gtk.Align.CENTER)
         self._cancel.connect("clicked", lambda _button: actions.cancel())
+        self._retry = Gtk.Button(label=RETRY_LABEL, valign=Gtk.Align.CENTER)
+        self._retry.connect("clicked", lambda _button: actions.retry())
         self._download = Gtk.Button(label=DOWNLOAD_LABEL, valign=Gtk.Align.CENTER)
         self._download.add_css_class("suggested-action")
         self._download.connect("clicked", lambda _button: actions.download())
+        self._status.add_suffix(self._retry)
         self._status.add_suffix(self._cancel)
         self._status.add_suffix(self._download)
 
@@ -82,6 +87,7 @@ class ModelsGroup(Adw.PreferencesGroup):
         )
         self._download.set_sensitive(state.can_download)
         self._cancel.set_visible(state.can_cancel)
+        self._retry.set_visible(state.can_retry)
         self._entry.set_sensitive(state.can_save_token)
         self._stored.set_label(state.token_text)
         self._stored.set_visible(state.token_status is not KeyStatus.UNKNOWN)

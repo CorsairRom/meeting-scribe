@@ -59,6 +59,7 @@ class PreferencesController:
                     submit_token=self._models.submit_token,
                     download=self._models.download,
                     cancel=self._models.cancel,
+                    retry=self._models.retry,
                     open_terms=self._open_terms,
                 ),
             ),

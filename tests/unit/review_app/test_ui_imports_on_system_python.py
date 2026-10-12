@@ -106,3 +106,12 @@ def test_the_speech_models_group_is_wired_into_preferences() -> None:
     assert "TERMS_URL" in controller  # the terms link opens the page the presenter names
     assert "hugging_face_token_store()" in application
     assert "tokens" in window
+
+
+def test_the_slow_models_calls_wait_longer_than_the_service_check_and_retry_is_wired() -> None:
+    gateway = (UI / "dbus_gateway.py").read_text(encoding="utf-8")
+    assert gateway.count("timeout_ms=MODELS_CALL_TIMEOUT_MS") == 2  # GetStatus and Download
+    assert "retry=self._models.retry" in (UI / "preferences_controller.py").read_text(
+        encoding="utf-8"
+    )
+    assert "RETRY_LABEL" in (UI / "models_group.py").read_text(encoding="utf-8")

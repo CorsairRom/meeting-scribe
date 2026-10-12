@@ -47,3 +47,8 @@ KEY_LABEL = "Meeting Scribe OpenCode API key"
 # The Hugging Face token item the service reads to download the models (ADR-011); same drift test.
 HF_ATTRIBUTES = {"application": "meeting-scribe", "key": "huggingface-token"}
 HF_LABEL = "Meeting Scribe Hugging Face token"
+
+# The service's offline cache check is bounded to 30 s (a drift test ties this to its probe); the
+# calls that wait for it (GetStatus, Download) get a longer timeout so the bound never races it.
+MODELS_CHECK_BOUND_SECONDS = 30
+MODELS_CALL_TIMEOUT_MS = (MODELS_CHECK_BOUND_SECONDS + 15) * 1000

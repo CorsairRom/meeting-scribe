@@ -104,6 +104,7 @@ pyannote pipeline is gated, so three steps are yours, in this order:
 | Downloading, step N of 2 | Running. **Cancel** is available. |
 | Download failed | The line under it says what to do (see below). **Download models** retries. |
 | Download cancelled | Press **Download models** to resume. |
+| An error line with **Try again** | The status could not be read (for example a slow check). Press **Try again**. A missing or older service shows its start or restart command instead. |
 | The Meeting Scribe service is not running | Start it (the command is shown). The token can still be stored meanwhile. |
 
 ### Model lists
