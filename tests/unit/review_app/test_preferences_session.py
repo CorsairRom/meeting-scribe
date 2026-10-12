@@ -1,5 +1,7 @@
 """The Preferences session wires the presenter, the key editor and the gateway events."""
 
+from dataclasses import replace
+
 from meeting_scribe_review.core.models import KeyStatus
 from meeting_scribe_review.core.preferences_session import PreferencesSession
 from meeting_scribe_review.core.presenters.api_key import ApiKeyState, ApiKeyStatus
@@ -94,3 +96,18 @@ def test_dispose_stops_listening_to_the_service() -> None:
     session, gateway, _, _ = _wire()
     session.dispose()
     assert gateway.listeners == []
+
+
+def test_a_stored_key_refreshes_the_cloud_models_and_refresh_asks_again() -> None:
+    session, gateway, keys, _ = _wire()
+    gateway.fields[0] = replace(gateway.fields[0], value="cloud")
+    session.open()
+    assert ("cloud",) not in gateway.args_of("list_models")  # no key yet
+
+    session.set_api_key()
+    session.submit_api_key("fake-key")
+
+    assert keys.stored == ["fake-key"]
+    assert gateway.args_of("list_models").count(("cloud",)) == 1
+    session.refresh_models()
+    assert gateway.args_of("list_models").count(("cloud",)) == 2

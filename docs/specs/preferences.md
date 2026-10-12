@@ -17,6 +17,8 @@ verifiable_by:
   - tests/e2e/preferences/test_settings_over_dbus.py
   - tests/unit/review_app/test_preferences_presenter.py
   - tests/unit/summaries/test_model_listing.py
+  - tests/unit/preferences/test_model_check.py
+  - tests/unit/review_app/test_model_pickers.py
   - tests/unit/test_install_scripts.py
   - gnome-extension/tests/
 last_updated: 2026-10-12
@@ -277,7 +279,7 @@ THEN ListModels returns status SUMMARY_MODELS_UNAVAILABLE and no rows, the row s
 AND saving the other fields still works
 ```
 
-**Test**: `tests/unit/summaries/test_model_listing.py`, `tests/unit/review_app/test_preferences_presenter.py::test_local_models_dropdown`, `tests/e2e/preferences/test_settings_over_dbus.py::test_list_models`
+**Test**: `tests/unit/summaries/test_model_listing.py`, `tests/unit/review_app/test_model_pickers.py::test_local_models_dropdown`, `tests/e2e/preferences/test_settings_over_dbus.py::test_list_models`
 
 ### AC-17: A cloud model is picked from the provider's list, behind the API key
 
@@ -293,7 +295,7 @@ GIVEN the provider rejects the key
 THEN the status is SUMMARY_AUTH_FAILED and the row says so
 ```
 
-**Test**: `tests/unit/summaries/test_model_listing.py`, `tests/unit/review_app/test_preferences_presenter.py::test_cloud_model_needs_a_key`
+**Test**: `tests/unit/summaries/test_model_listing.py`, `tests/unit/review_app/test_model_pickers.py::test_cloud_model_needs_a_key`
 
 ### AC-18: Models this version cannot use are listed but not selectable
 
@@ -306,7 +308,7 @@ GIVEN a widget that cannot disable single items
 THEN supported models fill the dropdown and unsupported ones are a greyed, non-selectable list under it
 ```
 
-**Test**: `tests/unit/summaries/test_model_listing.py::test_the_cloud_allowlist`, `tests/unit/review_app/test_preferences_presenter.py::test_unsupported_models_are_not_selectable`
+**Test**: `tests/unit/summaries/test_model_listing.py::test_the_cloud_allowlist`, `tests/unit/review_app/test_model_pickers.py::test_unsupported_models_are_not_selectable`
 
 ### AC-19: A saved model that is not in the list is warned about, not replaced
 
@@ -320,7 +322,7 @@ GIVEN the list is unavailable
 THEN a Set that changes the model is accepted (the save never blocks on the network)
 ```
 
-**Test**: `tests/unit/preferences/test_model_check.py`, `tests/unit/review_app/test_preferences_presenter.py::test_a_saved_model_missing_from_the_list`
+**Test**: `tests/unit/preferences/test_model_check.py`, `tests/unit/review_app/test_model_pickers.py::test_a_saved_model_missing_from_the_list`
 
 ### AC-20: Top-level wording and the cloud provider
 
@@ -332,7 +334,7 @@ GIVEN summaries.cloud_provider is opencode-go
 THEN the display name is "OpenCode Go" and the base URL is https://opencode.ai/zen/go/v1 unless a developer override sets SUMMARIES_CLOUD_BASE_URL
 ```
 
-**Test**: `tests/unit/summaries/test_summaries_settings.py::test_cloud_provider_choice`, `tests/unit/review_app/test_preferences_presenter.py::test_wording_and_cloud_provider_row`
+**Test**: `tests/unit/summaries/test_summaries_settings.py::test_cloud_provider_choice`, `tests/unit/review_app/test_model_pickers.py::test_wording_and_cloud_provider_row`
 
 ---
 
@@ -354,9 +356,10 @@ THEN the display name is "OpenCode Go" and the base URL is https://opencode.ai/z
 | Service not running when the window opens | Read-only dialog with the reason and the start command; Save is disabled |
 | Service restarts while the window is open | The gateway reconnects; the window reloads `GetAll` and discards no unsaved edit silently (it marks them as "not yet saved against the new values") |
 | Two windows or a client changes a value | `SettingsChanged` makes the window reload unedited fields; an edited field keeps the user's text |
-| Provider = Cloud, no key | Saving is allowed; the stored indicator reads "No key stored" and Generate shows `SUMMARY_CLOUD_KEY_MISSING` with its next step |
+| Run summaries = In the cloud, no key | Saving is allowed; the stored indicator reads "No key stored", the Model row is disabled with "Set the API key first", and Generate shows `SUMMARY_CLOUD_KEY_MISSING` with its next step |
 | Keyring locked | The indicator reads "Keyring locked"; storing may prompt (user-initiated), the service never prompts |
-| Local model not pulled | Saving is allowed; the failure shows when a summary runs (`SUMMARY_MODEL_NOT_FOUND`) |
+| Ollama stopped or the provider offline | The model row keeps the saved value, says why there is no list, and saving the other fields works; a model change is accepted unchecked (AC-19) |
+| Saved model no longer in the list | Kept and shown with a warning; never replaced silently (AC-19) |
 | Meetings folder on a removable disk that disappears | Validation runs at save and at start; at start the service fails to use the folder exactly as today and logs the key only |
 | Language "fixed" with a code outside the list | Rejected unless it matches the ISO rule; the list is a convenience, not the validator |
 | A save races a running summary | The summary keeps its snapshot (AC-6); only new requests see the change |

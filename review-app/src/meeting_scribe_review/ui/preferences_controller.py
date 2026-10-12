@@ -44,6 +44,7 @@ class PreferencesController:
                 edit=session.edit,
                 save=session.save,
                 restart=session.restart,
+                refresh_models=session.refresh_models,
                 set_key=session.set_api_key,
                 remove_key=session.remove_key,
             ),
