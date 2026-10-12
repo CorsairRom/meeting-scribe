@@ -45,7 +45,7 @@ import-linter, errors as `returns.Result`.
 | Know what is in/out of scope         | `docs/project/mvp-scope.md`                                    |
 | See what work remains                | `docs/project/backlog.md` and `odd/tasks/meeting-scribe.md`    |
 | Check rules, gotchas, anti-patterns  | `docs/project/rules-registry.md`                               |
-| Know why something was decided       | `docs/decisions/` (ADR 001-009)                                |
+| Know why something was decided       | `docs/decisions/` (ADR 001-011)                                |
 | Change the D-Bus API                 | `docs/architecture/api-contracts.md` + ADR-001        |
 | Add an error code                    | `docs/architecture/error-codes-catalog.md` + `src/meeting_scribe/base/domain/errors.py` |
 | Add a setting                        | `src/meeting_scribe/settings.py` + `.env.example` + `ARCHITECTURE.md` section 7 |

@@ -4,7 +4,7 @@ status: living
 last_updated: 2026-10-12
 ai_instructions:
   - "This tracks pending and completed work. The per-task checklist lives in odd/tasks/meeting-scribe.md."
-  - "Before implementing, check that the matching ADR is 'active' (not 'proposed'). ADRs 001-009 are active."
+  - "Before implementing, check that the matching ADR is 'active' (not 'proposed'). ADRs 001-011 are active."
   - "When you complete a task: mark it done, add the date, and update mvp-scope.md if it applies."
   - "When you add tasks for an epic: follow the existing format and reference the ADR."
 ---
@@ -45,7 +45,7 @@ A separate phase after F6 (owner decision of 2026-10-12); the F5 leftovers, not 
 
 ## In progress
 
-### [EPIC] F6 Install — spec `docs/specs/install.md` (written next, for owner approval)
+### [EPIC] F6 Install — [spec](../specs/install.md) (approved)
 
 Owner decisions of 2026-10-12 (binding):
 
