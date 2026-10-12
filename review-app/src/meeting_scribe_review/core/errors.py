@@ -11,6 +11,7 @@ UNKNOWN_ERROR = "UNKNOWN_ERROR"
 KEYRING_UNAVAILABLE = "KEYRING_UNAVAILABLE"
 KEYRING_STORE_FAILED = "KEYRING_STORE_FAILED"
 KEYRING_REMOVE_FAILED = "KEYRING_REMOVE_FAILED"
+RESTART_NOT_DONE = "RESTART_NOT_DONE"  # local: the restart was accepted but never happened
 
 _DBUS_PREFIX = "org.freedesktop.DBus.Error."
 _NOT_RUNNING_NAMES = frozenset({"ServiceUnknown", "NameHasNoOwner", "NoServer"})
@@ -123,6 +124,9 @@ _MESSAGES: dict[str, UserMessage] = {
     "SETTINGS_RESTART_UNAVAILABLE": UserMessage(
         "The service could not be restarted from here.",
         "systemctl --user restart meeting-scribe.service",
+    ),
+    RESTART_NOT_DONE: UserMessage(
+        "The service did not restart.", "systemctl --user restart meeting-scribe.service"
     ),
     "SETTINGS_APPLY_FAILED": UserMessage(
         "Your settings were saved, but a change could not be applied. Restart the service."

@@ -14,6 +14,7 @@ from meeting_scribe_review.core.launch import (
     MEETING_OPTION,
     PREFERENCES_OPTION,
     meeting_id_from_options,
+    show_in_running_window,
     wants_preferences,
 )
 from meeting_scribe_review.ui.dbus_gateway import DBusGateway
@@ -54,11 +55,11 @@ class ReviewApplication(Adw.Application):
                 self, DBusGateway(), MediaPlayer(), SecretKeyStore(), meeting_id
             )
             self._window.connect("destroy", self._forget_window)
+            self._window.present()
+            if wants_preferences(options):
+                self._window.open_preferences()  # always over the review window (A-2)
         else:
-            self._window.open_meeting(meeting_id)
-        self._window.present()
-        if wants_preferences(options):
-            self._window.open_preferences()  # always over the review window (assumption A-2)
+            show_in_running_window(self._window, options)
         return 0
 
     def _forget_window(self, _window: ReviewWindow) -> None:

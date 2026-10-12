@@ -139,6 +139,13 @@ class DBusGateway:
         self._settings_listeners.append(listener)
         self._watch_name()
         self._settings.with_proxy(lambda _proxy: None)
+        known = self._availability.known
+        if known is not None:  # the baseline was reported before this listener existed
+            listener.on_service_available(known)
+
+    def unwatch_settings(self, listener: SettingsListener) -> None:
+        if listener in self._settings_listeners:
+            self._settings_listeners.remove(listener)
 
     def providers(self, done: Callback[list[ProviderRow]]) -> None:
         self._summaries.call("Providers", "", (), parsers.parse_providers, done)

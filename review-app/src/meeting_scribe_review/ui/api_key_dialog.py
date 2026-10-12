@@ -22,9 +22,6 @@ class ApiKeyDialog(AlertHost):
         self._submit = submit
         self._cancel = cancel
 
-    def set_parent(self, parent: Gtk.Widget) -> None:
-        self._parent = parent
-
     def show(self, state: ApiKeyState) -> None:
         if state.status is ApiKeyStatus.EDITING:
             self._edit(state)

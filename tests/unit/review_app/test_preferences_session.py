@@ -82,3 +82,15 @@ def test_close_cancels_an_open_key_editor() -> None:
     session.set_api_key()
     session.close()
     assert views.api_key[-1].status is ApiKeyStatus.IDLE
+
+
+def test_availability_before_the_dialog_opens_loads_nothing() -> None:
+    session, gateway, _, _ = _wire()
+    session.on_service_available(True)
+    assert gateway.args_of("get_all") == []
+
+
+def test_dispose_stops_listening_to_the_service() -> None:
+    session, gateway, _, _ = _wire()
+    session.dispose()
+    assert gateway.listeners == []

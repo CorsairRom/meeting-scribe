@@ -119,6 +119,8 @@ class SettingsGateway(Protocol):
 
     def watch_settings(self, listener: SettingsListener) -> None: ...
 
+    def unwatch_settings(self, listener: SettingsListener) -> None: ...
+
 
 @runtime_checkable
 class ApiKeyStore(Protocol):

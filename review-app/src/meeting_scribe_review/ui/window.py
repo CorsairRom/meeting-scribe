@@ -234,5 +234,6 @@ class ReviewWindow(Adw.ApplicationWindow):
 
     def _on_close_request(self, _window: Adw.ApplicationWindow) -> bool:
         self._session.close()
+        self._preferences.shutdown()
         self._gateway.close()
         return False

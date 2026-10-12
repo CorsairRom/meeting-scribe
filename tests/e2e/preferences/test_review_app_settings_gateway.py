@@ -24,7 +24,7 @@ _CLIENT = """
 import json, sys
 sys.path.insert(0, __APP_SRC__)
 from gi.repository import GLib
-from meeting_scribe_review.core.result import Err
+from meeting_scribe_review.core.result import Err, Ok
 from meeting_scribe_review.ui.dbus_gateway import DBusGateway
 
 loop = GLib.MainLoop()
@@ -42,8 +42,17 @@ class Listener:
         state["changed"] = True
         maybe_quit()
 
+class Late:
+    # Registered after the availability is known: it must be told at once.
+    def on_service_available(self, available):
+        events.append(["late", available])
+    def on_settings_changed(self, keys):
+        pass
+
 gateway = DBusGateway()
-gateway.watch_settings(Listener())
+first = Listener()
+gateway.watch_settings(first)
+late = Late()
 
 def shape(value):
     if isinstance(value, list):
@@ -61,6 +70,12 @@ steps = [
     ("after", lambda d: gateway.get_all(d)),
 ]
 
+def register_late(done):
+    gateway.watch_settings(late)  # the name was reported long ago: it must hear it now
+    done(Ok(None))
+
+steps.append(("late", register_late))
+
 def run(index=0):
     if index == len(steps):
         state["steps_done"] = True
@@ -72,6 +87,11 @@ def run(index=0):
         results[name] = ["err", result.error.code] if failed else shape(result.value)
         run(index + 1)
     call(done)
+
+stray = Late()
+gateway.watch_settings(stray)
+gateway.unwatch_settings(stray)
+results["unwatched"] = stray not in gateway._settings_listeners
 
 def give_up():
     results["timeout"] = True
@@ -125,3 +145,5 @@ def test_the_gateway_speaks_the_real_settings_contract(tmp_path: Path, bus_addre
     assert results["pending"] == []
     assert results["after"][2][:3] == ["summaries.language", "es", "file"]
     assert ["changed", ["summaries.language"]] in out["events"]
+    assert ["late", True] in out["events"]  # told the current availability on registering
+    assert results["unwatched"] is True

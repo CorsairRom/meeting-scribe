@@ -1,6 +1,8 @@
 """Opens the Preferences dialog over a window and feeds it the session's states."""
 
-from gi.repository import Adw, Gtk
+from collections.abc import Callable
+
+from gi.repository import Adw, GLib, Gtk
 
 from meeting_scribe_review.core.preferences_session import PreferencesSession
 from meeting_scribe_review.core.presenters.api_key import ApiKeyState
@@ -11,13 +13,25 @@ from meeting_scribe_review.ui.key_store import SecretKeyStore
 from meeting_scribe_review.ui.preferences_dialog import PreferencesActions, PreferencesDialog
 
 
+def _after(seconds: float, call: Callable[[], None]) -> None:
+    def fire() -> bool:
+        call()
+        return GLib.SOURCE_REMOVE
+
+    GLib.timeout_add_seconds(int(seconds), fire)
+
+
 class PreferencesController:
     """One per window: the session lives as long as the window, a dialog per opening."""
 
     def __init__(self, gateway: DBusGateway, keys: SecretKeyStore) -> None:
-        self._session = PreferencesSession(gateway, keys, self)
+        self._session = PreferencesSession(gateway, keys, self, _after)
         self._dialog: PreferencesDialog | None = None
         self._key_dialog: ApiKeyDialog | None = None
+
+    def shutdown(self) -> None:
+        """The window closes: stop listening to the service."""
+        self._session.dispose()
 
     def open(self, parent: Gtk.Window) -> None:
         """Present the dialog over ``parent``; a second call raises the one that is open."""

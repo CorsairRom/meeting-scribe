@@ -91,6 +91,10 @@ class MeetingsFolderPreparer:
             self._created = created.unwrap()
         return created
 
+    def commit(self) -> None:
+        """The settings file was written: the folder is now wanted, so forget it was new."""
+        self._created = None
+
     def rollback(self) -> None:
         """Remove the folder this preparer made, only while it is still empty."""
         created, self._created = self._created, None

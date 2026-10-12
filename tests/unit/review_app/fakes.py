@@ -403,5 +403,8 @@ class FakeSettingsGateway:
     def watch_settings(self, listener: SettingsListener) -> None:
         self.listeners.append(listener)
 
+    def unwatch_settings(self, listener: SettingsListener) -> None:
+        self.listeners.remove(listener)
+
     def args_of(self, method: str) -> list[tuple[Any, ...]]:
         return [args for name, args in self.calls if name == method]

@@ -3,6 +3,7 @@
 Fake gateway and fake key store only: no bus, no keyring, no window (AC-5, AC-15).
 """
 
+from collections.abc import Callable
 from dataclasses import replace
 
 from meeting_scribe_review.core.errors import SERVICE_NOT_RUNNING, ServiceError
@@ -22,13 +23,30 @@ LANGUAGE = "summaries.language"
 FOLDER = "storage.meetings_dir"
 
 
+class Clock:
+    """A scheduler that fires only when the test says so."""
+
+    def __init__(self) -> None:
+        self.due: list[Callable[[], None]] = []
+
+    def after(self, _seconds: float, call: Callable[[], None]) -> None:
+        self.due.append(call)
+
+    def fire(self) -> None:
+        due, self.due = self.due, []
+        for call in due:
+            call()
+
+
 def _wire(
-    gateway: FakeSettingsGateway | None = None, keys: FakeApiKeyStore | None = None
+    gateway: FakeSettingsGateway | None = None,
+    keys: FakeApiKeyStore | None = None,
+    clock: Clock | None = None,
 ) -> tuple[PreferencesPresenter, FakeSettingsGateway, FakeApiKeyStore, list[PreferencesState]]:
     gateway = gateway or FakeSettingsGateway()
     keys = keys or FakeApiKeyStore()
     states: list[PreferencesState] = []
-    presenter = PreferencesPresenter(gateway, keys, states.append)
+    presenter = PreferencesPresenter(gateway, keys, states.append, (clock or Clock()).after)
     return presenter, gateway, keys, states
 
 
@@ -306,6 +324,7 @@ def test_a_storage_failure_is_a_message_and_keeps_the_edits() -> None:
 def test_an_apply_failure_after_a_save_stays_in_the_dialog() -> None:
     presenter, gateway, _ = _loaded()
     gateway.replies["set_values"] = Ok(SetOutcome((LANGUAGE,), (), True, ()))
+    gateway.fields = [replace(f, apply_problem="SETTINGS_APPLY_FAILED") for f in gateway.fields]
     presenter.edit(LANGUAGE, "es")
 
     presenter.save()
@@ -381,3 +400,80 @@ def test_a_state_never_holds_a_key() -> None:
     presenter, _, _, states = _wire(keys=keys)
     presenter.load()
     assert all("fake-secret-value" not in repr(state) for state in states)
+
+
+# -- a restart that never happens, and a signal racing the save --
+
+
+def _restarting() -> tuple[PreferencesPresenter, FakeSettingsGateway, Clock]:
+    clock = Clock()
+    gateway = FakeSettingsGateway(pending=(FOLDER,))
+    presenter, _, _, _ = _wire(gateway, clock=clock)
+    presenter.load()
+    clock.due.clear()
+    presenter.restart()
+    assert presenter.state.restarting
+    return presenter, gateway, clock
+
+
+def test_a_restart_that_never_happens_is_reported_with_the_manual_command() -> None:
+    presenter, _, clock = _restarting()
+
+    clock.fire()
+
+    state = presenter.state
+    assert not state.restarting
+    assert state.message == "The service did not restart."
+    assert state.hint == "systemctl --user restart meeting-scribe.service"
+    assert state.can_restart  # the pending change is still pending: it can be tried again
+
+
+def test_a_service_that_went_down_and_never_came_back_is_unavailable_after_the_wait() -> None:
+    presenter, _, clock = _restarting()
+    presenter.on_service_available(False)
+    assert presenter.state.restarting
+
+    clock.fire()
+
+    assert presenter.state.phase is PreferencesPhase.UNAVAILABLE
+    assert not presenter.state.restarting
+    assert presenter.state.message == "The service did not restart."
+
+
+def test_a_restart_that_completes_ignores_the_late_timer() -> None:
+    presenter, gateway, clock = _restarting()
+    gateway.pending = ()
+    presenter.on_service_available(False)
+    presenter.on_service_available(True)
+
+    clock.fire()
+
+    assert presenter.state.message == ""
+    assert presenter.state.phase is PreferencesPhase.READY
+
+
+def test_a_second_restart_starts_a_fresh_wait() -> None:
+    presenter, _, clock = _restarting()
+    clock.fire()
+    presenter.restart()
+    assert presenter.state.restarting
+    assert len(clock.due) == 1
+
+
+def test_a_signal_between_the_set_reply_and_the_reload_does_not_cancel_the_close() -> None:
+    gateway = FakeSettingsGateway()
+    presenter, _, _, _ = _wire(gateway)
+    presenter.load()
+    held: list[Callable[..., None]] = []
+    original = gateway.get_all
+    gateway.get_all = held.append  # type: ignore[method-assign]
+    presenter.edit(LANGUAGE, "es")
+    presenter.save()  # the Set reply arrives now; the reload is held
+    presenter.on_settings_changed((LANGUAGE,))  # a second reload overtakes the first
+    gateway.get_all = original  # type: ignore[method-assign]
+    assert len(held) == 2
+
+    held[1](Ok(list(gateway.fields)))  # the newest reply
+    assert presenter.state.saved
+    held[0](Ok(list(gateway.fields)))  # the stale one is ignored
+    assert presenter.state.saved
