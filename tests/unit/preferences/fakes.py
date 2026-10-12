@@ -1,7 +1,7 @@
 """Fakes for the preferences ports: memory only, no file, no bus, no systemd."""
 
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from returns.result import Failure, Result, Success
@@ -18,8 +18,8 @@ from meeting_scribe.preferences.domain.errors import (
 from meeting_scribe.preferences.domain.fields import FieldProblem
 from meeting_scribe.preferences.domain.ports import EffectiveSettings
 from meeting_scribe.preferences.infrastructure.meetings_folder import (
+    MeetingsFolderPreparer,
     check_meetings_folder,
-    create_meetings_folder,
 )
 from meeting_scribe.settings import Settings
 
@@ -31,6 +31,7 @@ class MemoryStore:
         self.values: dict[str, str] = dict(values or {})
         self.writes: list[dict[str, str]] = []
         self.fail = False
+        self.on_write: Callable[[], None] | None = None
         self.gate: threading.Event | None = None
         self.entered = threading.Event()
         self.write_calls: list[str] = []  # the language of each write, at entry
@@ -51,6 +52,8 @@ class MemoryStore:
             self._inside -= 1
 
     def _write(self, values: Mapping[str, str]) -> Result[None, SettingsStorageFailedError]:
+        if self.on_write is not None:
+            self.on_write()
         if self.gate is not None:
             self.gate.wait(5)
         if self.fail:
@@ -112,13 +115,15 @@ class Service:
         self.fail_apply = False
         self.settings = Settings.load(file_values=saved)
         self.tmp_path = tmp_path
+        self.preparer = MeetingsFolderPreparer()
         self.service = PreferencesService(
             self.store,
             PreferencesState(self.settings, dict(saved or {}), file_problem),
             Settings.with_overrides,
             self._apply,
             checks={"storage.meetings_dir": _folder_check},
-            prepare={"storage.meetings_dir": _folder_create},
+            prepare={"storage.meetings_dir": lambda raw: self.preparer(raw).map(str)},
+            rollback={"storage.meetings_dir": self.preparer.rollback},
             events=self.events,
         )
 
@@ -131,7 +136,3 @@ class Service:
 
 def _folder_check(raw: str) -> Result[str, FieldProblem]:
     return check_meetings_folder(raw).map(str)
-
-
-def _folder_create(raw: str) -> Result[str, FieldProblem]:
-    return create_meetings_folder(raw).map(str)

@@ -62,8 +62,8 @@ from meeting_scribe.preferences.domain.ports import (
 from meeting_scribe.preferences.infrastructure.dbus.settings_interface import SettingsInterface
 from meeting_scribe.preferences.infrastructure.json_settings_store import JsonSettingsStore
 from meeting_scribe.preferences.infrastructure.meetings_folder import (
+    MeetingsFolderPreparer,
     check_meetings_folder,
-    create_meetings_folder,
 )
 from meeting_scribe.preferences.infrastructure.systemd_restarter import SystemdRestarter
 from meeting_scribe.recording.application.recording_controller import RecordingController
@@ -324,13 +324,15 @@ def build_preferences(
         if isinstance(effective, Settings):
             summary_config.apply(effective)
 
+    folder = MeetingsFolderPreparer()
     return PreferencesService(
         ports.store,
         PreferencesState(settings, ports.saved, ports.file_problem),
         Settings.with_overrides,
         apply,
         checks={"storage.meetings_dir": lambda raw: check_meetings_folder(raw).map(str)},
-        prepare={"storage.meetings_dir": lambda raw: create_meetings_folder(raw).map(str)},
+        prepare={"storage.meetings_dir": lambda raw: folder(raw).map(str)},
+        rollback={"storage.meetings_dir": folder.rollback},
     )
 
 

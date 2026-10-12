@@ -72,3 +72,28 @@ def _probe(path: Path) -> Result[Path, FieldProblem]:
             probe.unlink(missing_ok=True)
         return _not_writable()
     return Success(path)
+
+
+class MeetingsFolderPreparer:
+    """``create_meetings_folder`` that remembers a folder it made, so a failed save can undo it."""
+
+    def __init__(self) -> None:
+        self._created: Path | None = None
+
+    def __call__(self, raw: str) -> Result[Path, FieldProblem]:
+        self._created = None
+        checked = check_meetings_folder(raw)
+        if isinstance(checked, Failure):
+            return checked
+        existed = checked.unwrap().exists()
+        created = create_meetings_folder(raw)
+        if isinstance(created, Success) and not existed:
+            self._created = created.unwrap()
+        return created
+
+    def rollback(self) -> None:
+        """Remove the folder this preparer made, only while it is still empty."""
+        created, self._created = self._created, None
+        if created is not None:
+            with contextlib.suppress(OSError):
+                created.rmdir()

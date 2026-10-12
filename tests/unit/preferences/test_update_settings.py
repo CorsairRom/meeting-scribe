@@ -222,3 +222,56 @@ def test_logs_keys_not_values(caplog: pytest.LogCaptureFixture, tmp_path: Path) 
     assert "storage.meetings_dir" in caplog.text
     for value in ("private-person-folder", "model-xyz", "Private Value"):
         assert value not in caplog.text
+
+
+def test_a_failed_save_removes_the_folder_it_just_created(tmp_path: Path) -> None:
+    fx = Service(tmp_path)
+    fx.store.fail = True
+    new = tmp_path / "fresh-meetings"
+
+    result = fx.service.set({"storage.meetings_dir": str(new)})
+
+    assert isinstance(result, Failure)
+    assert not new.exists()
+
+
+def test_a_failed_save_keeps_a_folder_that_already_existed(tmp_path: Path) -> None:
+    fx = Service(tmp_path)
+    fx.store.fail = True
+    existing = tmp_path / "old-meetings"
+    existing.mkdir()
+
+    result = fx.service.set({"storage.meetings_dir": str(existing)})
+
+    assert isinstance(result, Failure)
+    assert existing.is_dir()
+
+
+def test_a_failed_save_never_removes_a_folder_that_is_no_longer_empty(tmp_path: Path) -> None:
+    fx = Service(tmp_path)
+    new = tmp_path / "raced-meetings"
+
+    def intrude() -> None:
+        (new / "other-file").write_bytes(b"")
+
+    fx.store.on_write = intrude
+    fx.store.fail = True
+
+    fx.service.set({"storage.meetings_dir": str(new)})
+
+    assert (new / "other-file").exists()
+
+
+def test_an_apply_failure_stays_visible_until_a_later_apply_succeeds(tmp_path: Path) -> None:
+    fx = Service(tmp_path)
+    assert {row.apply_problem for row in fx.service.get_all()} == {""}
+    fx.fail_apply = True
+
+    fx.service.set({"summaries.local_model": "model-a"})
+
+    assert {row.apply_problem for row in fx.service.get_all()} == {"SETTINGS_APPLY_FAILED"}
+    fx.fail_apply = False
+
+    fx.service.set({"summaries.local_model": "model-b"})
+
+    assert {row.apply_problem for row in fx.service.get_all()} == {""}
