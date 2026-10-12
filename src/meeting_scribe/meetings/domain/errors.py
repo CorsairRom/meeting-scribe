@@ -64,7 +64,7 @@ class WorkerCancelledError(MeetingScribeError):
 
 
 class SummaryCloudDisabledError(MeetingScribeError):
-    """The cloud provider was requested while ``SUMMARIES_CLOUD_ENABLED`` is false."""
+    """The cloud provider was requested while the provider setting is not ``cloud``."""
 
     error_code = "SUMMARY_CLOUD_DISABLED"
 

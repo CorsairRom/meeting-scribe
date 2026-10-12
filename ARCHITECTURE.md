@@ -281,12 +281,11 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | `SPEAKERS_SAMPLE_MAX_CLIPS` | `SpeakersSettings.sample_max_clips` | `3` | Clips per speaker sample (>= 1) |
 | `SPEAKERS_SAMPLE_TARGET_SECONDS` | `SpeakersSettings.sample_target_seconds` | `15.0` | Target total sample length (> 0) |
 | `SPEAKERS_SAMPLE_MIN_CLIP_SECONDS` / `SPEAKERS_SAMPLE_MAX_CLIP_SECONDS` | `SpeakersSettings.sample_min_clip_seconds` / `sample_max_clip_seconds` | `1.5` / `6.0` | Clip length bounds (min must not exceed max) |
-| `SUMMARIES_PROVIDER` | `SummariesSettings.provider` | `local` | Provider the "Generate summary" button uses, `local` or `cloud` (cloud also needs `SUMMARIES_CLOUD_ENABLED` and a key) |
+| `SUMMARIES_PROVIDER` | `SummariesSettings.provider` | `local` | Provider the "Generate summary" button uses, `local` or `cloud` (choosing `cloud` is the opt-in and also needs a key; `SUMMARIES_CLOUD_ENABLED` was removed) |
 | `SUMMARIES_LOCAL_BASE_URL` | `SummariesSettings.local_base_url` | `http://127.0.0.1:11434/v1` | Ollama OpenAI-compatible endpoint; the host must be `127.0.0.1`, `::1` or `localhost` |
 | `SUMMARIES_LOCAL_MODEL` | `SummariesSettings.local_model` | `qwen3.5:9b` | Ollama model name |
 | `SUMMARIES_LOCAL_CONTEXT_TOKENS` | `SummariesSettings.local_context_tokens` | `4096` | Window the service plans against; raise it together with Ollama's context (must exceed output limit + 600) |
 | `SUMMARIES_UNLOAD_LOCAL_MODEL` | `SummariesSettings.unload_local_model` | `true` | Ask Ollama to unload the model after a local summary |
-| `SUMMARIES_CLOUD_ENABLED` | `SummariesSettings.cloud_enabled` | `false` | The cloud provider is off until this is true |
 | `SUMMARIES_CLOUD_PROVIDER_NAME` | `SummariesSettings.cloud_provider_name` | `OpenCode Go` | Name shown in the "cloud" label (for example `cloud: OpenCode Go, deepseek-v4-pro`) |
 | `SUMMARIES_CLOUD_BASE_URL` | `SummariesSettings.cloud_base_url` | `https://opencode.ai/zen/go/v1` | OpenAI-compatible cloud gateway; must be https ([ADR-009](docs/decisions/009-cloud-summaries-through-opencode-go.md)) |
 | `SUMMARIES_CLOUD_MODEL` | `SummariesSettings.cloud_model` | `deepseek-v4-pro` | Any model the gateway serves on `/chat/completions`; models on `/responses` or `/messages` are not supported |

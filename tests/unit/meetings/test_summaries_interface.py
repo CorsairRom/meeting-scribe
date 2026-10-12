@@ -54,7 +54,7 @@ def test_providers_rows_carry_typed_variants_and_the_cloud_label(
             "model": ("s", "fake-model"),
             "available": ("b", True),
             "reason": ("s", ""),
-            "default": ("b", True),
+            "default": ("b", False),
         }
         assert shaped[1]["label"] == ("s", "cloud: Fake Gateway, fake-cloud-model")
         assert shaped[1]["cloud"] == ("b", True)

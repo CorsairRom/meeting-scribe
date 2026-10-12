@@ -27,7 +27,6 @@ class SummariesSettings(MeetingScribeSettings):
     local_model: str = Field(default="qwen3.5:9b", min_length=1, max_length=MAX_MODEL_NAME)
     local_context_tokens: int = Field(default=4096, gt=0)
     unload_local_model: bool = True
-    cloud_enabled: bool = False
     cloud_provider_name: str = Field(default="OpenCode Go", min_length=1)
     cloud_base_url: str = "https://opencode.ai/zen/go/v1"
     cloud_model: str = Field(default="deepseek-v4-pro", min_length=1, max_length=MAX_MODEL_NAME)

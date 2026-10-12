@@ -400,7 +400,7 @@ def test_injected_summary_adapters_replace_the_real_ones(tmp_path: Path) -> None
     app = create_app(
         Settings(
             storage=StorageSettings(meetings_dir=tmp_path),
-            summaries=SummariesSettings(cloud_enabled=True),
+            summaries=SummariesSettings(provider="cloud"),
         ),
         summary_adapters=SummaryAdapters(
             files=FilesystemSummaryFiles(),
@@ -415,3 +415,17 @@ def test_injected_summary_adapters_replace_the_real_ones(tmp_path: Path) -> None
 
     assert app.summaries.providers()[1].available is True
     assert keys.reads == 0  # building the app never reads the key
+
+
+def test_applying_new_settings_swaps_the_summary_config_without_a_restart() -> None:
+    app = create_app(Settings(summaries=SummariesSettings(local_model="m-a")))
+    assert app.summaries.providers()[0].label == "Local (m-a)"
+    assert app.summaries.providers()[1].available is False
+
+    app.summary_config.apply(
+        Settings(summaries=SummariesSettings(local_model="m-b", provider="cloud"))
+    )
+
+    local, cloud = app.summaries.providers()
+    assert (local.label, local.default) == ("Local (m-b)", False)
+    assert (cloud.available, cloud.default) == (True, True)

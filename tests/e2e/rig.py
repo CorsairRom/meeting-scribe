@@ -78,7 +78,7 @@ class ServiceRig:
             Settings(
                 storage=StorageSettings(meetings_dir=self.meetings_dir),
                 processing=ProcessingSettings(notify=notify),
-                summaries=SummariesSettings(cloud_enabled=True),
+                summaries=SummariesSettings(provider="cloud"),
             ),
             recording_adapters=RecordingAdapters(
                 clock=FakeClock(),

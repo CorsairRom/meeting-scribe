@@ -429,11 +429,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 59 | 0 | 0 |
+| GO | 60 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-059 — 2026-10-12
-**Next available IDs**: BR-006, CR-014, GO-060, AP-005
+**Last rule added**: GO-060 — 2026-10-12
+**Next available IDs**: BR-006, CR-014, GO-061, AP-005
 
 ---
 
@@ -508,9 +508,9 @@ with `Supersedes: <ID>`. Never delete rules.
 ### GO-056 — The cloud key is read only for a confirmed cloud request that nothing else refused
 - **Date**: 2026-10-11
 - **Status**: active
-- **Detail**: The `Summarize` gates run in this order: unknown provider (`INVALID_VALUE`), cloud disabled, not confirmed, then the `DONE` and no-speech snapshot, then the single slot and the GPU, and only then `CloudKeyStore.get_key()` (a missing, locked or unreachable key refuses the call and frees the slot). `Providers` never reads the key, so its cloud row says only whether the cloud is enabled; a missing key shows when a confirmed request runs. The pre-check key is dropped at once; the provider reads it again for its own request (BR-005).
+- **Detail**: The `Summarize` gates run in this order: unknown provider (`INVALID_VALUE`), cloud not selected (`SUMMARY_CLOUD_DISABLED`: the provider setting is not `cloud`), not confirmed, then the `DONE` and no-speech snapshot, then the single slot and the GPU, and only then `CloudKeyStore.get_key()` (a missing, locked or unreachable key refuses the call and frees the slot). `Providers` never reads the key, so its cloud row says only whether the cloud is selected; a missing key shows when a confirmed request runs. The pre-check key is dropped at once; the provider reads it again for its own request (BR-005).
 - **Source**: [summaries spec](../specs/summaries.md) AC-5, AC-6, section 8a; BR-005; F5.4
-- **Verifiable in**: `tests/unit/meetings/test_summary_controller.py::test_cloud_gates`, `::test_providers_rows`, `::test_no_secret_in_logs`
+- **Verifiable in**: `tests/unit/meetings/test_summary_controller.py::test_cloud_gates_follow_the_provider`, `::test_providers_rows`, `::test_no_secret_in_logs`
 
 ### GO-057 — Summaries1 is a thin adapter; one lease and one hub are wired in the composition root
 - **Date**: 2026-10-11
@@ -532,3 +532,10 @@ with `Supersedes: <ID>`. Never delete rules.
 - **Detail**: pydantic-settings puts `init` above the environment, so passing the user's saved values as constructor arguments would let them beat `.env`. `file_layer(values)` (`base/infrastructure/settings.py`) instead sets a `ContextVar`; `MeetingScribeSettings.settings_customise_sources` adds an `InitSettingsSource` built from the values of its own section (the env prefix, lowercased) between the dotenv and the file-secret sources. Only `Settings.load(file_values=...)` and `Settings.with_overrides(values)` enter the layer, so every other constructor keeps `init > env > .env > default`. The source per exposed field is computed once at load from `os.environ`, the `.env` keys and the saved keys (`Settings.source_of`). `with_overrides` builds each exposed section alone first so a `ValidationError` maps to its field key (an env-only field or a cross-field rule maps to the section name), with the validators' own messages and never the value. The `preferences` file store keeps a damaged `settings.json` out of the way (`settings.json.invalid`) on the next successful write and logs keys only (BR-005, spec AC-11, AC-14).
 - **Source**: [preferences spec](../specs/preferences.md) sections 3 and 6, AC-3, AC-10, AC-11; F5.10 P1
 - **Verifiable in**: `tests/unit/test_settings_overrides.py`, `tests/unit/preferences/test_settings_file.py`
+
+### GO-060 — The summary config is read per request and the legacy cloud switch can only keep the cloud off
+- **Date**: 2026-10-12
+- **Status**: active
+- **Detail**: `SummaryController` takes a `SummaryConfigSource` (a callable) and reads it once per `Summarize`; the gate, the snapshot and the job use that one reading, and the job keeps its own `total_timeout_seconds`, so a save during a running summary never changes it (AC-6). `LiveSummaryConfig` in `main.py` is the source: `apply(settings)` rebuilds the providers, labels and limits (the real adapters are built again from the settings; nothing is sent and no key is read) and swaps one reference. `SummaryConfig.cloud_enabled` is derived from `default_provider == "cloud"` (the tests that need both providers usable build the rig with provider `cloud`; the `default` flag of the rows follows the provider, so the local row is no longer the default there). The obsolete `SUMMARIES_CLOUD_ENABLED` is read once at load from the environment or `.env`: explicit `false` with provider `cloud` resolves the provider to `local`, locked with `lock_reason` `LEGACY_SETTING` and one WARNING naming the variable (never a value); `true` is ignored with one WARNING; `with_overrides` never repeats the warning. Remove the rule one release after the Preferences window ships.
+- **Source**: [preferences spec](../specs/preferences.md) sections 5 and 7, AC-4, AC-6, AC-13; F5.10 P2
+- **Verifiable in**: `tests/unit/meetings/test_summary_controller.py::test_config_swap_keeps_the_running_job`, `tests/unit/test_settings_overrides.py::test_legacy_cloud_enabled_false_keeps_the_cloud_off`, `tests/unit/test_main.py::test_applying_new_settings_swaps_the_summary_config_without_a_restart`

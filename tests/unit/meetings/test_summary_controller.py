@@ -1,5 +1,6 @@
 import logging
 import threading
+import time
 from datetime import timedelta
 
 import pytest
@@ -10,6 +11,7 @@ from meeting_scribe.meetings.application.gpu_lease import InMemoryGpuLease
 from meeting_scribe.meetings.application.review_controller import ReviewController
 from meeting_scribe.meetings.application.summary_controller import (
     ConfiguredProvider,
+    ProviderId,
     SummaryConfig,
     SummaryController,
     _default_starter,
@@ -58,7 +60,12 @@ UTTERANCES = (
 
 class Rig:
     def __init__(
-        self, *, cloud_enabled: bool = True, language: str = "auto", threaded: bool = False
+        self,
+        *,
+        default_provider: ProviderId = "cloud",  # cloud selected: both providers are usable
+        language: str = "auto",
+        threaded: bool = False,
+        local_model: str = "fake-model",
     ) -> None:
         self.repository = InMemoryMeetingRepository()
         self.lock = FakeMeetingLock()
@@ -73,26 +80,7 @@ class Rig:
         self.local_provider, self.cloud_provider = FakeProvider(), FakeProvider()
         self.local_releaser = FakeReleaser()
         self.gpu_free_calls = 0
-        config = SummaryConfig(
-            local=ConfiguredProvider(
-                id="local",
-                label="Local (fake-model)",
-                model="fake-model",
-                limits=limits(),
-                generate=GenerateSummary(self.local_provider, self.local_releaser),
-            ),
-            cloud=ConfiguredProvider(
-                id="cloud",
-                label="cloud: Fake Gateway, fake-cloud-model",
-                model="fake-cloud-model",
-                limits=limits(),
-                generate=GenerateSummary(self.cloud_provider, FakeReleaser()),
-            ),
-            cloud_enabled=cloud_enabled,
-            default_provider="local",
-            language=language,
-            total_timeout_seconds=600.0,
-        )
+        self.config = self.make_config(default_provider, language, local_model)
         review = ReviewController(
             self.repository,
             self.lock,
@@ -108,10 +96,40 @@ class Rig:
             FakeClock(),
             self.lease,
             self.keys,
-            config,
+            lambda: self.config,  # the live source: ``swap`` replaces it between requests
             events=self.events,
             start_job=None if threaded else self.starter,
             on_gpu_free=self._gpu_free,
+        )
+
+    def make_config(
+        self, default_provider: ProviderId, language: str = "auto", local_model: str = "fake-model"
+    ) -> SummaryConfig:
+        return SummaryConfig(
+            local=ConfiguredProvider(
+                id="local",
+                label=f"Local ({local_model})",
+                model=local_model,
+                limits=limits(),
+                generate=GenerateSummary(self.local_provider, self.local_releaser),
+            ),
+            cloud=ConfiguredProvider(
+                id="cloud",
+                label="cloud: Fake Gateway, fake-cloud-model",
+                model="fake-cloud-model",
+                limits=limits(),
+                generate=GenerateSummary(self.cloud_provider, FakeReleaser()),
+            ),
+            default_provider=default_provider,
+            language=language,
+            total_timeout_seconds=600.0,
+        )
+
+    def swap(self, **changes: str) -> None:
+        self.config = self.make_config(
+            changes.get("default_provider", self.config.default_provider),  # type: ignore[arg-type]
+            changes.get("language", self.config.language),
+            changes.get("local_model", self.config.local.model),
         )
 
     def _gpu_free(self) -> None:
@@ -282,8 +300,8 @@ def test_the_provider_gets_the_effective_names_and_merges() -> None:
 # -- AC-5, AC-6: cloud gates and provider rows --
 
 
-def test_cloud_gates() -> None:
-    off = Rig(cloud_enabled=False)
+def test_cloud_gates_follow_the_provider() -> None:
+    off = Rig(default_provider="local")
     off.add()
     assert _code(off.controller.summarize("m1", "cloud", True)) == "SUMMARY_CLOUD_DISABLED"
     assert off.keys.reads == 0
@@ -332,21 +350,61 @@ def test_providers_rows(rig: Rig) -> None:
         "Local (fake-model)",
         False,
         True,
-        True,
+        False,
     )
     assert (cloud.id, cloud.cloud, cloud.available, cloud.reason, cloud.default) == (
         "cloud",
         True,
         True,
         "",
-        False,
+        True,
     )
     assert "cloud" in cloud.label
     assert rig.keys.reads == 0
 
-    off = Rig(cloud_enabled=False)
+    off = Rig(default_provider="local")
     _, disabled = off.controller.providers()
     assert (disabled.available, disabled.reason) == (False, "SUMMARY_CLOUD_DISABLED")
+
+
+def test_choosing_cloud_is_the_opt_in_and_the_message_names_the_window() -> None:
+    rig = Rig(default_provider="local")
+    rig.add()
+
+    refused = rig.controller.summarize("m1", "cloud", True)
+    assert _code(refused) == "SUMMARY_CLOUD_DISABLED"
+    assert "SUMMARIES_CLOUD_ENABLED" not in str(refused.failure())
+    assert rig.controller.providers()[1].available is False
+
+    rig.swap(default_provider="cloud")  # saving "cloud" in Preferences is the whole opt-in
+
+    assert rig.controller.providers()[1].available is True
+    assert _code(rig.controller.summarize("m1", "cloud", False)) == "SUMMARY_CLOUD_NOT_CONFIRMED"
+
+
+def test_config_swap_keeps_the_running_job() -> None:
+    rig = Rig(local_model="model-a", threaded=True)
+    rig.add()
+    entered, release = threading.Event(), threading.Event()
+
+    def hold(_n: int) -> None:
+        entered.set()
+        release.wait(5)
+
+    rig.local_provider.on_call = hold
+    rig.controller.summarize("m1", "local", False).unwrap()
+    assert entered.wait(5)
+
+    rig.swap(local_model="model-b")  # saved while the summary runs
+
+    assert rig.controller.providers()[0].label == "Local (model-b)"  # the next request sees it
+    release.set()
+    deadline = time.monotonic() + 5
+    while rig.controller.active_meeting_id and time.monotonic() < deadline:
+        time.sleep(0.01)
+    summary = rig.stored().summary
+    assert summary is not None
+    assert summary.model == "model-a"  # the running job kept the config it started with
 
 
 # -- AC-11: one at a time --
