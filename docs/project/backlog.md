@@ -31,9 +31,13 @@ Raised after the first real recording (2026-10-09); recorded so nothing is lost,
 - [ ] Open the review app from the "Meeting processed" notification (F4 OQ-6: menu only for now); a `desktop-entry` hint needs a manual check in GNOME Shell
 - [ ] Import recordings made before F3 (no `meeting.json`) so they can be processed
 
-### [EPIC] Summary quality and Preferences polish (after F6)
+---
 
-A separate phase after F6 (owner decision of 2026-10-12); the F5 leftovers, not part of F6.
+## In progress
+
+### [EPIC] F7 Polish — summary quality, Preferences polish and CI
+
+The phase after F6 (owner decision of 2026-10-12): the F5 and F6 leftovers, plus CI.
 
 - [ ] Summary quality: duplicate task rows, generic team owners instead of names, topics lost in the reduce step
 - [ ] The model list cache is not invalidated when the provider or the key changes
@@ -49,24 +53,11 @@ Follow-ups found in the F6 reviews:
 - [ ] A keyring write whose callback never arrives keeps the token field busy until the app restarts
 - [ ] `CancelDownload` is false during the up-to-30 s fresh cache probe
 
----
+Added when F6 closed:
 
-## In progress
+- [ ] CI: a GitHub Actions workflow running `make check` (no GPU) as a required status check on `main`
+- [ ] Speech models: Download models stays the primary button when the models are Ready (it replies READY without downloading); make it secondary or hide it then
 
-### [EPIC] F6 Install — [spec](../specs/install.md) (in progress; manual validation and the docs gate are still open)
-
-Owner decisions of 2026-10-12 (binding):
-
-- [x] Scope: a robust install from the repo. Distribution through extensions.gnome.org is deferred to a later phase. There is no cloud-only install mode: transcription and diarization need the local NVIDIA GPU, so the cloud only replaces the summary step
-- [x] One entry point: root-level `install.sh` (`make install` stays as an alias); uninstall mirrors it
-- [x] Preflight first: checks every prerequisite before changing anything; when something is missing it stops with zero changes and prints what is missing, why it is needed and the exact fix command. `./install.sh --check` runs only the preflight. Stable exit codes; output readable by humans and parseable by AI agents
-- [x] The installer never runs `sudo` and never prompts mid-way: it prints the commands. Human-only steps (NVIDIA driver and reboot, accepting the pyannote terms and creating the Hugging Face token) are labelled apart from fixable errors
-- [x] Prerequisites listed in the README and checked by the preflight: NVIDIA GPU with a working driver, at least 8 GB VRAM, free disk space, GNOME on Wayland, `uv`, GTK4, libadwaita and PyGObject, Ollama installed and reachable (the install stops if it is missing)
-- [x] The Hugging Face token moves to Preferences (GNOME Keyring, like the cloud API key) with a "Download models" action; processing loads the cached models with no token. The installer does not stop for a missing token: it reports "models pending"
-- [x] Update is `git pull` then `./install.sh` (idempotent; keeps meetings, `settings.json`, keyring entries and models); uninstall keeps user data and says so
-- [x] Runbook `docs/runbooks/install.md` (install, update, troubleshoot) and a README section "Install (humans and AI agents)"
-
-The task breakdown (F6.1 and on) lives in `odd/tasks/meeting-scribe.md`.
 
 ---
 
@@ -83,5 +74,6 @@ The task breakdown (F6.1 and on) lives in `odd/tasks/meeting-scribe.md`.
 | 2026-10-09 | F2 GNOME extension: panel indicator, D-Bus client, controller, packaging, runbook | PRs #33-#48 |
 | 2026-10-11 | F4 Review app: GTK4 + libadwaita app from the menu (listen per speaker, rename, merge, unmerge, transcript), Meetings1 review members, non-destructive review in meeting.json, install with the service | tracker #82 (PRs #81-#97) |
 | 2026-10-12 | F5 Summaries: `summaries` domain, local (native Ollama) and opt-in cloud (OpenCode Go) providers, `summary.md` export, `Summaries1`, Summary tab in the review app, "Open last summary" in the menu, `Settings1` and the Preferences window with model pickers, cloud API key in the GNOME Keyring (ADR-009) | tracker #99 |
+| 2026-10-12 | F6 Install: root `install.sh` with a read-only preflight (`--check`, `--json`, stable exit codes), no `sudo`, prerequisites in the README, Hugging Face token in the keyring and models downloaded from Preferences (`Models1`), idempotent update, uninstall keep-list, install runbook, GPL-2.0-or-later; v1 complete (tag `v1.0.0`) | tracker #130 |
 | 2026-10-09 | F3 Processing: queued transcription and diarization after Stop, "Me" label, voice samples, D-Bus `Meetings1`, menu processing state, ML install with model prefetch, real GPU validation | tracker #52 (PRs #50-#80) |
 | 2026-10-09 | F2.5 `make install` / `make uninstall`: versioned uv tool, systemd user unit, D-Bus activation, extension enabled, idempotent, no restart while recording | F2.5 |

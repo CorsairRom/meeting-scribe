@@ -21,6 +21,8 @@ and generate a summary — all running locally on the developer's machine.
 - `make check` is green (ruff, pyrefly, import-linter, pytest).
 - No private audio, transcript or meeting name exists anywhere in the repository.
 
+**v1 status**: complete on 2026-10-12 (F6 merged, #130; tag `v1.0.0`).
+
 **Non-goals**: live transcription, chat with the meeting, cloud sync/sharing, multi-user, non-GNOME desktops.
 
 ---
@@ -36,9 +38,15 @@ and generate a summary — all running locally on the developer's machine.
 | F4 Review app | Native GTK4 + libadwaita app opened from the extension menu: listen per speaker, rename, merge, view transcript (ADR-005) | do speaker review in a native window | done |
 | F5 Summaries | "Generate summary" button, Ollama/OpenCode Go choice, export `.md` | complete the end-to-end flow | done |
 | F2.5 Install | `make install` / `make uninstall`: service as a `uv` tool, systemd user unit, D-Bus activation, extension enabled; idempotent | install everything with one command, never start the service by hand | done |
-| F6 Install | Robust install from the repo: root `install.sh` with a read-only preflight (`--check`), no sudo, models downloaded from Preferences with a keyring token, install runbook (update, troubleshoot) | install from a clean clone and update with `git pull` | in progress |
+| F6 Install | Robust install from the repo: root `install.sh` with a read-only preflight (`--check`), no sudo, models downloaded from Preferences with a keyring token, install runbook (update, troubleshoot) | install from a clean clone and update with `git pull` | done |
 
 **Status**: done, in progress, pending (checked by `tests/unit/test_docs_sync.py`).
+
+## IN SCOPE — v1.1
+
+| Phase | Deliverable | User can... | Status |
+|---|---|---|---|
+| F7 Polish | Summary quality (no duplicate tasks, real owners, topics kept), Preferences and model-setup polish from the F5 and F6 reviews, CI running `make check` as a required check on `main` | get better summaries and a calmer Preferences window; rely on CI before every merge | in progress |
 
 ---
 
