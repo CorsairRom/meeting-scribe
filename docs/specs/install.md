@@ -1,7 +1,7 @@
 ---
 type: spec
 feature: install
-status: draft  # draft | approved | in-progress | done | blocked
+status: approved  # draft | approved | in-progress | done | blocked
 mvp: true
 prd_ref: FR-7, NFR-1, NFR-3, NFR-6, safety requirements 1-3
 depends_on:
@@ -362,9 +362,9 @@ AND the keep-list is the same text in the runbook
 
 Only what could not be decided from the code and the owner decisions of 2026-10-12.
 
-- **OQ-1: Progress granularity.** The Download models action shows step-level progress: the pyannote pipeline, then Whisper (2 steps, an indeterminate bar within a step), about 1.65 GiB in total. Byte-level progress needs a `tqdm` hook into `huggingface_hub` and adds code and a signal rate to throttle. Is step-level enough? Recommendation: yes.
-- **OQ-2: Existing `hf auth login` users.** Today `make install` downloads the models with the ambient login. Under this spec the installer never downloads: the models arrive from Preferences (Download models), which still uses the ambient login when no keyring token exists. A user who already has a login and no cached models therefore presses one button after installing. Should `./install.sh` instead keep trying the ambient login download as a visible, bounded step? Recommendation: no, one rule for everyone and no hidden network step.
-- **OQ-3: Freeze the D-Bus names at the end of F6?** `api-contracts.md` and the error catalog say the bus name, the object path and the `dev.meetingscribe.Error.` prefix are "proposed and renamable until F6" (CR-011). Do we freeze them when F6 closes (change those sentences to "stable", and any later rename needs an ADR)? Recommendation: yes.
+- **OQ-1: Progress granularity.** The Download models action shows step-level progress: the pyannote pipeline, then Whisper (2 steps, an indeterminate bar within a step), about 1.65 GiB in total. Byte-level progress needs a `tqdm` hook into `huggingface_hub` and adds code and a signal rate to throttle. Is step-level enough? **Answered 2026-10-12: yes, step-level progress.**
+- **OQ-2: Existing `hf auth login` users.** Today `make install` downloads the models with the ambient login. Under this spec the installer never downloads: the models arrive from Preferences (Download models), which still uses the ambient login when no keyring token exists. A user who already has a login and no cached models therefore presses one button after installing. Should `./install.sh` instead keep trying the ambient login download as a visible, bounded step? **Answered 2026-10-12: no; the installer never downloads, one rule for everyone and no hidden network step.**
+- **OQ-3: Freeze the D-Bus names at the end of F6?** `api-contracts.md` and the error catalog say the bus name, the object path and the `dev.meetingscribe.Error.` prefix are "proposed and renamable until F6" (CR-011). Do we freeze them when F6 closes (change those sentences to "stable", and any later rename needs an ADR)? **Answered 2026-10-12: yes, frozen when F6 closes (done in F6.9).**
 
 ---
 
@@ -650,3 +650,4 @@ About 400 authored changed lines per task (advisory, counting additions plus del
 - 2026-10-12: the service (not the app) downloads, so the token never crosses D-Bus and both clients stay thin.
 - 2026-10-12: the owner chose GPL-2.0-or-later for the public repository (the `LICENSE` file and metadata are added in F6.10, not before).
 - 2026-10-12: a missing default Ollama model stops the install with `ollama pull <model>` as the fix, consistent with "nothing missing".
+- 2026-10-12: spec approved under the owner's delegation (decide what follows from recorded decisions, ask only real forks); OQ-1 to OQ-3 answered with their recommendations.
