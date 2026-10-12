@@ -1,13 +1,79 @@
+<div align="center">
+
 # meeting-scribe
 
-A local, GPU-accelerated meeting assistant for GNOME (Fedora, Wayland). Record from a panel button,
-get a transcript with speakers told apart, name or merge speakers in a native GNOME review app, and generate a summary
-with a local (Ollama) or opt-in cloud (OpenCode Go) LLM. Everything runs on your machine; nothing leaves it
-unless you explicitly ask for a cloud summary.
+**Record, transcribe, tell speakers apart and summarize your meetings, entirely on your own GNOME desktop.**
 
-**Status**: F0, F1, F2, F2.5, F3, F4 and F5 are done: recording over the D-Bus session bus (`dev.meetingscribe.Recording1`), a GNOME panel extension to start and stop, and `make install`. F3 (processing): transcription, speaker assignment, the "Me" label and voice samples are built as worker stages, and the service queues processing after every recording (a desktop notification when it ends, `dev.meetingscribe.Meetings1` to list meetings and retry a failed one). The panel menu shows the processing state (stage, last result such as "N speakers", a "Processing failed — Reprocess" action, and the queued count). F4: a native GNOME review app, opened from the menu with "Review last meeting", lets you listen to each speaker's voice sample, name speakers, and merge or unmerge them. F5 (summaries): the review app has a Summary tab (generate, with the cloud labelled and confirmed on every request), a Preferences window (also a menu item) sets the provider, models, language and the cloud API key, and the panel menu offers "Open last summary (date)". F6 (a robust install from the repo: a preflight that checks every prerequisite before changing anything, no `sudo`, models downloaded from Preferences) is done, which completes v1 (tag `v1.0.0`). F7 (summary quality, Preferences polish and CI) is in progress. See the [scope](docs/project/mvp-scope.md).
+[![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB.svg?logo=python&logoColor=white)](pyproject.toml)
+[![GNOME Shell 50](https://img.shields.io/badge/GNOME%20Shell-50-4A86CF.svg?logo=gnome&logoColor=white)](gnome-extension/meeting-scribe@meetingscribe.dev/metadata.json)
+[![Fedora on Wayland](https://img.shields.io/badge/Fedora-Wayland-51A2DA.svg?logo=fedora&logoColor=white)](#prerequisites)
+[![NVIDIA GPU](https://img.shields.io/badge/GPU-NVIDIA%208%20GB-76B900.svg?logo=nvidia&logoColor=white)](#prerequisites)
+[![Local first](https://img.shields.io/badge/privacy-local--first-2EA44F.svg)](#safety)
+[![v1 complete](https://img.shields.io/badge/v1-complete-brightgreen.svg)](docs/project/mvp-scope.md)
 
-What exists today: record from the top-bar menu or `gdbus`, audio saved in 2-channel chunks. Processing needs the `ml` extra (`make setup`) and an NVIDIA GPU; it starts by itself after Stop and resumes unfinished meetings when the service starts.
+[Install](#install-humans-and-ai-agents) ·
+[How it works](#how-it-works) ·
+[Prerequisites](#prerequisites) ·
+[Documentation](#documentation) ·
+[Safety](#safety)
+
+</div>
+
+---
+
+A local, GPU-accelerated meeting assistant for GNOME (Fedora, Wayland). Record from a panel button, get a transcript
+with speakers told apart, name or merge speakers in a native GNOME review app, and generate a summary with a local
+(Ollama) or opt-in cloud (OpenCode Go) LLM. Everything runs on your machine; nothing leaves it unless you explicitly ask
+for a cloud summary.
+
+## Highlights
+
+| | |
+|---|---|
+| **One click from the top bar** | A GNOME Shell panel menu starts and stops the recording, shows the processing stage and opens the last review or summary. |
+| **Who said what** | Transcription with faster-whisper (`large-v3-turbo`) and speaker diarization with pyannote (`community-1`), on your NVIDIA GPU, with a "Me" label and a voice sample per speaker. |
+| **A native review app** | A GTK 4 + libadwaita window to listen to each speaker, name them, merge or unmerge them and read the transcript. |
+| **Summaries in the meeting's language** | Topics, decisions, tasks and open questions, from a local Ollama model by default or from OpenCode Go when you choose the cloud (labelled, and confirmed on every request). |
+| **Preferences, not config files** | Provider, models (picked from lists, never typed), language, meetings folder, the cloud key and the Hugging Face token, the secrets kept in the GNOME Keyring. |
+| **An install that explains itself** | `./install.sh --check` tells you what is missing, why, and the exact command to fix it, and never runs `sudo`. Readable by humans and AI agents (`--json`). |
+
+## How it works
+
+```mermaid
+flowchart LR
+    A([Panel menu<br/>Start / Stop]) -->|D-Bus| B[meeting-scribe service<br/>systemd --user]
+    B --> C[(Audio chunks)]
+    C --> D[Transcribe<br/>faster-whisper]
+    D --> E[Tell speakers apart<br/>pyannote]
+    E --> F[Review app<br/>name and merge speakers]
+    F --> G{Summary}
+    G -->|default| H[Local LLM<br/>Ollama]
+    G -->|opt-in, confirmed| I[Cloud LLM<br/>OpenCode Go]
+    H --> J([summary.md])
+    I --> J
+```
+
+The GNOME extension and the review app are thin clients of one service on the D-Bus session bus (no HTTP server).
+Transcription and diarization run in a GPU worker process, one model at a time, after you press Stop.
+
+## Status
+
+v1 is complete (tag `v1.0.0`); F7 is in progress. The phase table in [`mvp-scope.md`](docs/project/mvp-scope.md) is the
+source of truth.
+
+| Phase | What it delivers | Status |
+|---|---|---|
+| F0 Foundations | Scaffold, tooling, architecture contracts, ADRs | done |
+| F1 Recording | `dev.meetingscribe.Recording1`, ffmpeg capture of microphone and system audio, systemd user service | done |
+| F2 GNOME extension | Panel menu to start and stop, timer, processing state | done |
+| F2.5 Install | One-command install and uninstall | done |
+| F3 Processing | Transcription, speakers, "Me" label, voice samples, desktop notification, `Meetings1` | done |
+| F4 Review app | Native GTK 4 window to listen to, name and merge speakers | done |
+| F5 Summaries | Summary tab, local or cloud LLM, Preferences window, "Open last summary" | done |
+| F6 Install | Read-only preflight, no `sudo`, models from Preferences, update and uninstall | done |
+| F7 Polish | Summary quality, Preferences polish, CI | in progress |
+
 
 ## Prerequisites
 
@@ -44,7 +110,7 @@ when only those remain, 10 when a command can fix something). The first column i
 ## Install (humans and AI agents)
 
 ```bash
-git clone <this repository> meeting-scribe && cd meeting-scribe
+git clone https://github.com/CorsairRom/meeting-scribe.git && cd meeting-scribe
 ./install.sh --check          # read-only: changes nothing (add --json for a machine-readable report)
 ```
 
@@ -58,6 +124,10 @@ git clone <this repository> meeting-scribe && cd meeting-scribe
 4. Open **Preferences** from the Meeting Scribe menu in the top bar, then **Speech models**: accept the pyannote terms,
    paste your Hugging Face token (it goes to the GNOME Keyring) and press **Download models**. Recording works before
    this; processing needs the models.
+
+> [!TIP]
+> Asking an AI agent to install it? Point it at this section. `./install.sh --check --json` gives it a stable report;
+> it runs a `sudo` fix only with your consent and hands every `HUMAN` item back to you.
 
 Update with `git pull && ./install.sh`; remove with `./uninstall.sh` (it prints what it keeps). Exit codes, every check
 id with its fix and troubleshooting: [`docs/runbooks/install.md`](docs/runbooks/install.md).
@@ -73,6 +143,9 @@ id with its fix and troubleshooting: [`docs/runbooks/install.md`](docs/runbooks/
 `make install` and `make uninstall` are aliases and take `ARGS` (for example `make install ARGS=--check`). The installer
 never runs `sudo` and never prompts: it prints the commands. Exit codes: 0 success, 1 an install stage failed or was
 refused, 2 usage error, 10 blocked by a fixable prerequisite, 11 blocked only by steps a human must do.
+
+<details>
+<summary><strong>What <code>./install.sh</code> does, step by step</strong> (upgrades, rollback, what it never touches)</summary>
 
 You never start the service by hand. `make install` does the following, and is safe to re-run to upgrade. It runs the preflight first
 (exit 10 or 11 and no change when a prerequisite is missing), then checks the recording: while a recording is in progress, or its state cannot be read, it changes nothing and exits with an
@@ -114,6 +187,8 @@ Upgrading from an install made before versioned installs (the service ran from `
 `uv tool uninstall meeting-scribe` to drop the old tool (only when the old unit ran from the default uv tool bin
 directory; a hand-edited unit is left alone). If the restart was skipped (recording), the old tool stays and the
 summary says how to remove it later. `make uninstall` removes the whole `meeting-scribe/` versions tree.
+
+</details>
 
 Configure through Preferences (open it from the Meeting Scribe menu; the settings are saved in
 `~/.config/meeting-scribe/settings.json`). A `~/.config/meeting-scribe/.env` (or `$XDG_CONFIG_HOME/meeting-scribe/.env`;
@@ -158,8 +233,10 @@ stops the recording first.
 
 ## Safety
 
-The service never starts a recording or plays audio on its own, and meeting data is private: it stays in the
-configured meetings directory and never enters this repository.
+> [!IMPORTANT]
+> The service never starts a recording or plays audio on its own, and meeting data is private: it stays in the
+> configured meetings directory and never enters this repository. A transcript leaves your machine only when you choose
+> the cloud provider and confirm the request.
 
 ## License
 
