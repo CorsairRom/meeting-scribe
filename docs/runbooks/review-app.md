@@ -44,8 +44,9 @@ speaker, renames and merges speakers, and shows the transcript. Design: [`../spe
      `PYTHONPATH` set to that version's `app/`);
    - writes the desktop entry `<data home>/applications/dev.meetingscribe.Review.desktop`, whose `Exec` is the stable
      `<data home>/meeting-scribe/current/bin/meeting-scribe-review` (`<data home>` is `${XDG_DATA_HOME:-~/.local/share}`);
-   - checks that system Python can import GTK 4 and libadwaita, and prints `review app: ready` or
-     `review app: NOT usable (missing: ...)`. A missing package never fails the install.
+   - the preflight (`./install.sh --check`, rows `gtk.pygobject`, `gtk.gtk4`, `gtk.libadwaita`, `gtk.libsecret`) has
+     already checked that system Python can import GTK 4, libadwaita and libsecret: a missing package stops the
+     install with zero changes and prints its `dnf` command; the summary says `review app: ready`.
 2. Open the app: click the panel indicator, then **Review last meeting**. The menu item is shown whenever the
    service is available and nothing is recording. It opens the newest `DONE` meeting; the app shows an empty state
    when there is none.
@@ -76,7 +77,7 @@ A meeting in the `DONE` state has a **Summary** tab next to **Review** (spec [`.
 
 | Symptom | Cause and fix |
 |---|---|
-| Summary says `review app: NOT usable (missing: ...)` | Install the named packages with `dnf`, then run `make install` again to re-check |
+| `./install.sh` stops with `[ FIX ] gtk.*` (exit 10) | Run the printed `sudo dnf install ...` command yourself, then `./install.sh --check` again |
 | The menu item shows a notification asking you to run `make install` | The desktop entry is missing: run `make install` |
 | "The Meeting Scribe service is not running" in the window | `systemctl --user start meeting-scribe.service`, then Retry |
 | "The service must be restarted to match this app version" | `systemctl --user restart meeting-scribe.service` (an older service is still running) |

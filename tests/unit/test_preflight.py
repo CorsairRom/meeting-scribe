@@ -5,6 +5,7 @@ Every test runs against a sandbox HOME with fake tools on a PATH that holds noth
 """
 
 import json
+import re
 import shlex
 import subprocess
 from pathlib import Path
@@ -299,9 +300,15 @@ def test_the_text_summary_says_nothing_blocks_when_it_does_not(sandbox: Env) -> 
 
 @pytest.mark.parametrize("extra", [[], ["--json"]])
 @pytest.mark.parametrize("mode", ["idle", "recording", "owner-fail"])
-def test_check_changes_nothing(sandbox: Env, extra: list[str], mode: str) -> None:
+@pytest.mark.parametrize("missing", [[], ["ffmpeg", "uv", "gdbus"]])
+def test_check_changes_nothing(
+    sandbox: Env, extra: list[str], mode: str, missing: list[str]
+) -> None:
+    for tool in missing:  # with every prerequisite present and with some missing
+        _remove(sandbox, tool)
     before = sandbox.tree()
-    sandbox.run(INSTALL, "--check", *extra, FAKE_GDBUS_MODE=mode)
+    result = sandbox.run(INSTALL, "--check", *extra, FAKE_GDBUS_MODE=mode)
+    assert result.returncode == (10 if missing else 0)
     assert sandbox.tree() == before == []  # no file or directory under HOME
     calls = sandbox.calls()
     for write in WRITE_CALLS:
@@ -338,3 +345,266 @@ def test_the_scripts_hold_no_command_that_executes_sudo() -> None:
             # only quoted text (a fix command, a message) may name sudo, never a command position
             assert not stripped.startswith("sudo "), f"{script}:{number}: {line}"
             assert "$(sudo" not in stripped and "| sudo" not in stripped, f"{script}:{number}"
+
+
+# -- the system checks: session, tools, GTK stack (F6.2) ---------------------------------------
+
+F62_IDS = {
+    "session.wayland",
+    "session.gnome-shell",
+    "session.bus",
+    "tool.uv",
+    "tool.curl",
+    "tool.ffmpeg",
+    "tool.pactl",
+    "tool.systemctl",
+    "tool.gdbus",
+    "tool.gnome-extensions",
+    "gtk.pygobject",
+    "gtk.gtk4",
+    "gtk.libadwaita",
+    "gtk.libsecret",
+    "gtk.gstreamer",
+    "tool.secret-tool",
+}
+TOOL_FIXES = {
+    "tool.uv": ("uv", "sudo dnf install uv"),
+    "tool.curl": ("curl", "sudo dnf install curl"),
+    "tool.ffmpeg": ("ffmpeg", "sudo dnf install ffmpeg-free"),
+    "tool.pactl": ("pactl", "sudo dnf install pulseaudio-utils"),
+    "tool.systemctl": ("systemctl", "sudo dnf install systemd"),
+    "tool.gdbus": ("gdbus", "sudo dnf install glib2"),
+    "tool.gnome-extensions": ("gnome-extensions", "sudo dnf install gnome-shell"),
+}
+
+
+def _check(sandbox: Env, *args: str, **extra: str) -> tuple[int, dict[str, dict]]:
+    """Run ``--check --json`` and return the exit code with the checks keyed by id."""
+    result = sandbox.run(INSTALL, "--check", "--json", *args, **extra)
+    document = _json(result)
+    assert result.returncode == document["exit_code"]
+    return result.returncode, {c["id"]: c for c in document["checks"]}
+
+
+def _remove(sandbox: Env, *tools: str) -> None:
+    for tool in tools:
+        (Path(sandbox.env["PATH"]) / tool).unlink()
+
+
+def test_with_every_prerequisite_present_all_system_checks_pass(sandbox: Env) -> None:
+    code, checks = _check(sandbox)
+    assert code == 0
+    assert set(checks) >= F62_IDS
+    assert {i for i in F62_IDS if checks[i]["status"] != "OK"} == set()
+    assert json.loads(sandbox.run(INSTALL, "--check", "--json").stdout)["os"] == "fedora-44"
+
+
+@pytest.mark.parametrize("ident", sorted(TOOL_FIXES))
+def test_a_missing_tool_is_a_fix_item_with_the_dnf_command(sandbox: Env, ident: str) -> None:
+    tool, command = TOOL_FIXES[ident]
+    _remove(sandbox, tool)
+    code, checks = _check(sandbox)
+    assert code == 10
+    item = checks[ident]
+    assert item["status"] == "FIX"
+    assert item["human"] is False
+    assert command in item["fix"]
+    assert item["summary"]
+    assert item["why"]
+
+
+def test_secret_tool_is_only_a_warning(sandbox: Env) -> None:
+    _remove(sandbox, "secret-tool")
+    code, checks = _check(sandbox)
+    assert code == 0
+    assert checks["tool.secret-tool"]["status"] == "WARN"
+    assert checks["tool.secret-tool"]["fix"] == ["sudo dnf install libsecret"]
+
+
+def test_a_missing_voice_sample_plugin_is_only_a_warning(sandbox: Env) -> None:
+    code, checks = _check(sandbox, FAKE_GSTREAMER="0")
+    assert code == 0
+    assert checks["gtk.gstreamer"]["status"] == "WARN"
+    assert checks["gtk.gstreamer"]["fix"] == ["sudo dnf install gstreamer1-plugins-good"]
+
+
+def test_every_blocking_item_has_what_why_and_fix(sandbox: Env) -> None:
+    _remove(sandbox, *(tool for tool, _ in TOOL_FIXES.values()), "secret-tool", "gnome-shell")
+    env = {"FAKE_GI_MISSING": "gi", "XDG_SESSION_TYPE": "x11", "DBUS_SESSION_BUS_ADDRESS": ""}
+    code, checks = _check(sandbox, XDG_RUNTIME_DIR=str(sandbox.home.parent / "run"), **env)
+    assert code == 10
+    blocking = [c for c in checks.values() if c["status"] in {"FIX", "HUMAN"}]
+    assert {c["id"] for c in blocking} >= {
+        "session.wayland",
+        "session.gnome-shell",
+        "session.bus",
+        "gtk.pygobject",
+        *TOOL_FIXES,
+    }
+    for item in blocking:
+        assert item["id"] in CHECK_IDS
+        assert item["summary"], item  # what is missing
+        assert item["why"], item  # why it is needed
+        if item["status"] == "FIX":
+            assert item["fix"], item
+            assert all(line.startswith("sudo ") or line for line in item["fix"])
+        else:
+            assert item["human"] is True
+            assert item["fix"] == []
+            assert item["steps"], item  # the manual steps instead of a command
+    text = sandbox.run(INSTALL, "--check", XDG_RUNTIME_DIR=str(sandbox.home.parent / "run"), **env)
+    for item in blocking:
+        tag = "[HUMAN]" if item["status"] == "HUMAN" else "[ FIX ]"
+        assert any(line.startswith(f"{tag} {item['id']}") for line in text.stdout.splitlines()), (
+            item["id"]
+        )
+
+
+def test_human_only_items_are_labelled_and_exit_11(sandbox: Env) -> None:
+    run_dir = sandbox.home.parent / "run"
+    code, checks = _check(
+        sandbox,
+        XDG_SESSION_TYPE="x11",
+        DBUS_SESSION_BUS_ADDRESS="",
+        XDG_RUNTIME_DIR=str(run_dir),
+        FAKE_SHELL_VERSION="49.2",
+    )
+    assert code == 11
+    for ident in ("session.wayland", "session.bus", "session.gnome-shell"):
+        item = checks[ident]
+        assert item["status"] == "HUMAN"
+        assert item["human"] is True
+        assert item["fix"] == []
+        assert item["steps"]
+    assert "x11" in checks["session.wayland"]["summary"]
+    assert "terminal" in " ".join(checks["session.bus"]["steps"])
+
+
+def test_a_missing_package_is_fix_and_exits_10_even_next_to_human_items(sandbox: Env) -> None:
+    code, checks = _check(sandbox, FAKE_GI_MISSING="Adw", XDG_SESSION_TYPE="x11")
+    assert code == 10
+    assert checks["gtk.libadwaita"]["status"] == "FIX"
+    assert checks["session.wayland"]["status"] == "HUMAN"
+
+
+def test_the_session_bus_is_found_from_the_runtime_directory(sandbox: Env) -> None:
+    run_dir = sandbox.home.parent / "run"
+    run_dir.mkdir()
+    (run_dir / "bus").write_text("")
+    _, checks = _check(sandbox, DBUS_SESSION_BUS_ADDRESS="", XDG_RUNTIME_DIR=str(run_dir))
+    assert checks["session.bus"]["status"] == "OK"
+
+
+def test_the_shell_not_installed_is_a_human_item(sandbox: Env) -> None:
+    _remove(sandbox, "gnome-shell")
+    code, checks = _check(sandbox)
+    assert code == 11
+    assert checks["session.gnome-shell"]["status"] == "HUMAN"
+    assert "not installed" in checks["session.gnome-shell"]["summary"]
+
+
+def _repo_copy(sandbox: Env, shell_versions: str) -> Path:
+    """A copy of the scripts and the extension metadata with another ``shell-version`` list."""
+    root = sandbox.home.parent / "repo"
+    (root / "scripts").mkdir(parents=True)
+    for script in SCRIPTS.glob("*.sh"):
+        (root / "scripts" / script.name).write_text(script.read_text())
+        (root / "scripts" / script.name).chmod(0o755)
+    meta_dir = root / "gnome-extension" / "meeting-scribe@meetingscribe.dev"
+    meta_dir.mkdir(parents=True)
+    (meta_dir / "metadata.json").write_text(
+        f'{{\n  "uuid": "x@y",\n  "shell-version": {shell_versions}\n}}\n'
+    )
+    return root / "scripts" / "install.sh"
+
+
+@pytest.mark.parametrize(
+    ("declared", "shell", "status"),
+    [
+        ('["50"]', "50.4", "OK"),
+        ('["50"]', "51.0", "HUMAN"),
+        ('["49", "51"]', "50.1", "HUMAN"),
+        ('[\n    "49",\n    "50"\n  ]', "50.4", "OK"),
+        ('["51.beta"]', "51.beta", "OK"),
+        ('["50"]', "garbage", "HUMAN"),
+    ],
+)
+def test_session_checks_read_the_extension_metadata(
+    sandbox: Env, declared: str, shell: str, status: str
+) -> None:
+    script = _repo_copy(sandbox, declared)
+    result = sandbox.run(script, "--check", "--json", FAKE_SHELL_VERSION=shell)
+    item = {c["id"]: c for c in _json(result)["checks"]}["session.gnome-shell"]
+    assert item["status"] == status, item
+    if status == "HUMAN":
+        required = " ".join(re.findall(r"\d+", declared))  # what the metadata lists
+        assert shell in item["summary"] or "GNOME Shell" in item["summary"]
+        assert required.split()[0] in " ".join([item["summary"], *item["steps"]])
+
+
+def test_the_scripts_do_not_hardcode_the_shell_version() -> None:
+    text = (SCRIPTS / "preflight.sh").read_text()
+    assert not re.search(r"\b50\b", text.replace("/50/", ""))  # read from metadata.json instead
+
+
+def test_an_unreadable_metadata_is_a_human_item(sandbox: Env) -> None:
+    script = _repo_copy(sandbox, '["50"]')
+    metadata = (
+        script.parent.parent / "gnome-extension/meeting-scribe@meetingscribe.dev/metadata.json"
+    )
+    metadata.write_text("{}")
+    result = sandbox.run(script, "--check", "--json")
+    item = {c["id"]: c for c in _json(result)["checks"]}["session.gnome-shell"]
+    assert item["status"] == "HUMAN"
+    assert "shell-version" in item["summary"]
+
+
+@pytest.mark.parametrize(
+    ("missing", "blocked", "skipped"),
+    [
+        (
+            "gi",
+            {"gtk.pygobject": "python3-gobject"},
+            {"gtk.gtk4", "gtk.libadwaita", "gtk.libsecret"},
+        ),
+        ("Gtk", {"gtk.gtk4": "gtk4"}, set()),
+        ("Adw", {"gtk.libadwaita": "libadwaita"}, set()),
+        ("Secret", {"gtk.libsecret": "libsecret"}, set()),
+        (
+            "Gtk,Adw,Secret",
+            {"gtk.gtk4": "gtk4", "gtk.libadwaita": "libadwaita", "gtk.libsecret": "libsecret"},
+            set(),
+        ),
+    ],
+)
+def test_gtk_stack_items(
+    sandbox: Env, missing: str, blocked: dict[str, str], skipped: set[str]
+) -> None:
+    code, checks = _check(sandbox, FAKE_GI_MISSING=missing)
+    assert code == 10
+    for ident in ("gtk.pygobject", "gtk.gtk4", "gtk.libadwaita", "gtk.libsecret"):
+        if ident in blocked:
+            assert checks[ident]["status"] == "FIX", ident
+            assert checks[ident]["fix"] == [f"sudo dnf install {blocked[ident]}"]
+            assert sandbox.env["REVIEW_APP_PYTHON"] in checks[ident]["summary"]
+        elif ident in skipped:
+            assert checks[ident]["status"] == "SKIP", ident  # it depends on the failed import
+        else:
+            assert checks[ident]["status"] == "OK", ident
+
+
+def test_an_absent_system_python_is_a_pygobject_fix(sandbox: Env) -> None:
+    code, checks = _check(sandbox, REVIEW_APP_PYTHON="/nonexistent/python3")
+    assert code == 10
+    assert checks["gtk.pygobject"]["status"] == "FIX"
+    assert "/nonexistent/python3" in checks["gtk.pygobject"]["summary"]
+
+
+def test_the_gtk_probes_run_only_the_system_interpreter_and_never_uv(sandbox: Env) -> None:
+    sandbox.run(INSTALL, "--check")
+    calls = sandbox.calls()
+    probes = [line for line in calls if line.startswith("python3-run")]
+    assert probes  # the interpreter was used
+    assert all("args=-c " in line for line in probes)
+    assert not any("meeting_scribe_review" in line for line in probes)
+    assert not any(line.startswith("uv") for line in calls)
