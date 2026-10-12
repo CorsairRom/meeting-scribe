@@ -621,7 +621,7 @@ created (it needs the owner's go to push); work-unit PRs of about 400 authored l
 owner merges the tracker. Docs gate before the tracker is ready (see `docs/project/doc-sync-protocol.md`).
 Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers are a separate phase after F6.
 - [x] F6.0a Phase start: F5 done, F6 in progress (mvp-scope, AGENTS, backlog, README, F5 spec statuses, this document).
-- [ ] F6.0b Design spec `docs/specs/install.md` and ADR-010 draft; waits for the owner's approval and answers to its open questions.
+- [ ] F6.0b Design spec `docs/specs/install.md` and ADR-010 and ADR-011 drafts written 2026-10-12; waits for the owner's approval and answers to its open questions.
 - [ ] F6.1 Root `install.sh` and `uninstall.sh` entry points (thin wrappers over `scripts/`), `make install` alias,
       option parsing (`--check`, `--json`, `--help`), exit-code contract and report formatter, with fakes-based tests.
 - [ ] F6.2 Preflight, system checks: GNOME Wayland session, GNOME Shell version from the extension metadata, `uv`,
@@ -637,7 +637,16 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
 - [ ] F6.7 Review app UI: "Speech models" group in Preferences (token field, terms link, Download models with progress and cancel).
 - [ ] F6.8 Update and uninstall: idempotent re-run proof, uninstall mirrors the entry point and lists what it keeps, existing `hf auth login` still works.
 - [ ] F6.9 Docs and validation: `docs/runbooks/install.md`, README section "Install (humans and AI agents)", the other runbooks,
-      ADR-010 active, docs gate, validation with consent on the real machine (no recording, no audio).
+      ADR-010 and ADR-011 active, docs gate, validation with consent on the real machine (no recording, no audio).
+- [ ] F6.10 Prepare the repo to become public (owner scope added 2026-10-12; planned only, runs with the README task F6.9,
+      the repo stays private until it is done; see `docs/specs/install.md` section 11):
+  - (a) Add the `LICENSE` file and declare it in `pyproject.toml` and, if the metadata format allows it, the extension
+        metadata. The owner chose GPL-2.0-or-later (decided 2026-10-12).
+  - (b) Change the author email in `pyproject.toml` to `richard.romero@hotmail.cl`, then rewrite the previous work email
+        out of the whole git history (every commit author and committer, main and all branches). This needs a force-push
+        of `main` and the branches: the owner confirms right before it, nothing is pushed without that go.
+  - (c) Remove the references to the private repos qforest-chatbot and donde-compro (`odd/tasks/meeting-scribe.md`,
+        "Accepted deviations" section, and `docs/_templates/README.md` line 4), keeping the facts that still matter.
 
 ## Route log
 

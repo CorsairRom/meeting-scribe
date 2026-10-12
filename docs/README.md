@@ -73,6 +73,8 @@ changes, mark it `superseded` and create a new ADR.
 | [`007`](decisions/007-gpu-worker-subprocess.md) | GPU work in short-lived worker processes, one per GPU stage | active |
 | [`008`](decisions/008-summary-sections.md) | The summary has a Decisions section (extends ADR-006's format) | active |
 | [`009`](decisions/009-cloud-summaries-through-opencode-go.md) | Cloud summaries go through OpenCode Go (replaces ADR-006's DeepSeek preset) | active |
+| [`010`](decisions/010-install-never-uses-sudo.md) | The install checks first, never uses sudo and never prompts | proposed |
+| [`011`](decisions/011-hugging-face-token-in-keyring-and-models-from-preferences.md) | The Hugging Face token lives in the keyring; models are downloaded from Preferences | proposed |
 
 > **AI**: before taking a technical decision, check whether an ADR already covers it.
 > If an ADR is `superseded`, follow the one that replaces it.
