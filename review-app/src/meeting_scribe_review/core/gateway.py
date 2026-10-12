@@ -12,6 +12,7 @@ from meeting_scribe_review.core.models import (
     KeyStatus,
     MeetingSummary,
     ModelList,
+    ModelsStatus,
     ProviderRow,
     SetOutcome,
     SettingsField,
@@ -138,6 +139,42 @@ class ApiKeyStore(Protocol):
         ...
 
     def remove(self, done: Callback[None]) -> None: ...
+
+
+class ModelsListener(Protocol):
+    """What ``Models1`` announces while the models download, plus the service's bus name."""
+
+    def on_service_available(self, available: bool) -> None: ...
+
+    def on_models_progress(self, model: str, step: int, total_steps: int) -> None: ...
+
+    def on_models_finished(self, state: str, error_code: str) -> None: ...
+
+
+@runtime_checkable
+class ModelsGateway(Protocol):
+    """The ``Models1`` calls the app makes. No call takes or returns a token (ADR-011)."""
+
+    def models_status(self, done: Callback[ModelsStatus]) -> None: ...
+
+    def download_models(self, done: Callback[str]) -> None: ...
+
+    def cancel_download(self, done: Callback[bool]) -> None: ...
+
+    def watch_models(self, listener: ModelsListener) -> None: ...
+
+    def unwatch_models(self, listener: ModelsListener) -> None: ...
+
+
+@runtime_checkable
+class TokenStore(Protocol):
+    """Stores the Hugging Face token in the GNOME Keyring. The service reads it from there."""
+
+    def store(self, secret: str, done: Callback[None]) -> None: ...
+
+    def is_stored(self, done: Callback[KeyStatus]) -> None:
+        """Whether the item exists, found without reading the secret."""
+        ...
 
 
 class PlayerListener(Protocol):

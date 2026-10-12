@@ -38,7 +38,7 @@ def error_from_dbus_name(name: str) -> ServiceError:
         return ServiceError(name.removeprefix(f"{ERROR_PREFIX}."))
     if name.startswith(_DBUS_PREFIX):
         tail = name.removeprefix(_DBUS_PREFIX)
-        if tail == "UnknownMethod":
+        if tail in {"UnknownMethod", "UnknownInterface"}:  # a service older than this app
             return ServiceError(SERVICE_OUTDATED)
         if tail in _NOT_RUNNING_NAMES or tail.startswith("Spawn."):
             return ServiceError(SERVICE_NOT_RUNNING)
@@ -147,6 +147,29 @@ _MESSAGES: dict[str, UserMessage] = {
     ),
     "FIELD_INVALID": UserMessage("This value is not valid."),
     "FIELD_FOLDER_NOT_WRITABLE": UserMessage("The meetings folder is not writable."),
+    "DIARIZATION_MODEL_ACCESS_DENIED": UserMessage(
+        "Hugging Face refused access to the speaker model. Accept the model terms, paste a "
+        "valid token above, then press Download models again."
+    ),
+    "MODEL_UNAVAILABLE": UserMessage(
+        "The models could not be reached. Check the internet connection, then press "
+        "Download models again."
+    ),
+    "MODELS_TOKEN_KEYRING_LOCKED": UserMessage(
+        "The keyring is locked, so the token cannot be read. Unlock the login keyring, then "
+        "press Download models again."
+    ),
+    "MODELS_DOWNLOAD_TIMEOUT": UserMessage(
+        "The download took too long and was stopped. Press Download models to resume; what "
+        "was downloaded is kept."
+    ),
+    "MODELS_DOWNLOAD_FAILED": UserMessage(
+        "The download did not finish. Press Download models to try again."
+    ),
+    "MODELS_DOWNLOAD_ACTIVE": UserMessage("A download is already running."),
+    "MODELS_DOWNLOAD_CANCELLED": UserMessage(
+        "The service is shutting down. Press Download models when it is back."
+    ),
     "SUMMARY_STORAGE_FAILED": UserMessage(
         "The summary could not be saved. Check disk space and permissions."
     ),

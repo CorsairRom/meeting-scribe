@@ -656,7 +656,13 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
       the private bus). Larger than 400 lines (about 2,900 changed with tests and docs, about 1,300 of them source) because the domain, the two child-process adapters,
       the shared keyring reader, the interface and the composition are one coherent unit with their proofs. Decisions recorded in
       `docs/specs/install.md`. Commit `9749d87` `feat(model-setup): download the models over models1 with the keyring token`.
-- [ ] F6.6 Review app core: Hugging Face token key store (libsecret), `Models1` gateway, presenter and tests.
+- [x] F6.6 Review app core: Hugging Face token key store (libsecret), `Models1` gateway, presenter and tests.
+      Evidence: RED = 19 collection errors across `tests/unit/review_app` (the fakes import `ModelsListener`, which did not exist),
+      2 failed in `test_hf_token_store.py` (no `hugging_face_token_store`), 3 failed in `tests/e2e/model_setup/test_review_app_models_gateway.py`
+      (no `watch_models`); GREEN = `make check` 2261 python passed, packaging 1 passed, gjs 163 passed, lint and 16 import contracts clean.
+      Route: delegated direct, one writer (single thread). The three F5 follow-ups (late keyring write after cancel, stale success after a newer failure,
+      state surviving a closed dialog) are tests in `test_models_presenter.py`; a sentinel token is absent from presenter state, gateway calls and client output.
+      Decisions recorded in `docs/specs/install.md`. Commit `feat(review-app): add the speech models core`.
 - [ ] F6.7 Review app UI: "Speech models" group in Preferences (token field, terms link, Download models with progress and cancel).
       Also remove the interim line `(until then: meeting-scribe prefetch-models)` that `scripts/install.sh` prints after `models: PENDING`
       (and its assertion in `tests/unit/test_install_scripts.py`).

@@ -10,7 +10,7 @@ NAME = "org.freedesktop.secrets"
 PATH = "/org/freedesktop/secrets"
 SESSION = "/org/freedesktop/secrets/session/s1"
 ITEM = "/org/freedesktop/secrets/collection/login/1"
-FAKE_SECRET = "test-key-not-a-secret"  # noqa: S105
+FAKE_SECRET = "test-key-not-a-secret"
 
 
 class FakeSecretService(ServiceInterface):

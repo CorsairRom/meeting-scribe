@@ -155,3 +155,16 @@ class ModelList:
     @property
     def available(self) -> bool:
         return self.status == "OK"
+
+
+@dataclass(frozen=True, slots=True)
+class ModelsStatus:
+    """``Models1.GetStatus``: ``state`` is READY, PENDING, DOWNLOADING or FAILED (never a token)."""
+
+    state: str
+    whisper_cached: bool
+    pipeline_cached: bool
+    token_stored: bool
+    step: int
+    total_steps: int
+    failure_code: str
