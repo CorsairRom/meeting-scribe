@@ -12,6 +12,7 @@ from enum import StrEnum
 
 from meeting_scribe_review.core.errors import (
     KEYRING_UNAVAILABLE,
+    RESTART_NOT_DONE,
     ServiceError,
     message_for,
 )
@@ -32,7 +33,9 @@ LABELS = {
     CLOUD_MODEL: "Model",
     MEETINGS_DIR: "Meetings folder",
 }
-PROVIDER_OPTIONS = (("local", "Local"), ("cloud", "Cloud"))
+LOCAL = "local"
+CLOUD = "cloud"
+PROVIDER_OPTIONS = ((LOCAL, "Local"), (CLOUD, "Cloud"))
 AUTO = "auto"
 LANGUAGE_OPTIONS = (
     (AUTO, "Meeting language"),
@@ -55,6 +58,8 @@ CLOUD_NOTE = (
 RESTART_TEXTS = {MEETINGS_DIR: "Restart the service to use the new folder."}
 RESTART_FALLBACK = "Restart the service to apply your changes."
 RESTARTING_TEXT = "Restarting the service..."
+RESTART_WAIT_SECONDS = 20.0
+"""How long a restart may take before the dialog stops waiting for it."""
 FOLDER_NOTE = "Existing meetings stay where they are."
 KEY_TEXTS = {
     KeyStatus.UNKNOWN: "Checking the keyring...",
@@ -65,7 +70,6 @@ KEY_TEXTS = {
 }
 _LEGACY = "LEGACY_SETTING"
 _FIELD_INVALID = "FIELD_INVALID"
-_STORAGE_FAILED = "SETTINGS_STORAGE_FAILED"
 _APPLY_FAILED = "SETTINGS_APPLY_FAILED"
 _REMOVE_FAILED = "KEYRING_REMOVE_FAILED"
 
@@ -143,6 +147,7 @@ class PreferencesPresenter:
         gateway: SettingsGateway,
         keys: ApiKeyStore,
         on_change: Callable[[PreferencesState], None],
+        after: Callable[[float, Callable[[], None]], None] | None = None,
     ) -> None:
         self._gateway = gateway
         self._keys = keys
@@ -153,10 +158,13 @@ class PreferencesPresenter:
         self._errors: dict[str, str] = {}
         self._pending: tuple[str, ...] = ()
         self._phase = PreferencesPhase.LOADING
-        self._message = ServiceError("")
         self._text = ""
         self._hint = ""
+        self._after = after or (lambda _seconds, _call: None)  # a timer: the view supplies one
         self._restarting = False
+        self._went_down = False  # the service left the bus while a restart was awaited
+        self._restart_token = 0
+        self._save_done: bool | None = None  # a saved Set waits for the next fresh reload
         self._saving = False
         self._saved = False
         self._key = KeyStatus.UNKNOWN
@@ -173,22 +181,21 @@ class PreferencesPresenter:
         self._phase = PreferencesPhase.LOADING
         self._text = self._hint = ""
         self._publish()
-        self._fetch(lambda: None)
+        self._fetch()
         self.refresh_key()
 
-    def _fetch(self, then: Callable[[], None]) -> None:
+    def _fetch(self) -> None:
         self._generation += 1
         generation = self._generation
-        self._gateway.get_all(lambda result: self._loaded(generation, result, then))
+        self._gateway.get_all(lambda result: self._loaded(generation, result))
 
-    def _loaded(
-        self,
-        generation: int,
-        result: Result[list[SettingsField], ServiceError],
-        then: Callable[[], None],
-    ) -> None:
+    def _loaded(self, generation: int, result: Result[list[SettingsField], ServiceError]) -> None:
         if generation != self._generation:
             return  # a newer load answers
+        save_done, self._save_done = (
+            self._save_done,
+            None,
+        )  # whichever reload is newest completes it
         if isinstance(result, Err):
             self._phase = PreferencesPhase.UNAVAILABLE
             self._show_error(result.error)
@@ -196,8 +203,8 @@ class PreferencesPresenter:
             return
         self._adopt(result.value)
         self._phase = PreferencesPhase.READY
+        self._saved = bool(save_done)
         self._gateway.restart_required(self._pending_known)
-        then()
         self._publish()
 
     def _adopt(self, rows: list[SettingsField]) -> None:
@@ -220,8 +227,11 @@ class PreferencesPresenter:
     def on_service_available(self, available: bool) -> None:
         if available:
             self._restarting = False  # the service is back: whatever restarted it is done
+            self._went_down = False
             self.load()
-        elif not self._restarting:
+        elif self._restarting:
+            self._went_down = True  # expected: it comes back, or the wait below gives up
+        else:
             self._phase = PreferencesPhase.UNAVAILABLE
             self._show_error(ServiceError("SERVICE_NOT_RUNNING"))
             self._publish()
@@ -229,7 +239,7 @@ class PreferencesPresenter:
     def on_settings_changed(self, keys: tuple[str, ...]) -> None:
         del keys  # the whole registry is small: reload it and keep what the user typed
         if self._phase is PreferencesPhase.READY and not self._saving:
-            self._fetch(lambda: None)
+            self._fetch()
 
     # -- editing and saving -----------------------------------------------------------------
 
@@ -274,14 +284,9 @@ class PreferencesPresenter:
         self._stale.clear()
         self._pending = outcome.restart_required
         needs_restart_now = bool(set(outcome.applied) & set(outcome.restart_required))
-        if outcome.apply_failed:
-            self._show_error(ServiceError(_APPLY_FAILED))
-        self._fetch(
-            lambda: self._finish_save(done=not outcome.apply_failed and not needs_restart_now)
-        )
-
-    def _finish_save(self, *, done: bool) -> None:
-        self._saved = done
+        # The service reports a failed apply in every row (``apply_problem``): the reload shows it.
+        self._save_done = not outcome.apply_failed and not needs_restart_now
+        self._fetch()
 
     # -- restarting -------------------------------------------------------------------------
 
@@ -295,7 +300,21 @@ class PreferencesPresenter:
             self._show_error(result.error)
         else:
             self._restarting = True
+            self._went_down = False
             self._text = self._hint = ""
+            self._restart_token += 1
+            token = self._restart_token
+            self._after(RESTART_WAIT_SECONDS, lambda: self._restart_timed_out(token))
+        self._publish()
+
+    def _restart_timed_out(self, token: int) -> None:
+        """The restart was accepted, but the service never left or never came back (only logged)."""
+        if token != self._restart_token or not self._restarting:
+            return
+        self._restarting = False
+        if self._went_down:
+            self._phase = PreferencesPhase.UNAVAILABLE
+        self._show_error(ServiceError(RESTART_NOT_DONE))
         self._publish()
 
     # -- the API key row ---------------------------------------------------------------------
@@ -335,10 +354,8 @@ class PreferencesPresenter:
 
     def _build(self) -> PreferencesState:
         ready = self._phase is PreferencesPhase.READY
-        provider = self._staged.get(PROVIDER) or (
-            r.value if (r := self._row(PROVIDER)) else "local"
-        )
-        cloud = provider == "cloud"
+        provider = self._staged.get(PROVIDER) or (r.value if (r := self._row(PROVIDER)) else LOCAL)
+        cloud = provider == CLOUD
         fields = tuple(self._field(row, cloud) for row in self._rows)
         edited = bool(self._staged)
         idle = ready and not self._saving and not self._restarting

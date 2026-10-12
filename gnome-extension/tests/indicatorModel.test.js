@@ -82,7 +82,13 @@ const base = {
     elapsedSeconds: 0,
     failureReason: '',
 };
-const vm = (overrides, tr) => viewModel({...base, ...overrides}, tr);
+const full = (overrides, tr) => viewModel({...base, ...overrides}, tr);
+// The Preferences item ends every menu that can open (tested in its own section below): the
+// other tests describe the items above it, so they compare the model without that tail.
+const withoutPreferences = model => model.menuItems.at(-1)?.action === 'preferences'
+    ? {...model, menuItems: model.menuItems.slice(0, -2)}
+    : model;
+const vm = (overrides, tr) => withoutPreferences(full(overrides, tr));
 const ids = items => items.filter(i => i.kind === 'action').map(i => i.action);
 
 test('icons are distinct named constants', () => {
@@ -319,7 +325,7 @@ test('processing lines translate through the injected function', () => {
     const up = s => s.split('%s').map(part => part.toUpperCase()).join('%s');
     const m = viewModel({...base, processing: proc({activeMeetingId: 'm1',
         activeState: 'DIARIZING', queuedCount: 2})}, up);
-    assertDeepEqual(texts(m.menuItems).slice(2),
+    assertDeepEqual(texts(withoutPreferences(m).menuItems).slice(2),
         ['PROCESSING MEETING… (DIARIZING)', '2 MEETINGS QUEUED']);
 });
 
@@ -441,4 +447,34 @@ test('the summary item text is translated through the template', () => {
 test('summaryOpenFailureMessage is short, fixed and translated', () => {
     assertEqual(summaryOpenFailureMessage(s => s).includes('summary'), true);
     assertEqual(summaryOpenFailureMessage(s => `<${s}>`).startsWith('<'), true);
+});
+
+// -- Preferences... (F5.10, AC-12): always offered where the menu opens, last, after a separator ---
+
+const PREFERENCES = {kind: 'action', text: 'Preferences…', action: 'preferences'};
+const preferencesItems = model => model.menuItems.filter(item => item.action === 'preferences');
+
+test('the preferences item ends the menu after a separator in every state that opens it', () => {
+    for (const overrides of [{state: 'IDLE'}, {state: 'STOPPED', sessionId: 's1'},
+        {state: 'RECORDING'}, {state: 'FAILED'}, {available: false}]) {
+        const items = full(overrides).menuItems;
+        assertDeepEqual(items.slice(-2), [{kind: 'separator'}, PREFERENCES], `${JSON.stringify(overrides)}: `);
+        assertEqual(preferencesItems(full(overrides)).length, 1);
+    }
+});
+
+test('the preferences item does not depend on the recording, the review or the processing state', () => {
+    const processing = {available: true, activeState: 'DIARIZING', queuedCount: 2, last: null};
+    assertDeepEqual(full({state: 'IDLE', processing}).menuItems.at(-1), PREFERENCES);
+    assertDeepEqual(full({state: 'RECORDING', processing}).menuItems.at(-1), PREFERENCES);
+});
+
+test('the preferences item is absent where the menu cannot open: busy and unknown states', () => {
+    assertDeepEqual(preferencesItems(full({state: 'IDLE', busy: true})), []);
+    assertDeepEqual(preferencesItems(full({state: 'WEIRD'})), []);
+});
+
+test('the preferences item is translated', () => {
+    const [item] = preferencesItems(full({state: 'IDLE'}, s => `<${s}>`));
+    assertEqual(item.text, '<Preferences…>');
 });

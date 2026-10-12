@@ -65,6 +65,7 @@ class PreferencesService:
         checks: Mapping[str, FieldCheck] | None = None,
         prepare: Mapping[str, FieldCheck] | None = None,
         rollback: Mapping[str, Callable[[], None]] | None = None,
+        commit: Mapping[str, Callable[[], None]] | None = None,
         events: SettingsEvents | None = None,
     ) -> None:
         self._store = store
@@ -73,6 +74,7 @@ class PreferencesService:
         self._checks = dict(checks or {})
         self._prepare = dict(prepare or {})  # side effects, run only when the whole Set will apply
         self._rollback = dict(rollback or {})  # undo a prepare when the file cannot be written
+        self._commit = dict(commit or {})  # the file was written: a prepare can no longer be undone
         self._apply_problem = ""
         self._events: SettingsEvents = events or NullSettingsEvents()
         self._lock = threading.Lock()  # one Set at a time; the second waits
@@ -191,14 +193,19 @@ class PreferencesService:
         values: dict[str, str],
         candidate: dict[str, str],
         effective: EffectiveSettings,
-        prepared: tuple[str, ...] = (),
+        normalized_keys: tuple[str, ...] = (),
     ) -> Result[SetOutcome, SettingsStorageFailedError]:
         written = self._store.write(candidate)
         if isinstance(written, Failure):
-            for key in prepared:
+            # Coupling: ``prepare`` already ran for every normalized key (it is what made a new
+            # folder), so each key's rollback undoes exactly that side effect.
+            for key in normalized_keys:
                 if (undo := self._rollback.get(key)) is not None:
                     undo()
             return written
+        for key in normalized_keys:
+            if (settle := self._commit.get(key)) is not None:
+                settle()  # the side effect is now part of the saved state: forget how to undo it
         self._saved = candidate
         self._effective = effective
         self._file_problem = ""

@@ -168,7 +168,9 @@ fi
 if [[ -z "$rolled_back" ]]; then
   desktop_template="$(<"$REPO_ROOT/packaging/applications/$DESKTOP_ENTRY_NAME.in")"
   mkdir -p "$APPLICATIONS_DIR"
-  printf '%s\n' "${desktop_template%%@EXEC@*}$(desktop_exec_argument "$CURRENT_LINK/bin/$REVIEW_LAUNCHER_NAME")${desktop_template#*@EXEC@}" >"$DESKTOP_ENTRY_PATH"
+  desktop_exec="$(desktop_exec_argument "$CURRENT_LINK/bin/$REVIEW_LAUNCHER_NAME")"
+  # Every placeholder (the entry and its actions); quoted so a "&" in the path stays literal.
+  printf '%s\n' "${desktop_template//@EXEC@/"$desktop_exec"}" >"$DESKTOP_ENTRY_PATH"
   refresh_desktop_database
 elif [[ ! -x "$CURRENT_LINK/bin/$REVIEW_LAUNCHER_NAME" ]]; then
   rm -f "$DESKTOP_ENTRY_PATH"

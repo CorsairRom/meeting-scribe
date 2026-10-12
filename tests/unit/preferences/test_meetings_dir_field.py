@@ -7,6 +7,7 @@ import pytest
 from returns.result import Failure, Success
 
 from meeting_scribe.preferences.infrastructure.meetings_folder import (
+    MeetingsFolderPreparer,
     check_meetings_folder,
     create_meetings_folder,
 )
@@ -114,3 +115,23 @@ def test_existing_content_is_never_touched(tmp_path: Path) -> None:
     check_meetings_folder(str(tmp_path)).unwrap()
 
     assert sorted(p.name for p in tmp_path.iterdir()) == ["m1"]
+
+
+def test_a_committed_folder_is_never_rolled_back(tmp_path: Path) -> None:
+    preparer = MeetingsFolderPreparer()
+    target = tmp_path / "new-meetings"
+    assert preparer(str(target)) == Success(target)
+
+    preparer.commit()
+    preparer.rollback()
+
+    assert target.is_dir()
+
+
+def test_a_folder_that_was_there_is_never_removed_by_a_rollback(tmp_path: Path) -> None:
+    preparer = MeetingsFolderPreparer()
+    assert preparer(str(tmp_path)) == Success(tmp_path)
+
+    preparer.rollback()
+
+    assert tmp_path.is_dir()

@@ -124,6 +124,7 @@ class Service:
             checks={"storage.meetings_dir": _folder_check},
             prepare={"storage.meetings_dir": lambda raw: self.preparer(raw).map(str)},
             rollback={"storage.meetings_dir": self.preparer.rollback},
+            commit={"storage.meetings_dir": self.preparer.commit},
             events=self.events,
         )
 

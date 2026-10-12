@@ -12,7 +12,10 @@ const EXTENSION_DIR = GLib.build_filenamev([
     'meeting-scribe@meetingscribe.dev',
 ].map((part, i) => i === 0 ? GLib.path_get_dirname(part) : part));
 const GLUE_FILES = ['extension.js', 'lib/panelIndicator.js', 'lib/glibScheduler.js'];
-const PURE_FILES = ['lib/indicatorModel.js', 'lib/indicatorController.js'];
+const PREFS_FILE = 'prefs.js';
+const PREFS_RESOURCE = 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
+const PURE_FILES = ['lib/indicatorModel.js', 'lib/indicatorController.js',
+    'lib/preferencesLauncher.js'];
 const SHELL_PREFIX = 'resource:///org/gnome/shell/';
 
 const path = relative => GLib.build_filenamev([EXTENSION_DIR, relative]);
@@ -121,13 +124,14 @@ test('stylesheet.css defines the three indicator states', () => {
 
 test('extension.js launches the review app through its desktop entry and hands it to the controller', () => {
     const source = read('extension.js');
-    assertEqual(source.includes("Gio.DesktopAppInfo.new('dev.meetingscribe.Review.desktop')"), true);
+    assertEqual(source.includes('Gio.DesktopAppInfo.new(REVIEW_DESKTOP_ENTRY)'), true);
+    assertEqual(source.includes('dev.meetingscribe.Review.desktop'), false, 'one constant for the id: ');
     assertEqual(/\.launch\(\[\], null\)/.test(source), true, 'launch([], null): ');
     assertEqual(/\blaunchReview,/.test(source), true, 'the controller gets launchReview: ');
 });
 
 test('the desktop entry id in extension.js is the one packaging installs', () => {
-    const id = read('extension.js').match(/DesktopAppInfo\.new\('([^']+)'\)/)?.[1];
+    const id = read('lib/preferencesLauncher.js').match(/REVIEW_DESKTOP_ENTRY = '([^']+)'/)?.[1];
     const template = GLib.build_filenamev([EXTENSION_DIR, '..', '..', 'packaging', 'applications', `${id}.in`]);
     assertEqual(GLib.file_test(template, GLib.FileTest.EXISTS), true, `no template for ${id}: `);
 });
@@ -146,4 +150,62 @@ test('the extension never reads the content of a summary or builds its path', ()
         for (const forbidden of ['load_contents', 'file_get_contents', 'read_bytes', 'summary.md'])
             assertEqual(source.includes(forbidden), false, `${file} uses ${forbidden}: `);
     }
+});
+
+// -- prefs.js (F5.10, AC-15): a launcher that runs in the Extensions app's own process ------------
+
+test('prefs.js parses as an ES module and exports the preferences class', async () => {
+    const source = read(PREFS_FILE);
+    const result = await checkSyntax(source);
+    assertEqual(result.ok, true, `${result.stderr}\n`);
+    assertEqual(/export default class \w+ extends ExtensionPreferences/.test(source), true);
+    assertEqual(/\bfillPreferencesWindow\(window\)/.test(source), true);
+});
+
+test('prefs.js imports only gi://, its own lib and the Extensions app module, never a Shell module', () => {
+    const specifiers = importSpecifiers(read(PREFS_FILE));
+    assertEqual(specifiers.length > 0, true);
+    for (const specifier of specifiers) {
+        if (specifier.startsWith('.')) {
+            const target = GLib.build_filenamev([GLib.path_get_dirname(path(PREFS_FILE)), specifier]);
+            assertEqual(GLib.file_test(target, GLib.FileTest.EXISTS), true, `missing ${specifier}: `);
+        } else if (specifier !== PREFS_RESOURCE && !specifier.startsWith('gi://')) {
+            throw new Error(`prefs.js imports unexpected module ${specifier}`);
+        }
+    }
+    for (const forbidden of ['gi://Meta', 'gi://Clutter', 'gi://Shell', 'gi://St', SHELL_PREFIX])
+        assertEqual(read(PREFS_FILE).includes(forbidden), false, `${forbidden}: `);
+});
+
+test('prefs.js contains no settings logic: no D-Bus, no file, no key', () => {
+    const source = read(PREFS_FILE);
+    for (const forbidden of ['Settings1', 'DBus', 'settings.json', 'load_contents', 'file_get_contents',
+        'Secret', 'api key', 'API key', 'GetAll'])
+        assertEqual(source.includes(forbidden), false, `prefs.js uses ${forbidden}: `);
+});
+
+test('prefs.js always adds a page (the host rejects an empty window) and closes after a launch', () => {
+    const source = read(PREFS_FILE);
+    assertEqual(source.includes('window.add('), true, 'a page is added: ');
+    assertEqual(source.includes('Adw.StatusPage'), true);
+    assertEqual(source.includes('make install'), true, 'the failure page shows the command: ');
+    assertEqual(source.includes('Could not open Preferences'), true, 'the failure title: ');
+    assertEqual(/idle_add_once[\s\S]*window\.close\(\)/.test(source), true, 'closes after fill: ');
+    assertEqual(source.includes('launchPreferencesAction'), true);
+});
+
+test('extension.js hands the preferences launcher to the controller through the same helper', () => {
+    const source = read('extension.js');
+    assertEqual(source.includes('launchPreferencesAction'), true);
+    assertEqual(/\blaunchPreferences,/.test(source), true, 'the controller gets launchPreferences: ');
+});
+
+test('the desktop entry template declares the preferences action the launcher asks for', () => {
+    const template = GLib.build_filenamev([EXTENSION_DIR, '..', '..', 'packaging', 'applications',
+        'dev.meetingscribe.Review.desktop.in']);
+    const [, bytes] = GLib.file_get_contents(template);
+    const text = new TextDecoder().decode(bytes);
+    assertEqual(/^Actions=preferences;$/m.test(text), true, 'Actions key: ');
+    assertEqual(/\[Desktop Action preferences\][\s\S]*^Exec=@EXEC@ --preferences$/m.test(text), true,
+        'the action runs the launcher with --preferences: ');
 });

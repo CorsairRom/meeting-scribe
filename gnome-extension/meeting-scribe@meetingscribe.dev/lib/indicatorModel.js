@@ -249,6 +249,14 @@ function withSummary(model, input, _) {
     };
 }
 
+// "Preferences…" opens the review app's Preferences dialog (the settings live in the service; the
+// extension holds none). It ends every menu that can open, so it is the one place to find it.
+function withPreferences(model, _) {
+    if (model.clickAction === 'none')
+        return model;
+    return {...model, menuItems: [...model.menuItems, SEPARATOR, action(_('Preferences…'), 'preferences')]};
+}
+
 function withProcessing(model, processing, _) {
     if (!processing?.available)
         return model;
@@ -283,10 +291,10 @@ function withProcessing(model, processing, _) {
  */
 export function viewModel(input, _ = s => s) {
     if (!input.available)
-        return unavailableModel(_);
+        return withPreferences(unavailableModel(_), _);
 
     const base = withSummary(withReview(stateModel(input, _), input, _), input, _);
-    const model = withProcessing(base, input.processing, _);
+    const model = withPreferences(withProcessing(base, input.processing, _), _);
     if (input.busy && model.clickAction !== 'none') {
         return {
             ...model,

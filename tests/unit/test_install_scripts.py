@@ -981,9 +981,15 @@ def test_the_launcher_interpreter_is_the_system_one_by_default() -> None:
     assert 'REVIEW_APP_PYTHON="${REVIEW_APP_PYTHON:-/usr/bin/python3}"' in text
 
 
-def _exec_argv(entry: Path) -> list[str]:
-    """Parse the Exec line the way the Desktop Entry specification says a launcher must."""
-    line = next(x for x in entry.read_text().splitlines() if x.startswith("Exec="))
+def _exec_argv(entry: Path, *, action: str = "") -> list[str]:
+    """Parse an Exec line the way the Desktop Entry specification says a launcher must.
+
+    The entry's own line by default, or the one inside ``[Desktop Action <action>]``.
+    """
+    text = entry.read_text()
+    if action:
+        text = text.split(f"[Desktop Action {action}]", 1)[1]
+    line = next(x for x in text.splitlines() if x.startswith("Exec="))
     value = line.removeprefix("Exec=").replace("\\\\", "\x00")  # string level: \\ -> \
     value = value.replace("\x00", "\\")
     argv: list[str] = []
@@ -1025,6 +1031,18 @@ def test_install_renders_the_desktop_entry_with_the_stable_current_path(sandbox:
     assert not any("@" in line for line in lines)  # every placeholder was rendered
 
 
+def test_install_renders_the_preferences_action_with_the_same_launcher(sandbox: Env) -> None:
+    sandbox.run(INSTALL, **IDLE)
+    lines = sandbox.desktop_entry.read_text().splitlines()
+    launcher = sandbox.root / "current" / "bin" / "meeting-scribe-review"
+    assert "Actions=preferences;" in lines
+    assert "[Desktop Action preferences]" in lines
+    assert _exec_argv(sandbox.desktop_entry, action="preferences") == [
+        str(launcher),
+        "--preferences",
+    ]
+
+
 def test_the_exec_line_is_spec_valid_for_spaces_and_reserved_characters(
     sandbox: Env, tmp_path: Path
 ) -> None:
@@ -1036,6 +1054,7 @@ def test_the_exec_line_is_spec_valid_for_spaces_and_reserved_characters(
     assert _exec_argv(entry) == [expected.replace("%", "%%")]
     line = next(x for x in entry.read_text().splitlines() if x.startswith("Exec="))
     assert line.startswith('Exec="') and line.endswith('"')  # one quoted argument
+    assert _exec_argv(entry, action="preferences") == [expected.replace("%", "%%"), "--preferences"]
 
 
 def test_a_rollback_to_a_version_without_the_launcher_removes_the_entry(sandbox: Env) -> None:
@@ -1169,9 +1188,11 @@ def test_make_run_review_app_uses_system_python_and_the_working_tree() -> None:
     assert "/opt/py/python3 -m meeting_scribe_review" in override.stdout
 
 
-def test_the_desktop_template_has_exactly_one_exec_placeholder() -> None:
+def test_the_desktop_template_has_one_exec_placeholder_per_exec_line() -> None:
     template = (ROOT / "packaging" / "applications" / f"{DESKTOP_ENTRY}.in").read_text()
-    assert template.count("@EXEC@") == 1  # the bash render splits on the first occurrence
+    execs = [line for line in template.splitlines() if line.startswith("Exec=")]
+    assert execs == ["Exec=@EXEC@", "Exec=@EXEC@ --preferences"]  # the entry and its action
+    assert template.count("@EXEC@") == len(execs)  # none in a comment: the render replaces all
 
 
 # -- Ollama and the local summary model (F5.8, AC-20): read-only, warns, never fails the install --

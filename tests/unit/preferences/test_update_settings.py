@@ -275,3 +275,15 @@ def test_an_apply_failure_stays_visible_until_a_later_apply_succeeds(tmp_path: P
     fx.service.set({"summaries.local_model": "model-b"})
 
     assert {row.apply_problem for row in fx.service.get_all()} == {""}
+
+
+def test_a_successful_save_settles_the_prepared_folder_and_a_failed_one_does_not(
+    tmp_path: Path,
+) -> None:
+    fx = Service(tmp_path)
+    kept = tmp_path / "kept-meetings"
+
+    fx.service.set({"storage.meetings_dir": str(kept)}).unwrap()
+    fx.preparer.rollback()  # a stray rollback after the commit must not remove it
+
+    assert kept.is_dir()

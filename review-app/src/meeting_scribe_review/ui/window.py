@@ -4,7 +4,7 @@ Declarative glue only. Which meeting is open and what refreshes on a service eve
 ``ReviewSession``; this class shows the states it publishes.
 """
 
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, Gio, Gtk
 
 from meeting_scribe_review.core.errors import command_hint
 from meeting_scribe_review.core.presenters.api_key import ApiKeyState
@@ -21,6 +21,7 @@ from meeting_scribe_review.ui.dialogs import SpeakerDialogs
 from meeting_scribe_review.ui.key_store import SecretKeyStore
 from meeting_scribe_review.ui.media_player import MediaPlayer
 from meeting_scribe_review.ui.meeting_sidebar import MeetingSidebar
+from meeting_scribe_review.ui.preferences_controller import PreferencesController
 from meeting_scribe_review.ui.speaker_row import SpeakerActions, SpeakersSection
 from meeting_scribe_review.ui.status_view import StatusView
 from meeting_scribe_review.ui.summary_dialogs import SummaryDialogs
@@ -53,6 +54,10 @@ class ReviewWindow(Adw.ApplicationWindow):
             default_height=DEFAULT_HEIGHT,
         )
         self._gateway = gateway
+        self._preferences = PreferencesController(gateway, keys)
+        action = Gio.SimpleAction.new("preferences", None)
+        action.connect("activate", lambda _action, _param: self.open_preferences())
+        self.add_action(action)
         self._meetings = MeetingListState()
         self._review = ReviewState()
         self._summary_state = SummaryState()
@@ -93,7 +98,11 @@ class ReviewWindow(Adw.ApplicationWindow):
         split = Adw.NavigationSplitView(
             sidebar=self._page("Meetings", self._sidebar),
             content=self._page(
-                TITLE, self._toasts, banner=self._banner, title_widget=self._switcher
+                TITLE,
+                self._toasts,
+                banner=self._banner,
+                title_widget=self._switcher,
+                menu=self._primary_menu(),
             ),
         )
         breakpoint_ = Adw.Breakpoint.new(Adw.BreakpointCondition.parse(COLLAPSE_BELOW))
@@ -111,6 +120,10 @@ class ReviewWindow(Adw.ApplicationWindow):
     def open_meeting(self, meeting_id: str) -> None:
         """Show another meeting in this window (a second launch with ``--meeting``)."""
         self._session.start(meeting_id)
+
+    def open_preferences(self) -> None:
+        """Show the Preferences dialog over this window (the menu entry and ``--preferences``)."""
+        self._preferences.open(self)
 
     def show_meetings(self, state: MeetingListState) -> None:
         self._meetings = state
@@ -167,16 +180,27 @@ class ReviewWindow(Adw.ApplicationWindow):
         return box
 
     @staticmethod
+    def _primary_menu() -> Gtk.MenuButton:
+        menu = Gio.Menu()
+        menu.append("Preferences", "win.preferences")
+        return Gtk.MenuButton(
+            icon_name="open-menu-symbolic", menu_model=menu, primary=True, tooltip_text="Main menu"
+        )
+
+    @staticmethod
     def _page(
         title: str,
         child: Gtk.Widget,
         banner: Adw.Banner | None = None,
         title_widget: Gtk.Widget | None = None,
+        menu: Gtk.Widget | None = None,
     ) -> Adw.NavigationPage:
         view = Adw.ToolbarView(content=child)
         header = Adw.HeaderBar()
         if title_widget is not None:
             header.set_title_widget(title_widget)
+        if menu is not None:
+            header.pack_end(menu)
         view.add_top_bar(header)
         if banner is not None:
             view.add_top_bar(banner)
@@ -210,5 +234,6 @@ class ReviewWindow(Adw.ApplicationWindow):
 
     def _on_close_request(self, _window: Adw.ApplicationWindow) -> bool:
         self._session.close()
+        self._preferences.shutdown()
         self._gateway.close()
         return False

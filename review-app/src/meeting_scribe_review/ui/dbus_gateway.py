@@ -12,19 +12,36 @@ from gi.repository import Gio
 
 from meeting_scribe_review.core import parsers
 from meeting_scribe_review.core.availability import AvailabilityFilter
-from meeting_scribe_review.core.constants import BUS_NAME, MEETINGS_INTERFACE, SUMMARIES_INTERFACE
+from meeting_scribe_review.core.constants import (
+    BUS_NAME,
+    MEETINGS_INTERFACE,
+    PROPERTIES_INTERFACE,
+    SETTINGS_INTERFACE,
+    SUMMARIES_INTERFACE,
+)
 from meeting_scribe_review.core.errors import INVALID_REPLY, ServiceError
-from meeting_scribe_review.core.gateway import Callback, GatewayListener, SummaryListener
+from meeting_scribe_review.core.gateway import (
+    Callback,
+    GatewayListener,
+    SettingsListener,
+    SummaryListener,
+)
 from meeting_scribe_review.core.models import (
     MeetingSummary,
     ProviderRow,
+    SetOutcome,
+    SettingsField,
     Speaker,
     SummaryDocument,
     SummaryInfo,
     Utterance,
 )
 from meeting_scribe_review.core.result import Err, Ok, Result
-from meeting_scribe_review.core.signals import dispatch_signal, dispatch_summary_signal
+from meeting_scribe_review.core.signals import (
+    dispatch_settings_signal,
+    dispatch_signal,
+    dispatch_summary_signal,
+)
 from meeting_scribe_review.ui.dbus_proxy import InterfaceProxy
 
 _LOG = logging.getLogger(__name__)
@@ -43,7 +60,10 @@ class DBusGateway:
         self._bus_type = bus_type
         self._meetings = InterfaceProxy(bus_type, MEETINGS_INTERFACE, self._on_signal)
         self._summaries = InterfaceProxy(bus_type, SUMMARIES_INTERFACE, self._on_summary_signal)
+        self._settings = InterfaceProxy(bus_type, SETTINGS_INTERFACE, self._on_settings_signal)
+        self._properties = InterfaceProxy(bus_type, PROPERTIES_INTERFACE, lambda _n, _a: None)
         self._listeners: list[GatewayListener] = []
+        self._settings_listeners: list[SettingsListener] = []
         self._summary_listeners: list[SummaryListener] = []
         self._availability = AvailabilityFilter()
         self._watch_id = 0
@@ -82,6 +102,10 @@ class DBusGateway:
     def watch(self, listener: GatewayListener) -> None:
         """Receive the signals and the availability of the service's bus name."""
         self._listeners.append(listener)
+        self._watch_name()
+        self._meetings.with_proxy(lambda _proxy: None)  # the proxy delivers the signals
+
+    def _watch_name(self) -> None:
         if self._watch_id:
             return
         self._watch_id = Gio.bus_watch_name(
@@ -91,7 +115,37 @@ class DBusGateway:
             lambda _conn, _name, _owner: self._announce(available=True),
             lambda _conn, _name: self._announce(available=False),
         )
-        self._meetings.with_proxy(lambda _proxy: None)  # the proxy delivers the signals
+
+    def get_all(self, done: Callback[list[SettingsField]]) -> None:
+        self._settings.call("GetAll", "", (), parsers.parse_settings_fields, done)
+
+    def set_values(self, values: dict[str, str], done: Callback[SetOutcome]) -> None:
+        self._settings.call("Set", "a{ss}", (values,), parsers.parse_set_outcome, done)
+
+    def restart_required(self, done: Callback[tuple[str, ...]]) -> None:
+        self._properties.call(
+            "Get",
+            "ss",
+            (SETTINGS_INTERFACE, "RestartRequired"),
+            parsers.parse_keys,
+            done,
+        )
+
+    def restart(self, done: Callback[str]) -> None:
+        self._settings.call("Restart", "", (), parsers.parse_restarting, done)
+
+    def watch_settings(self, listener: SettingsListener) -> None:
+        """Receive ``SettingsChanged`` and the availability of the service's bus name."""
+        self._settings_listeners.append(listener)
+        self._watch_name()
+        self._settings.with_proxy(lambda _proxy: None)
+        known = self._availability.known
+        if known is not None:  # the baseline was reported before this listener existed
+            listener.on_service_available(known)
+
+    def unwatch_settings(self, listener: SettingsListener) -> None:
+        if listener in self._settings_listeners:
+            self._settings_listeners.remove(listener)
 
     def providers(self, done: Callback[list[ProviderRow]]) -> None:
         self._summaries.call("Providers", "", (), parsers.parse_providers, done)
@@ -129,12 +183,19 @@ class DBusGateway:
             self._watch_id = 0
         self._listeners.clear()
         self._summary_listeners.clear()
+        self._settings_listeners.clear()
 
     def _announce(self, *, available: bool) -> None:
         if self._availability.changed(available=available) is None:
             return
-        for listener in list(self._listeners):
+        for listener in [*self._listeners, *self._settings_listeners]:
             listener.on_service_available(available)
+
+    def _on_settings_signal(self, name: str, args: Any) -> None:
+        for listener in list(self._settings_listeners):
+            if not dispatch_settings_signal(listener, name, args):
+                _LOG.warning("ignored the signal %s", name)
+                return
 
     def _on_signal(self, name: str, args: Any) -> None:
         for listener in list(self._listeners):

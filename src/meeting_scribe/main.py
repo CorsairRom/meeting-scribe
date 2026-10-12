@@ -333,6 +333,7 @@ def build_preferences(
         checks={"storage.meetings_dir": lambda raw: check_meetings_folder(raw).map(str)},
         prepare={"storage.meetings_dir": lambda raw: folder(raw).map(str)},
         rollback={"storage.meetings_dir": folder.rollback},
+        commit={"storage.meetings_dir": folder.commit},
     )
 
 
