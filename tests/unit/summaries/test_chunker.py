@@ -8,15 +8,16 @@ from meeting_scribe.summaries.domain.chunker import (
 from tests.unit.summaries.factories import line
 
 
-def test_estimate_is_three_characters_per_token_rounded_up() -> None:
+def test_estimate_is_two_and_a_quarter_characters_per_token_rounded_up() -> None:
     assert estimate_tokens("") == 0
-    assert estimate_tokens("abc") == 1
-    assert estimate_tokens("abcd") == 2
+    assert estimate_tokens("a") == 1
+    assert estimate_tokens("a" * 9) == 4
+    assert estimate_tokens("a" * 10) == 5
 
 
 def test_fits_compares_the_estimate_with_the_budget() -> None:
-    assert fits("a" * 30, 10)
-    assert not fits("a" * 31, 10)
+    assert fits("a" * 45, 20)
+    assert not fits("a" * 46, 20)
 
 
 def test_format_line_shows_name_and_timestamp() -> None:
@@ -63,7 +64,7 @@ def test_a_sentence_longer_than_the_budget_is_split_on_characters() -> None:
 
 
 def test_pack_texts_groups_in_order_within_the_budget() -> None:
-    batches = pack_texts(["a" * 12, "b" * 12, "c" * 12], budget_tokens=10)
+    batches = pack_texts(["a" * 9, "b" * 9, "c" * 9], budget_tokens=10)
 
     assert [len(batch) for batch in batches] == [2, 1]
     assert [text[0] for batch in batches for text in batch] == ["a", "b", "c"]

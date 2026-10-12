@@ -116,7 +116,7 @@ def test_map_reduce_steps() -> None:
 
 
 def test_notes_are_merged_in_batches_until_they_fit() -> None:
-    big_notes = "- " + "n" * 500
+    big_notes = "- " + "n" * 300
     provider = FakeProvider(by_prompt_kind(notes=big_notes))
     seen, on_progress = _progress()
 
@@ -429,7 +429,7 @@ def _two_hour_request() -> SummaryRequest:
         line(
             "Person A" if n % 2 else "Person B", float(n * 10), f"synthetic utterance {n:04d}. " * 6
         )
-        for n in range(180)
+        for n in range(128)
     )
     return request(
         lines=lines, context_tokens=16384, max_output_tokens=3072, notes_output_tokens=768
@@ -459,7 +459,7 @@ def test_each_kind_of_step_reserves_its_own_output_budget() -> None:
 
 def test_map_chunks_are_sized_with_the_notes_budget_and_not_the_final_one() -> None:
     # About 1010 estimated tokens: too much for the final budget (800), fine for notes (1300).
-    lines = tuple(line("Person A", float(n * 10), "word " * 96) for n in range(6))
+    lines = tuple(line("Person A", float(n * 10), "word " * 96) for n in range(4))
     req = request(lines=lines, context_tokens=2000, max_output_tokens=600, notes_output_tokens=100)
     provider = FakeProvider()
 
@@ -509,3 +509,30 @@ def test_without_a_notes_budget_every_step_uses_the_output_limit() -> None:
     _use_case(provider).run(_long_request(), FakeCancel())
 
     assert {lim.max_output_tokens for lim in provider.limits} == {MAX_OUTPUT}
+
+
+def test_a_two_hour_dialogue_sized_transcript_is_split_by_the_measured_ratio() -> None:
+    """45k characters is about 18k real tokens (2.52 chars per token): never one request."""
+    lines = tuple(
+        line("Person A" if n % 2 else "Person B", float(n * 8), f"synthetic phrase {n:04d}. " * 5)
+        for n in range(330)
+    )
+    req = request(
+        lines=lines, context_tokens=16384, max_output_tokens=3072, notes_output_tokens=768
+    )
+    transcript = "\n".join(format_line(item) for item in lines)
+    provider = FakeProvider()
+
+    result = _use_case(provider).run(req, FakeCancel())
+
+    assert 44_000 < len(transcript) < 48_000
+    assert result.unwrap().chunks >= 2
+    window = req.limits.context_tokens - req.limits.for_notes().max_output_tokens
+    map_requests = [m for m in provider.requests if m[0].content.startswith("You extract")]
+    assert len(map_requests) >= 2
+    for messages in map_requests:
+        prompt = "\n".join(m.content for m in messages)
+        assert estimate_tokens(messages[1].content) <= req.usable_notes_input_tokens + 100
+        assert estimate_tokens(prompt) <= window
+        # With the measured 2.52 chars per token the real prompt also fits the window.
+        assert len(prompt) / 2.52 <= window

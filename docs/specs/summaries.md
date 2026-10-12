@@ -547,7 +547,7 @@ The real context window is the weak point of the local path, so the design assum
   `SUMMARIES_NOTES_MAX_OUTPUT_TOKENS` (default 768); the final summary (and its format repair) is capped at
   `SUMMARIES_MAX_OUTPUT_TOKENS` (default 3072). The prompts also bound the length (section 3), because the token cap
   only cuts the answer, it does not make it shorter.
-- **Token estimate**: characters divided by 3 (conservative for Spanish and English; no tokenizer dependency).
+- **Token estimate**: characters divided by 2.25 (a measured ratio minus a safety margin; no tokenizer dependency; assumption A-7).
 - **Usable input per request** = context - the output budget of that kind of step - 600 (instructions and margin).
   The final request (single pass and reduce) reserves 3072: 12712 tokens at the defaults, so a 2-hour meeting (about
   10k estimated tokens) is a single pass. Map and merge steps reserve the notes budget (768): 15016 tokens, so long
@@ -907,7 +907,7 @@ chosen cloud model.
 | A-4 | The installed Ollama defaults to 4096 tokens on this GPU (documented default under 24 GiB); the service no longer depends on it because the native request sets `num_ctx` | F5.9 (`ollama ps`, CONTEXT column) |
 | A-5 | `openai` installs on Python 3.12 without heavy dependencies and without conflicting with the lock; otherwise use `httpx2` directly | F5.3 (`uv add openai`, `make check`) |
 | A-6 | Closing the stream aborts generation in Ollama, and `keep_alive: 0` frees the VRAM before the next Whisper load | F5.9 on the user's go (a stop-and-measure with `nvidia-smi` is the same kind of check as GO-037) |
-| A-7 | The token estimate of 3 characters per token is conservative enough for Spanish and English; the truncation guard catches a miss | F5.2 (unit) and F5.9 |
+| A-7 | **Corrected 2026-10-12**: 3 characters per token was not conservative. Measured with the qwen3:4b-instruct tokenizer on a Spanish meeting dialogue (timestamps and speaker prefixes): 22,397 characters = 8,883 prompt tokens, 2.52 characters per token, so 3 undercounted by about 16% and a 2-hour meeting (45,782 characters) went into one request that Ollama truncated. The estimate is now 2.25 characters per token (that ratio minus about 10%); the truncation guard still catches a miss | F5.2 (unit) and F5.9 |
 | A-8 | The default handler for Markdown exists in the user's session; if not, the open fails with one notification | F5.7 (glue is checked statically, GO-031) and the owner's manual check |
 | A-9 | The Shell glue can open a file URI from the service with `Gio.AppInfo.launch_default_for_uri` without blocking | F5.7 |
 | A-10 | A summary of a typical 1-hour meeting finishes in a few minutes locally and in under a minute on the cloud | F5.9 (informs the default timeouts) |

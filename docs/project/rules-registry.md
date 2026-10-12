@@ -429,11 +429,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 64 | 0 | 0 |
+| GO | 65 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-064 — 2026-10-12
-**Next available IDs**: BR-006, CR-014, GO-065, AP-005
+**Last rule added**: GO-065 — 2026-10-12
+**Next available IDs**: BR-006, CR-014, GO-066, AP-005
 
 ---
 
@@ -567,3 +567,10 @@ with `Supersedes: <ID>`. Never delete rules.
 - **Detail**: (1) Ollama's OpenAI-compatible endpoint cannot set `num_ctx` per request (it stays at 4096), so the local provider is `OllamaChatProvider`, which calls the native `POST <origin>/api/chat` with `options.num_ctx` = `SUMMARIES_LOCAL_CONTEXT_TOKENS`, `options.num_predict`, `think: false` and `stream: true`; the OpenAI-compatible adapter is only for the cloud. (2) When the prompt exceeds `num_ctx`, Ollama silently truncates the BEGINNING of the prompt (the system instructions) and the model ignores the format; the final chunk reports `prompt_eval_count` equal to `num_ctx`. The adapter fails with `SUMMARY_CONTEXT_TOO_LARGE` when `prompt_eval_count >= num_ctx - 16`, before it looks at `done_reason == "length"` (`SUMMARY_OUTPUT_LIMIT_REACHED`), because a full window also ends as `length`. (3) Whether a model fits the GPU is a measurement, not arithmetic: check placement with `ollama ps` (the `PROCESSOR` column must read `100% GPU`). On the owner's 8 GB RTX 5060, `qwen3.5:9b` loads at 8.8 GB (27% CPU) and `granite4.1:8b` at 16k took 35 minutes; `qwen3:4b-instruct-2507-q4_K_M` is 100% GPU at 16k (peak about 5 GB). (4) Output is bounded by the prompts as well as by the token caps (`SUMMARIES_NOTES_MAX_OUTPUT_TOKENS` 768 for map and merge, `SUMMARIES_MAX_OUTPUT_TOKENS` 3072 for the final summary): a token cap only cuts the answer. (5) The model is still released with `keep_alive: 0` after a local summary.
 - **Source**: [summaries spec](../specs/summaries.md) sections 4 and 5; [ADR-006](../decisions/006-summary-provider-openai-compatible.md); Ollama docs (`/api/chat`, `modelfile`); measurements of 2026-10-12
 - **Verifiable in**: `tests/unit/summaries/test_ollama_provider.py`, `tests/unit/summaries/test_generate_summary.py`, `tests/unit/summaries/test_prompt_builder.py`
+
+### GO-065 — The token estimate is 2.25 characters per token, measured, and must undercount
+- **Date**: 2026-10-12
+- **Status**: active
+- **Detail**: The chunker has no tokenizer, so `CHARS_PER_TOKEN` (`summaries/domain/chunker.py`, the only place) must stay below the real ratio. Measured 2026-10-12 with the qwen3:4b-instruct tokenizer on a Spanish meeting dialogue (timestamps and speaker prefixes): 22,397 characters = 8,883 prompt tokens, 2.52 characters per token. The earlier value of 3 overcounted the characters per token (undercounted tokens) by about 16%: a 2-hour meeting of 45,782 characters went into one map request and Ollama truncated it. The value is 2.25, that ratio minus about 10%. Re-measure it when the default model changes; another language or tokenizer can be denser still, and the truncation guard (GO-064) is the backstop, not the plan.
+- **Source**: [summaries spec](../specs/summaries.md) section 4, A-7
+- **Verifiable in**: `tests/unit/summaries/test_chunker.py`, `tests/unit/summaries/test_generate_summary.py::test_a_two_hour_dialogue_sized_transcript_is_split_by_the_measured_ratio`
