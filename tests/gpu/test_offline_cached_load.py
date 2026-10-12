@@ -1,10 +1,11 @@
-"""The cached pipeline loads OFFLINE with NO token and NO stored login (spec install AC-15).
+"""The cached pipeline loads OFFLINE with no token source at all (spec install AC-15).
 
 Opt-in: ``uv run pytest -m gpu -s tests/gpu/test_offline_cached_load.py``. It needs the models
 already in ``~/.cache/huggingface`` (a previous download) and loads the pipeline on the CPU in a
 subprocess. The subprocess has ``HF_TOKEN`` unset, ``HF_HUB_OFFLINE=1``, the implicit token lookup
-disabled and ``HF_TOKEN_PATH`` pointing at a file that does not exist, so no stored login can be
-read even by accident. It never downloads, never reads or prints a token, never touches audio.
+disabled and ``HF_TOKEN_PATH`` pointing at a file that does not exist, so no token source is
+available: a successful load shows the cache needs none. It never downloads, never reads or
+prints a token, never touches audio.
 """
 
 import os
@@ -31,7 +32,7 @@ print("loaded")
 """
 
 
-def test_the_cached_pipeline_loads_offline_with_no_token_and_no_login(tmp_path: Path) -> None:
+def test_the_cached_pipeline_loads_offline_with_no_token_source(tmp_path: Path) -> None:
     env = {
         "PATH": os.environ.get("PATH", ""),
         "HOME": os.environ["HOME"],  # only to find the model cache; the token path is redirected
@@ -53,4 +54,3 @@ def test_the_cached_pipeline_loads_offline_with_no_token_and_no_login(tmp_path: 
 
     assert done.returncode == 0, done.stderr[-2000:]
     assert done.stdout.strip().endswith("loaded")
-    assert not (tmp_path / "no-token-here").exists()

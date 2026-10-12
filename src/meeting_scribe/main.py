@@ -50,6 +50,14 @@ from meeting_scribe.meetings.infrastructure.filesystem_summary_files import File
 from meeting_scribe.meetings.infrastructure.freedesktop_notifier import FreedesktopNotifier
 from meeting_scribe.meetings.infrastructure.subprocess_worker_runner import SubprocessWorkerRunner
 from meeting_scribe.meetings.infrastructure.wav_chunk_inspector import WavChunkInspector
+from meeting_scribe.model_setup.application.model_setup_controller import ModelSetupController
+from meeting_scribe.model_setup.domain.ports import CacheProbe, DownloadRunner, TokenSource
+from meeting_scribe.model_setup.infrastructure.dbus.models_interface import ModelsInterface
+from meeting_scribe.model_setup.infrastructure.keyring_token_source import KeyringTokenSource
+from meeting_scribe.model_setup.infrastructure.subprocess_cache_probe import SubprocessCacheProbe
+from meeting_scribe.model_setup.infrastructure.subprocess_download_runner import (
+    SubprocessDownloadRunner,
+)
 from meeting_scribe.preferences.application.model_check import ModelCheck
 from meeting_scribe.preferences.application.restart_service import RestartService
 from meeting_scribe.preferences.application.settings_service import (
@@ -168,6 +176,15 @@ class SummaryAdapters:
 
 
 @dataclass(frozen=True)
+class ModelSetupAdapters:
+    """The ports behind ``ModelSetupController``; tests inject fakes, never the real ones."""
+
+    tokens: TokenSource
+    probe: CacheProbe
+    runner: DownloadRunner
+
+
+@dataclass(frozen=True)
 class PreferencesAdapters:
     """The ports behind the preferences use cases; tests inject a tmp store and a fake systemd."""
 
@@ -193,6 +210,7 @@ class Application:
     summary_config: "LiveSummaryConfig"  # the live summary settings; ``apply`` swaps them
     preferences: PreferencesService  # Settings1: read, validate and save the exposed settings
     restart: RestartService  # Settings1.Restart through systemd, only when idle
+    models: ModelSetupController  # Models1: the speech models and their download (no GPU, no lease)
 
 
 def _real_recording_adapters(settings: Settings) -> RecordingAdapters:
@@ -358,6 +376,17 @@ class _Activity:
         )
 
 
+def _real_model_setup_adapters(settings: Settings) -> ModelSetupAdapters:
+    """Construct the production adapters. No child starts and no token is read until a download."""
+    return ModelSetupAdapters(
+        tokens=KeyringTokenSource(),
+        probe=SubprocessCacheProbe(),
+        runner=SubprocessDownloadRunner(
+            kill_grace_seconds=settings.processing.worker_kill_grace_seconds
+        ),
+    )
+
+
 def _real_preferences_adapters() -> PreferencesAdapters:
     return PreferencesAdapters(JsonSettingsStore(xdg_settings_file()), SystemdRestarter())
 
@@ -421,6 +450,7 @@ def create_app(
     processing_adapters: ProcessingAdapters | None = None,
     summary_adapters: SummaryAdapters | None = None,
     preferences_adapters: PreferencesAdapters | None = None,
+    model_setup_adapters: ModelSetupAdapters | None = None,
 ) -> Application:
     # Hand-built settings (tests) never ran the sources: say so instead of naming an env file.
     hand_built = settings is not None and not settings.loaded
@@ -483,6 +513,13 @@ def create_app(
     )
     preference_ports = preferences_adapters or _real_preferences_adapters()
     preferences = build_preferences(settings, preference_ports, summary_config)
+    model_ports = model_setup_adapters or _real_model_setup_adapters(settings)
+    models = ModelSetupController(
+        model_ports.tokens,
+        model_ports.probe,
+        model_ports.runner,
+        download_timeout_seconds=settings.model_setup.download_timeout_seconds,
+    )
     return Application(
         settings=settings,
         recording=recording,
@@ -496,6 +533,7 @@ def create_app(
         restart=RestartService(
             _Activity(recording, processing, summaries), preference_ports.restarter
         ),
+        models=models,
     )
 
 
@@ -548,6 +586,49 @@ async def _stop_summaries(summaries: SummaryController, wait_seconds: float) -> 
     return stopped
 
 
+async def _stop_downloads(models: ModelSetupController, wait_seconds: float) -> bool:
+    """Cancel a running model download (its child process included) and wait, bounded.
+
+    Nothing is lost: the Hugging Face cache resumes where it stopped on the next Download.
+    """
+    stopped = await asyncio.to_thread(models.shutdown, wait_seconds)
+    if not stopped:
+        logger.error("The model download did not stop within %.0f s.", wait_seconds)
+    return stopped
+
+
+async def _stop_background_jobs(app: Application, wait_seconds: float) -> tuple[bool, bool]:
+    """Stop the summary job and the model download (both always), bounded: (summaries, downloads)
+    are each True when that one ended."""
+    summaries_stopped = await _stop_summaries(app.summaries, wait_seconds)
+    return summaries_stopped, await _stop_downloads(app.models, wait_seconds)
+
+
+def _announce_to(
+    app: Application,
+    meetings: MeetingsInterface,
+    summaries: SummariesInterface,
+    settings: SettingsInterface,
+    models: ModelsInterface,
+) -> None:
+    """Let each D-Bus interface hear the events of its controller (they become signals)."""
+    app.events.subscribe(meetings)
+    app.summary_events.subscribe(summaries)
+    app.preferences.subscribe(settings)
+    app.models.subscribe(models)
+
+
+def _stop_announcing(
+    app: Application,
+    meetings: MeetingsInterface,
+    summaries: SummariesInterface,
+    models: ModelsInterface,
+) -> None:
+    app.events.unsubscribe(meetings)
+    app.summary_events.unsubscribe(summaries)
+    app.models.unsubscribe(models)
+
+
 async def _wait_for_stop_or_disconnect(stop: asyncio.Event, bus: MessageBus) -> bool:
     """Wait for ``stop`` or for the bus to close; True when the bus was lost unexpectedly."""
     stop_waiter = asyncio.create_task(stop.wait())
@@ -566,17 +647,23 @@ async def _wait_for_stop_or_disconnect(stop: asyncio.Event, bus: MessageBus) -> 
 
 
 def _exit_code(
-    disconnected: bool, stop_failed: bool, processing_stopped: bool, summaries_stopped: bool = True
+    disconnected: bool,
+    stop_failed: bool,
+    processing_stopped: bool,
+    summaries_stopped: bool = True,
+    downloads_stopped: bool = True,
 ) -> int:
     """Precedence 3, 2, 4; every cause is already logged at ERROR where it happened.
 
-    A summary job that outlived the bound counts as 4, like a stuck processing loop.
+    A summary job or a model download that outlived the bound counts as 4, like a stuck
+    processing loop.
     """
     if disconnected:
         return EXIT_BUS_DISCONNECTED
     if stop_failed:
         return EXIT_STOP_FAILED
-    return EXIT_OK if processing_stopped and summaries_stopped else EXIT_PROCESSING_STUCK
+    stopped = processing_stopped and summaries_stopped and downloads_stopped
+    return EXIT_OK if stopped else EXIT_PROCESSING_STUCK
 
 
 async def serve(
@@ -610,17 +697,16 @@ async def serve(
         meetings = MeetingsInterface(app.processing, app.review)
         summaries = SummariesInterface(app.summaries)
         settings = SettingsInterface(app.preferences, app.restart, models=app.summary_config)
-        for exported in (recording, meetings, summaries, settings):
+        models = ModelsInterface(app.models)
+        for exported in (recording, meetings, summaries, settings, models):
             bus.export(OBJECT_PATH, exported)
         reply = await bus.request_name(BUS_NAME, NameFlag.DO_NOT_QUEUE)
         if reply != RequestNameReply.PRIMARY_OWNER:
             logger.error("D-Bus name %s is already owned: another instance is running.", BUS_NAME)
             return EXIT_NAME_TAKEN
-        app.events.subscribe(meetings)
-        app.summary_events.subscribe(summaries)
-        app.preferences.subscribe(settings)
+        _announce_to(app, meetings, summaries, settings, models)
         processing_thread: threading.Thread | None = None
-        processing_stopped = summaries_stopped = True
+        processing_stopped = summaries_stopped = downloads_stopped = True
         disconnected = False
         try:
             processing_thread = _start_processing(app.processing, app.review)
@@ -634,17 +720,22 @@ async def serve(
                 # first: stopping the recording queues its meeting for the next start
                 outcome = await recording.shutdown()
         finally:
-            summaries_stopped = await _stop_summaries(app.summaries, shutdown_timeout)
+            summaries_stopped, downloads_stopped = await _stop_background_jobs(
+                app, shutdown_timeout
+            )
             if processing_thread is not None:
                 processing_stopped = await _stop_processing(
                     app.processing, processing_thread, shutdown_timeout
                 )
             else:
                 app.processing.shutdown()
-            app.events.unsubscribe(meetings)
-            app.summary_events.unsubscribe(summaries)
+            _stop_announcing(app, meetings, summaries, models)
         code = _exit_code(
-            disconnected, isinstance(outcome, Failure), processing_stopped, summaries_stopped
+            disconnected,
+            isinstance(outcome, Failure),
+            processing_stopped,
+            summaries_stopped,
+            downloads_stopped,
         )
         if code == EXIT_OK:
             logger.info("meeting-scribe stopped.")

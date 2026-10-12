@@ -645,11 +645,17 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
       Evidence: RED = 15 failed plus 2 collection errors across `test_prefetch.py`, `test_cli.py`, `test_pyannote_backend.py`,
       `test_pyannote_diarizer.py`, `test_faster_whisper_transcriber.py`, `test_hf_cache.py` (no `check_models`, no `hf_cache`, loader still
       `token=True`, old error texts); GREEN = `make check` 2078 python passed, packaging 1 passed, gjs 163 passed, lint and import contracts clean. Offline proof:
-      `uv run pytest -m gpu -s tests/gpu/test_offline_cached_load.py` passed on the real cached pipeline with `HF_TOKEN` unset,
-      `HF_HUB_OFFLINE=1`, `HF_HUB_DISABLE_IMPLICIT_TOKEN=1` and `HF_TOKEN_PATH` redirected to a missing file (the token file was not
-      read). Commit `feat(speakers): load cached models without a token and fetch with one on stdin`.
-- [ ] F6.5 `model_setup` domain and `dev.meetingscribe.Models1` (status, download, cancel, progress, finished), keyring
+      `uv run pytest -m gpu -s tests/gpu/test_offline_cached_load.py` passed: the offline load of the real cached pipeline succeeded with no token sources (`HF_TOKEN` unset,
+      `HF_HUB_OFFLINE=1`, `HF_HUB_DISABLE_IMPLICIT_TOKEN=1`, `HF_TOKEN_PATH` redirected to a missing file). Commit `9bf7cdf` `feat(speakers): load cached models without a token and fetch with one on stdin` (about 1,000 changed lines with tests and docs).
+- [x] F6.5 `model_setup` domain and `dev.meetingscribe.Models1` (status, download, cancel, progress, finished), keyring
       reader moved to the shared kernel, new error codes, api-contracts and catalog, e2e on a private bus.
+      Evidence: RED = collection errors for every new module (`meeting_scribe.base.infrastructure.secret_service`,
+      `meeting_scribe.model_setup`, `keyring_token_source`, `model_setup_settings`) across `tests/e2e/base`, `tests/e2e/summaries`,
+      `tests/unit/model_setup`, `tests/e2e/model_setup`; GREEN = `make check` 2165 python passed, packaging 1 passed, gjs 163 passed, lint and 16 import contracts clean. The token is proved absent from argv,
+      environment, logs (the fake child prints it to stderr), events, status, errors and every D-Bus message (a bus monitor records
+      the private bus). Larger than 400 lines (about 2,900 changed with tests and docs, about 1,300 of them source) because the domain, the two child-process adapters,
+      the shared keyring reader, the interface and the composition are one coherent unit with their proofs. Decisions recorded in
+      `docs/specs/install.md`. Commit `9749d87` `feat(model-setup): download the models over models1 with the keyring token`.
 - [ ] F6.6 Review app core: Hugging Face token key store (libsecret), `Models1` gateway, presenter and tests.
 - [ ] F6.7 Review app UI: "Speech models" group in Preferences (token field, terms link, Download models with progress and cancel).
       Also remove the interim line `(until then: meeting-scribe prefetch-models)` that `scripts/install.sh` prints after `models: PENDING`

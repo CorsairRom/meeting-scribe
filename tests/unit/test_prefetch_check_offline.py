@@ -14,10 +14,11 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.hf_fakes import make_snapshot
+
 SRC = Path(__file__).resolve().parents[2] / "src"
 WHISPER_REPO = "mobiuslabsgmbh--faster-whisper-large-v3-turbo"
 PIPELINE_REPO = "pyannote--speaker-diarization-community-1"
-REVISION = "0123456789abcdef0123456789abcdef01234567"
 
 pytestmark = pytest.mark.skipif(
     importlib.util.find_spec("faster_whisper") is None
@@ -26,25 +27,10 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _populate(hub: Path, repo: str, files: dict[str, bytes]) -> Path:
-    base = hub / f"models--{repo}"
-    (base / "refs").mkdir(parents=True)
-    (base / "refs" / "main").write_text(REVISION, encoding="utf-8")
-    for index, (name, content) in enumerate(files.items()):
-        blob = base / "blobs" / f"blob{index}"
-        blob.parent.mkdir(parents=True, exist_ok=True)
-        blob.write_bytes(content)
-        link = base / "snapshots" / REVISION / name
-        link.parent.mkdir(parents=True, exist_ok=True)
-        link.symlink_to(blob)
-    return base
-
-
 def _cache(tmp_path: Path) -> tuple[Path, Path]:
     hub = tmp_path / "hub"
-    whisper = _populate(
+    whisper = make_snapshot(
         hub,
-        WHISPER_REPO,
         {
             "config.json": b"{}",
             "preprocessor_config.json": b"{}",
@@ -52,11 +38,12 @@ def _cache(tmp_path: Path) -> tuple[Path, Path]:
             "tokenizer.json": b"{}",
             "vocabulary.json": b"[]",
         },
+        repo=WHISPER_REPO,
     )
-    pipeline = _populate(
+    pipeline = make_snapshot(
         hub,
-        PIPELINE_REPO,
         {"config.yaml": b"embedding: $model/embedding\n", "embedding/weights.bin": b"x"},
+        repo=PIPELINE_REPO,
     )
     return whisper, pipeline
 
@@ -105,8 +92,9 @@ def test_an_empty_cache_is_pending(tmp_path: Path) -> None:
 
 def test_a_half_downloaded_pipeline_is_not_cached(tmp_path: Path) -> None:
     _, pipeline = _cache(tmp_path)
-    (pipeline / "blobs" / "blob1").unlink()  # the weights never arrived
-    (pipeline / "blobs" / "fff.incomplete").write_bytes(b"half")
+    repo = pipeline.parents[1]
+    (repo / "blobs" / "blob1").unlink()  # the weights never arrived
+    (repo / "blobs" / "fff.incomplete").write_bytes(b"half")
 
     done = _check(tmp_path)
 

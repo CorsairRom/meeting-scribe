@@ -121,6 +121,16 @@ def test_the_child_runs_offline_whatever_the_user_environment_says(
     assert harness.events == [CacheHitEvent(artifact="HF_HUB_OFFLINE=1")]
 
 
+def test_the_child_never_looks_up_an_implicit_token_whatever_the_user_environment_says(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HF_HUB_DISABLE_IMPLICIT_TOKEN", "0")  # processing is token-free (ADR-011)
+
+    harness.run([{"echo_env": ["HF_HUB_DISABLE_IMPLICIT_TOKEN"]}, {"emit": RESULT}])
+
+    assert harness.events == [CacheHitEvent(artifact="HF_HUB_DISABLE_IMPLICIT_TOKEN=1")]
+
+
 def test_an_error_event_with_exit_1_is_the_workers_own_failure(harness: Harness) -> None:
     result = harness.run(
         [

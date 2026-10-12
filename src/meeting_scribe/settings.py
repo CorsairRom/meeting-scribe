@@ -22,6 +22,7 @@ from meeting_scribe.base.infrastructure.settings import (
     xdg_settings_file,
 )
 from meeting_scribe.meetings.infrastructure.processing_settings import ProcessingSettings
+from meeting_scribe.model_setup.infrastructure.model_setup_settings import ModelSetupSettings
 from meeting_scribe.preferences.domain.fields import (
     FIELD_REGISTRY,
     FieldCode,
@@ -79,6 +80,7 @@ class Settings(MeetingScribeSettings):
     transcription: TranscriptionSettings = Field(default_factory=TranscriptionSettings)
     speakers: SpeakersSettings = Field(default_factory=SpeakersSettings)
     summaries: SummariesSettings = Field(default_factory=SummariesSettings)
+    model_setup: ModelSetupSettings = Field(default_factory=ModelSetupSettings)
 
     # Env files resolved when ``load`` ran; empty for settings built any other way.
     _env_files: tuple[Path, ...] = PrivateAttr(default=())

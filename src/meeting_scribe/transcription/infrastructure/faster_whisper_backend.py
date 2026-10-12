@@ -7,20 +7,18 @@ never loads ``faster_whisper`` or ``ctranslate2``; only the transcribe worker ca
 import importlib.metadata
 from pathlib import Path
 
-from meeting_scribe.base.infrastructure.hf_cache import snapshot_is_complete
+from meeting_scribe.base.infrastructure.hf_cache import (
+    remove_incomplete_blobs,
+    snapshot_is_complete,
+)
 from meeting_scribe.transcription.domain.params import Device
 from meeting_scribe.transcription.infrastructure.cuda_preload import preload_cuda_libraries
 from meeting_scribe.transcription.infrastructure.faster_whisper_transcriber import ModelLike
 
 _ENGINES = ("faster-whisper", "ctranslate2")
-_REQUIRED_FILES = (
-    "config.json",
-    "preprocessor_config.json",
-    "model.bin",
-    "tokenizer.json",
-    "vocabulary.*",
-)
-"""What ``faster_whisper.utils.download_model`` fetches; all of it is needed to load offline."""
+_REQUIRED_FILES = ("config.json", "model.bin", "tokenizer.json", "vocabulary.*")
+"""What loading needs. ``download_model`` also allows ``preprocessor_config.json``, but only
+fetches it when the repository has one, so it is not required here."""
 
 
 class FasterWhisperBackend:
@@ -39,7 +37,7 @@ class FasterWhisperBackend:
         return WhisperModel(model, device=device, compute_type=compute_type)
 
     def download_model(self, model: str) -> None:
-        """Fetch the model into the Hugging Face cache (install time; the worker runs offline)."""
+        """Fetch the model into the Hugging Face cache (download time; the worker runs offline)."""
         from faster_whisper.utils import download_model  # noqa: PLC0415 - lazy by design
 
         download_model(model)
@@ -53,6 +51,15 @@ class FasterWhisperBackend:
         except Exception:  # not cached, unknown name, library missing: all "not cached"
             return False
         return snapshot_is_complete(Path(snapshot), _REQUIRED_FILES)
+
+    def discard_incomplete(self, model: str) -> None:
+        """Remove the orphaned ``*.incomplete`` blobs of the model's repository.
+
+        Only after a download that completed: nothing of the current revision is unfinished then.
+        """
+        from faster_whisper.utils import download_model  # noqa: PLC0415 - lazy by design
+
+        remove_incomplete_blobs(Path(download_model(model, local_files_only=True)))
 
     def engine_versions(self) -> dict[str, str]:
         """Read from package metadata: no import, so a cache hit never loads the library."""

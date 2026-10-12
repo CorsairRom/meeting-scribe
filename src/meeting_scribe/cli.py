@@ -80,6 +80,8 @@ def run(argv: Sequence[str] | None = None, stdin: TextIO | None = None) -> int:
         RealPyannoteBackend().fetch_pipeline,
         token=token,
         progress_json=args.progress_json,
+        discard_whisper=FasterWhisperBackend().discard_incomplete,
+        discard_pipeline=RealPyannoteBackend().discard_incomplete,
     )
 
 

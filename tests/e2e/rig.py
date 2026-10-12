@@ -19,6 +19,7 @@ from dbus_fast.aio import MessageBus
 from meeting_scribe.base.infrastructure.dbus.constants import BUS_NAME, OBJECT_PATH
 from meeting_scribe.main import (
     Application,
+    ModelSetupAdapters,
     PreferencesAdapters,
     ProcessingAdapters,
     RecordingAdapters,
@@ -51,6 +52,7 @@ from tests.unit.meetings.fakes import (
     ScriptedRunner,
 )
 from tests.unit.meetings.fakes import FakeClock as FakeMeetingsClock
+from tests.unit.model_setup.fakes import FakeCacheProbe, FakeRunner, FakeTokenSource
 from tests.unit.recording.fakes import (
     FakeAudioCapture,
     FakeClock,
@@ -77,6 +79,7 @@ class ServiceRig:
         *,
         notify: bool = True,
         bus_address: str | None = None,
+        model_setup: ModelSetupAdapters | None = None,
     ) -> None:
         self.meetings_dir = tmp_path / "meetings"
         # The settings come from a tmp ``settings.json`` (never the real config folder); the cloud
@@ -97,6 +100,10 @@ class ServiceRig:
         self.keys = FakeKeyStore()
         self.local_models = FakeLocalModels()  # the model lists: no Ollama, no network
         self.cloud_models = FakeCloudModels()
+        # The models: no keyring, no child process, no download, never the real Hugging Face cache.
+        self.model_tokens = FakeTokenSource()
+        self.model_probe = FakeCacheProbe()
+        self.model_runner = FakeRunner()
         self.app: Application = create_app(
             settings,
             preferences_adapters=PreferencesAdapters(
@@ -121,6 +128,8 @@ class ServiceRig:
                 clock=FakeMeetingsClock(),
                 notifier=self.notifier,
             ),
+            model_setup_adapters=model_setup
+            or ModelSetupAdapters(self.model_tokens, self.model_probe, self.model_runner),
             summary_adapters=SummaryAdapters(
                 files=FilesystemSummaryFiles(),  # real files, under tmp
                 keys=self.keys,

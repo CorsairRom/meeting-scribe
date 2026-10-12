@@ -10,6 +10,7 @@ from meeting_scribe.speakers.infrastructure.pyannote_backend import (
     TELEMETRY_VARIABLE,
     RealPyannoteBackend,
 )
+from tests.unit.hf_fakes import make_snapshot
 
 SRC = Path(__file__).resolve().parents[3] / "src"
 
@@ -109,20 +110,6 @@ def test_fetch_pipeline_without_a_token_uses_the_ambient_login(
     assert seen == [("pyannote/x", True)]  # token=True: the stored login, never read here
 
 
-def _snapshot(root: Path, files: dict[str, bytes]) -> Path:
-    """A fake hub snapshot: ``blobs`` holds the content, ``snapshots/<rev>`` links to it."""
-    repo = root / "models--fake--pipeline"
-    snapshot = repo / "snapshots" / "rev1"
-    (repo / "blobs").mkdir(parents=True)
-    for index, (name, content) in enumerate(files.items()):
-        blob = repo / "blobs" / f"blob{index}"
-        blob.write_bytes(content)
-        target = snapshot / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.symlink_to(blob)
-    return snapshot
-
-
 def _fake_hub(monkeypatch: pytest.MonkeyPatch, result: object) -> list[dict[str, object]]:
     calls: list[dict[str, object]] = []
 
@@ -139,7 +126,7 @@ def _fake_hub(monkeypatch: pytest.MonkeyPatch, result: object) -> list[dict[str,
 def test_a_complete_cached_pipeline_is_cached_without_the_network(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    snapshot = _snapshot(
+    snapshot = make_snapshot(
         tmp_path,
         {"config.yaml": b"embedding: $model/embedding\n", "embedding/model.bin": b"x"},
     )
@@ -152,7 +139,7 @@ def test_a_complete_cached_pipeline_is_cached_without_the_network(
 def test_a_pipeline_missing_a_referenced_model_is_not_cached(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    snapshot = _snapshot(tmp_path, {"config.yaml": b"embedding: $model/embedding\n"})
+    snapshot = make_snapshot(tmp_path, {"config.yaml": b"embedding: $model/embedding\n"})
     _fake_hub(monkeypatch, snapshot)
 
     assert RealPyannoteBackend().is_pipeline_cached("pyannote/x") is False
@@ -162,3 +149,30 @@ def test_a_pipeline_that_is_not_in_the_cache_is_not_cached(monkeypatch: pytest.M
     _fake_hub(monkeypatch, type("LocalEntryNotFoundError", (Exception,), {})("nope"))
 
     assert RealPyannoteBackend().is_pipeline_cached("pyannote/x") is False
+
+
+def test_a_pipeline_whose_config_names_files_needs_every_one_of_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = b"plda: $model/plda/plda.npz\nxvec: $model/plda/xvec_transform.npz\n"
+    snapshot = make_snapshot(tmp_path, {"config.yaml": config, "plda/plda.npz": b"x"})
+    _fake_hub(monkeypatch, snapshot)
+
+    assert RealPyannoteBackend().is_pipeline_cached("pyannote/x") is False  # the second never came
+
+    (snapshot / "plda" / "xvec_transform.npz").write_bytes(b"x")
+
+    assert RealPyannoteBackend().is_pipeline_cached("pyannote/x") is True
+
+
+def test_discard_incomplete_removes_the_leftovers_of_the_pipelines_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot = make_snapshot(tmp_path, {"config.yaml": b"x"})
+    orphan = snapshot.parents[1] / "blobs" / "old.incomplete"
+    orphan.write_bytes(b"half")
+    _fake_hub(monkeypatch, snapshot)
+
+    RealPyannoteBackend().discard_incomplete("pyannote/x")
+
+    assert not orphan.exists()
