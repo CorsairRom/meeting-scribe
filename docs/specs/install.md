@@ -26,6 +26,8 @@ verifiable_by:
   - tests/gpu/test_offline_cached_load.py
   - tests/unit/model_setup/
   - tests/e2e/model_setup/test_models_over_dbus.py
+  - tests/e2e/model_setup/test_keyring_token_source.py
+  - tests/e2e/base/test_secret_service_reader.py
   - tests/unit/review_app/test_models_presenter.py
 last_updated: 2026-10-12
 ai_instructions:
@@ -251,7 +253,7 @@ AND it is absent from the child's argv, environment, from every log line, every 
 AND anything shaped like a token (hf_...) in the child's output is scrubbed before it is logged
 ```
 
-**Test**: `tests/unit/model_setup/test_download_runner.py::test_token_goes_only_to_stdin` (planned), `tests/e2e/model_setup/test_models_over_dbus.py::test_token_never_crosses_dbus` (planned)
+**Test**: `tests/unit/model_setup/test_download_runner.py::test_token_goes_only_to_stdin`, `tests/unit/model_setup/test_token_never_leaks.py`, `tests/e2e/model_setup/test_models_over_dbus.py::test_token_never_crosses_dbus` (a bus monitor records every message)
 
 ### AC-17: The keyring token wins over the ambient login, and the login still works
 
@@ -264,7 +266,7 @@ GIVEN the keyring is locked
 THEN Download fails with MODELS_TOKEN_KEYRING_LOCKED and never prompts
 ```
 
-**Test**: `tests/unit/model_setup/test_download_models.py` (planned)
+**Test**: `tests/unit/model_setup/test_download_models.py`, `tests/e2e/model_setup/test_keyring_token_source.py`
 
 ### AC-18: Download models reports status, progress and the end
 
@@ -276,7 +278,7 @@ AND GetStatus reports PENDING, DOWNLOADING, READY or FAILED with whisper_cached,
 AND a second Download while one runs fails with MODELS_DOWNLOAD_ACTIVE, and CancelDownload stops the child
 ```
 
-**Test**: `tests/unit/model_setup/test_download_models.py`, `tests/e2e/model_setup/test_models_over_dbus.py` (planned)
+**Test**: `tests/unit/model_setup/test_download_models.py`, `tests/e2e/model_setup/test_models_over_dbus.py`
 
 ### AC-19: Preferences stores the token, links the terms and downloads
 
@@ -671,3 +673,7 @@ About 400 authored changed lines per task (advisory, counting additions plus del
 - 2026-10-12 (F6.4): `prefetch-models --progress-json` prints `{"event":"step","model":"pipeline"|"whisper","step":N,"total_steps":2}`, `{"event":"error","model","error_code","message"}` and `{"event":"finished","ready":bool}`, one per line, and no prose. The service uses `error_code` (the first error wins) and never forwards `message`.
 - 2026-10-12 (F6.4): "cached" is stricter than a snapshot folder: every needed file is present and readable, no link is dangling and no `*.incomplete` blob exists (`base/infrastructure/hf_cache.py`). The pipeline's required files are `config.yaml` plus every `$model/<path>` its config names, read with a regex (no YAML dependency); Whisper's are the five files `faster_whisper` downloads. `--check` cannot be combined with `--token-stdin` or `--progress-json` (usage error, exit 2). An empty first line on stdin with `--token-stdin` is exit 2 and names nothing.
 - 2026-10-12 (F6.4): besides the pattern `hf_...`, the exact token that was given is scrubbed from every line the command prints, so a token of any shape cannot leak through a library message. The error texts of the worker (access denied, cache miss) now name Preferences and Download models, and no longer name `hf auth login` or `make install`.
+- 2026-10-12 (F6.5): `Download` checks the cache afresh (not the remembered status) and, when both models are cached, replies `READY` and starts nothing (no child, no keyring read, no signal). The spec said the reply is `DOWNLOADING` at once; that holds whenever something is missing. Reason: a download refreshes `refs/main` of the Hugging Face cache, which a processing job reads offline, and an idempotent no-op removes that race entirely at no cost, while a partial cache (one model) can be downloaded during a job because the job only reads the repository it needs and the missing one cannot be in use. The spec left the interplay with processing open (it only says "no GPU, no lease"); no lease and no processing gate were added.
+- 2026-10-12 (F6.5): a download is not part of the `Settings1.Restart` busy gate. A restart cancels the child (shutdown stops it, bounded, like a summary) and the Hugging Face cache resumes it on the next Download, so nothing is lost and the user is not blocked from applying a setting.
+- 2026-10-12 (F6.5): `MODELS_DOWNLOAD_CANCELLED` is never sent: a cancelled download ends with `ModelsFinished(CANCELLED, "")`. An internal class `ModelsDownloadReportedError` (`MODELS_DOWNLOAD_REPORTED`, registered in the catalog as not exposed) carries the child's own code from the runner to `FailurePolicy`; it needs its own class code because the error-code uniqueness test forbids two classes sharing one. After a successful run the cache is verified again, so a download that left a model partial is `FAILED` with `MODELS_DOWNLOAD_FAILED`; a cancel or failure forgets the remembered cache and the next `GetStatus` re-checks. `GetStatus` stays `FAILED` until the next `Download`.
+- 2026-10-12 (F6.5): the status check (the offline `prefetch-models --check` child) is bounded to 30 s as a constant, not a setting: the spec names only `MODEL_SETUP_DOWNLOAD_TIMEOUT_SECONDS`. `ModelsProgress` is not throttled: a download has two steps, so at most two signals are sent and the one-per-second bound holds by construction. The cloud-key store and the Hugging Face token source share `base/infrastructure/secret_service.SecretServiceReader`; the summaries store keeps its behaviour and its public names, and the only test change is the patch target of its log-leak test (the lookup moved).

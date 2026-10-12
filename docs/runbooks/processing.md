@@ -48,7 +48,12 @@ the first run, and what each failure code means. Design: [`../specs/processing.m
 2. Read the summary. The `models:` line says `ready (cached)`, or `PENDING: add your Hugging Face token in Preferences
    and press Download models` (an offline check, bounded by `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT` seconds, default 30).
    Pending is not a failure: recording works, processing does not until the models are cached.
-3. Fetch the models. The Download models action in Preferences arrives with F6.5 to F6.7; until then run
+3. Fetch the models. The service exposes `dev.meetingscribe.Models1` (F6.5: `GetStatus`, `Download`, `CancelDownload`, signals
+   `ModelsProgress` and `ModelsFinished`, see [`../architecture/api-contracts.md`](../architecture/api-contracts.md)); the Download
+   models action in Preferences that drives it arrives with F6.6 and F6.7. From a terminal today:
+   `gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service --method dev.meetingscribe.Models1.GetStatus`
+   (and `...Models1.Download`; the service runs the download itself with the keyring token, else your `hf auth login` login, and
+   stops it after `MODEL_SETUP_DOWNLOAD_TIMEOUT_SECONDS`, default 3600). Or run
    `meeting-scribe prefetch-models` (installed path: `~/.local/share/meeting-scribe/current/bin/meeting-scribe
    prefetch-models`) after the login and the terms above. Developer options of the same command:
    `--check` (offline; prints `{"whisper": true, "pipeline": false}` and exits 0 only when both are cached, a partial

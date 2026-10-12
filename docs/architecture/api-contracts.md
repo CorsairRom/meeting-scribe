@@ -12,6 +12,8 @@ verifiable_by:
   - tests/e2e/meetings/test_summaries_over_dbus.py
   - src/meeting_scribe/preferences/infrastructure/dbus/settings_interface.py
   - tests/e2e/preferences/test_settings_over_dbus.py
+  - src/meeting_scribe/model_setup/infrastructure/dbus/models_interface.py
+  - tests/e2e/model_setup/test_models_over_dbus.py
   - "busctl --user introspect dev.meetingscribe.Service /dev/meetingscribe/Service"
 ai_instructions:
   - "This doc is the SOURCE OF TRUTH for D-Bus contracts. If a method, property or signal changes, update THIS file in the same commit."
@@ -203,6 +205,43 @@ gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meeting
   --method dev.meetingscribe.Settings1.GetAll
 gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service \
   --method dev.meetingscribe.Settings1.Set "{'summaries.language': 'es'}"
+```
+
+---
+
+### `dev.meetingscribe.Models1`
+
+The speech models (the pyannote pipeline and the Whisper model) and the download that fetches them, owned by the
+service: the review app only shows the status and sends `Download`. Same bus name and object path as `Recording1`.
+Nothing here carries the Hugging Face token: the app stores it in the GNOME Keyring, the service reads it from there and
+writes it to the download process's standard input, and no signature holds it (ADR-011). Spec:
+[install](../specs/install.md) sections 6 and 7.
+
+| Member | Kind | Signature | Description | Errors |
+|---|---|---|---|---|
+| `GetStatus` | method | `() -> a{sv}` | `state` (s: `READY`, `PENDING`, `DOWNLOADING`, `FAILED`), `whisper_cached` (b), `pipeline_cached` (b), `token_stored` (b, the keyring item exists; the secret is not read), `step` (i), `total_steps` (i; both 0 unless `DOWNLOADING`), `failure_code` (s, empty unless `FAILED`). The cache state comes from an offline check (`prefetch-models --check` in a child process, run off the event loop and bounded) that is remembered until a download ends; a partial download never counts as cached | none |
+| `Download` | method | `() -> s` | Check the cache afresh and, when a model is missing, start the download and return `DOWNLOADING` at once; the work runs on a thread and a child process. When both models are already cached nothing runs: it returns `READY` and emits no signal (so a download never touches a cache a processing job reads). The token is the keyring one when it exists, else the ambient `hf auth login` login. Allowed while a recording or a processing job runs (no GPU, no lease) | `MODELS_DOWNLOAD_ACTIVE` |
+| `CancelDownload` | method | `() -> b` | `true` when a download was running, `false` otherwise (not an error). The outcome arrives as `ModelsFinished` with `CANCELLED` | none |
+| `ActiveDownload` | property | `b` (read) | True while a download runs; `PropertiesChanged` on change | n/a |
+| `ModelsProgress` | signal | `(sii)` | `(model, step, total_steps)`, `model` is `pipeline` or `whisper`, steps `1` and `2` of `2`; at most two per download, so at most one per second | n/a |
+| `ModelsFinished` | signal | `(ss)` | `(state, error_code)`: `state` is `READY`, `FAILED` or `CANCELLED`; `error_code` is empty unless `FAILED`; sent last, after the result is recorded (`GetStatus` is already correct) and the slot is free | n/a |
+
+A failed download is not a D-Bus error: it ends with `ModelsFinished(FAILED, code)` and the same `failure_code` in
+`GetStatus`. The codes are `DIARIZATION_MODEL_ACCESS_DENIED` (terms not accepted or a bad token),
+`MODEL_UNAVAILABLE` (offline or an unknown model name), `MODELS_TOKEN_KEYRING_LOCKED` (unlock the keyring and press
+Download again), `MODELS_DOWNLOAD_TIMEOUT` and `MODELS_DOWNLOAD_FAILED`. Messages carry codes and next steps, never a
+token, a path or the download process's output. A service shutdown cancels a running download (its child process
+included) without a `ModelsFinished` guarantee; Download resumes through the Hugging Face cache. A client that gets
+`UnknownInterface` treats the service as too old and asks the user to restart it (the same rule as `Settings1`).
+
+Example calls (documentation only, run them against your own session bus; `Download` starts a real download of about
+1.65 GiB):
+
+```bash
+gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service \
+  --method dev.meetingscribe.Models1.GetStatus
+gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service \
+  --method dev.meetingscribe.Models1.CancelDownload
 ```
 
 ---
