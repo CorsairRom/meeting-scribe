@@ -582,6 +582,15 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
       Provider=Cloud is the opt-in). Spec `docs/specs/preferences.md` approved (`b755136`): Settings1 D-Bus,
       settings.json (0600) with env/.env as developer override, live vs restart fields, prefs.js launcher +
       menu item, key stays in libsecret. Tasks P1-P7 (P8 optional model picker, not planned).
+  - [x] P1-P3 service: field registry + settings.json + precedence (#116), cloud gate from the provider + live
+        swap (#117), Settings1 + safe restart (#118). Reviews review-edcf693d97542b1d, review-5e317fa67eaf541b,
+        review-76789eee35333bff approved (4 lenses each). Safety fix: a cloud provider from env/.env needs an
+        explicit legacy SUMMARIES_CLOUD_ENABLED=true (never silently opted in after upgrade); data-loss fix: only
+        a read-but-invalid settings file is set aside. GREEN 1669 python / 145 gjs / 15 contracts. Follow-ups for
+        P4: a folder created by prepare stays if the file write then fails; apply_failed only in that Set reply;
+        legacy warning wording when an explicit false overrides a window-saved cloud provider.
+  - [ ] P4-P6 app core + Preferences window + prefs.js launcher and menu item.
+  - [ ] P7 runbook, docs, validation with consent.
 - [ ] F5.9 validation with consent (local run; cloud only on explicit go), docs gate.
       make install done 2026-10-11 (version 20261011195308-2317253; ollama reachable, qwen3.5:9b present);
       owner to test a local summary.
