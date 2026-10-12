@@ -1,7 +1,7 @@
 ---
 type: index
 status: living
-last_updated: 2026-10-11
+last_updated: 2026-10-12
 ---
 
 # Runbooks
@@ -24,5 +24,4 @@ A runbook gives exact commands, preconditions and what to verify afterwards.
 | [Set up and troubleshoot summaries](summaries.md) | F5 | active |
 | [Change settings in Preferences](preferences.md) | F5 | active |
 | [Store the cloud API key in the GNOME Keyring](store-cloud-api-key.md) | F5 | active |
-
-Planned: install troubleshooting (F6).
+| [Install, update, uninstall and troubleshoot](install.md) | F6 | active |

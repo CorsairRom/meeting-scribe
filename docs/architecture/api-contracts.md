@@ -27,7 +27,8 @@ ai_instructions:
 **Auth**: none beyond the per-user session bus (any process of the same user can call it).
 **Errors**: D-Bus errors named `dev.meetingscribe.Error.<ERROR_CODE>` with a message (see `error-codes-catalog.md`).
 
-Names are proposed and renamable until F6 (CR-011). Constants live in
+Names are stable since F6 closed (CR-011): the bus name, the object path, the interface names and the
+`dev.meetingscribe.Error.` prefix are frozen, and any later rename needs an ADR. Constants live in
 `src/meeting_scribe/base/infrastructure/dbus/constants.py`.
 
 ---

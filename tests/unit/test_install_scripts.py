@@ -1102,3 +1102,15 @@ def test_uninstall_lists_what_it_keeps(sandbox: Env) -> None:
         "shared with other tools",
     ):
         assert fragment in kept, fragment
+
+
+def test_the_runbook_keep_list_is_the_text_uninstall_prints(sandbox: Env) -> None:
+    printed = sandbox.run(UNINSTALL).stdout.split("Kept (not removed):", 1)[1]
+    printed = printed.replace(str(sandbox.home / ".config"), "~/.config")
+    runbook = (ROOT / "docs" / "runbooks" / "install.md").read_text()
+    documented = runbook.split("Kept (not removed):", 1)[1].split("\n\n## ", 1)[0]
+
+    def bullets(text: str) -> list[str]:
+        return [line.strip("- ").replace("`", "") for line in text.splitlines() if "- " in line]
+
+    assert bullets(printed) == bullets(documented) != []

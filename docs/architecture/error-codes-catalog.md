@@ -30,8 +30,8 @@ it with dbus-fast as `DBusError("dev.meetingscribe.Error.<ERROR_CODE>", message)
 | Error name | `dev.meetingscribe.Error.<ERROR_CODE>` | Stable, machine-readable. Clients (extension, review app) map on this. Example: `dev.meetingscribe.Error.ENTITY_NOT_FOUND`. |
 | Message | `string` | English debug description (for example `Meeting 'abc123' does not exist.`). Not intended for direct display. |
 
-The error-name prefix is proposed and renamable until F6, together with the bus name
-([ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md)). Inspect errors with `gdbus call` or `busctl --user call`.
+The error-name prefix is stable since F6 closed, together with the bus name
+([ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md)); any later rename needs an ADR. Inspect errors with `gdbus call` or `busctl --user call`.
 
 > **Current behavior**: `to_dbus_error` (`src/meeting_scribe/base/infrastructure/dbus/errors.py`) builds this error
 > from any `MeetingScribeError` using the instance `error_code` (so detail codes carry through); the `Recording1`

@@ -41,22 +41,30 @@ A separate phase after F6 (owner decision of 2026-10-12); the F5 leftovers, not 
 - [ ] The restart wait state survives closing the Preferences dialog
 - [ ] A stale `api_key` success arrives after a newer attempt already failed and is shown as current
 
+Follow-ups found in the F6 reviews:
+
+- [ ] The preflight `.env` parsing ignores an `export ` prefix and repeated keys (the last one should win)
+- [ ] Orphan `.incomplete` cleanup does not take the Hugging Face per-file lock, so it races a concurrent manual `prefetch-models`
+- [ ] Orphans left by other tools in the shared Hugging Face cache block READY until Download models is pressed
+- [ ] A keyring write whose callback never arrives keeps the token field busy until the app restarts
+- [ ] `CancelDownload` is false during the up-to-30 s fresh cache probe
+
 ---
 
 ## In progress
 
-### [EPIC] F6 Install — [spec](../specs/install.md) (approved)
+### [EPIC] F6 Install — [spec](../specs/install.md) (in progress; manual validation and the docs gate are still open)
 
 Owner decisions of 2026-10-12 (binding):
 
-- [ ] Scope: a robust install from the repo. Distribution through extensions.gnome.org is deferred to a later phase. There is no cloud-only install mode: transcription and diarization need the local NVIDIA GPU, so the cloud only replaces the summary step
-- [ ] One entry point: root-level `install.sh` (`make install` stays as an alias); uninstall mirrors it
-- [ ] Preflight first: checks every prerequisite before changing anything; when something is missing it stops with zero changes and prints what is missing, why it is needed and the exact fix command. `./install.sh --check` runs only the preflight. Stable exit codes; output readable by humans and parseable by AI agents
-- [ ] The installer never runs `sudo` and never prompts mid-way: it prints the commands. Human-only steps (NVIDIA driver and reboot, accepting the pyannote terms and creating the Hugging Face token) are labelled apart from fixable errors
-- [ ] Prerequisites listed in the README and checked by the preflight: NVIDIA GPU with a working driver, at least 8 GB VRAM, free disk space, GNOME on Wayland, `uv`, GTK4, libadwaita and PyGObject, Ollama installed and reachable (the install stops if it is missing)
-- [ ] The Hugging Face token moves to Preferences (GNOME Keyring, like the cloud API key) with a "Download models" action; processing loads the cached models with no token. The installer does not stop for a missing token: it reports "models pending"
-- [ ] Update is `git pull` then `./install.sh` (idempotent; keeps meetings, `settings.json`, keyring entries and models); uninstall keeps user data and says so
-- [ ] Runbook `docs/runbooks/install.md` (install, update, troubleshoot) and a README section "Install (humans and AI agents)"
+- [x] Scope: a robust install from the repo. Distribution through extensions.gnome.org is deferred to a later phase. There is no cloud-only install mode: transcription and diarization need the local NVIDIA GPU, so the cloud only replaces the summary step
+- [x] One entry point: root-level `install.sh` (`make install` stays as an alias); uninstall mirrors it
+- [x] Preflight first: checks every prerequisite before changing anything; when something is missing it stops with zero changes and prints what is missing, why it is needed and the exact fix command. `./install.sh --check` runs only the preflight. Stable exit codes; output readable by humans and parseable by AI agents
+- [x] The installer never runs `sudo` and never prompts mid-way: it prints the commands. Human-only steps (NVIDIA driver and reboot, accepting the pyannote terms and creating the Hugging Face token) are labelled apart from fixable errors
+- [x] Prerequisites listed in the README and checked by the preflight: NVIDIA GPU with a working driver, at least 8 GB VRAM, free disk space, GNOME on Wayland, `uv`, GTK4, libadwaita and PyGObject, Ollama installed and reachable (the install stops if it is missing)
+- [x] The Hugging Face token moves to Preferences (GNOME Keyring, like the cloud API key) with a "Download models" action; processing loads the cached models with no token. The installer does not stop for a missing token: it reports "models pending"
+- [x] Update is `git pull` then `./install.sh` (idempotent; keeps meetings, `settings.json`, keyring entries and models); uninstall keeps user data and says so
+- [x] Runbook `docs/runbooks/install.md` (install, update, troubleshoot) and a README section "Install (humans and AI agents)"
 
 The task breakdown (F6.1 and on) lives in `odd/tasks/meeting-scribe.md`.
 

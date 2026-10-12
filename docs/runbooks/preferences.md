@@ -27,7 +27,7 @@ Design: [`../specs/preferences.md`](../specs/preferences.md).
 
 ## Preconditions
 
-- `make install` was run and the service is active: `systemctl --user status meeting-scribe.service`.
+- `./install.sh` was run ([`install.md`](install.md)) and the service is active: `systemctl --user status meeting-scribe.service`.
 - For the Local model list, Ollama is running; for the Cloud model list, an API key is stored (see below).
 
 ## Steps
@@ -127,7 +127,7 @@ pyannote pipeline is gated, so three steps are yours, in this order:
 | Symptom | Cause and fix |
 |---|---|
 | "The Meeting Scribe service is not running" | `systemctl --user start meeting-scribe.service`; check `journalctl --user -u meeting-scribe.service`. |
-| Preferences does not open from the gear | The review app is not installed or its launch failed; run `make install`, or start `~/.local/share/meeting-scribe/current/bin/meeting-scribe-review --preferences`. |
+| Preferences does not open from the gear | The review app is not installed or its launch failed; run `./install.sh`, or start `~/.local/share/meeting-scribe/current/bin/meeting-scribe-review --preferences`. |
 | Local model list empty, "Ollama is not reachable" | Ollama is stopped: `sudo systemctl start ollama` (or `ollama serve`), then press refresh. The saved model is kept. |
 | "No models are installed in Ollama." | `ollama pull qwen3:4b-instruct-2507-q4_K_M`, then refresh. |
 | Cloud model list disabled, "Set the API key first." | Press **Set API key...**; "Keyring locked" means unlock the login keyring first. |
@@ -143,5 +143,5 @@ pyannote pipeline is gated, so three steps are yours, in this order:
 | Settings file damaged | The service starts with defaults and logs `SETTINGS_FILE_INVALID`; the next Save moves the bad file to `settings.json.invalid` and writes a new one. |
 
 Codes are listed in [`../architecture/error-codes-catalog.md`](../architecture/error-codes-catalog.md).
-`make uninstall` leaves `settings.json` and `.env` untouched, and the keyring entries (the API key and the Hugging Face
+`./uninstall.sh` (alias `make uninstall`) leaves `settings.json` and `.env` untouched, and the keyring entries (the API key and the Hugging Face
 token) stay (remove them in Seahorse); the downloaded models stay in the Hugging Face cache.

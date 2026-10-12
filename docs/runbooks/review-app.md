@@ -31,14 +31,14 @@ speaker, renames and merges speakers, and shows the transcript. Design: [`../spe
 
 ## Preconditions
 
-- `make install` finished (see [`gnome-extension.md`](gnome-extension.md) for the extension side).
+- `./install.sh` finished (see [`install.md`](install.md)) (see [`gnome-extension.md`](gnome-extension.md) for the extension side).
 - System Python (`/usr/bin/python3`) with PyGObject, GTK 4 and libadwaita 1. On Fedora:
   `sudo dnf install python3-gobject gtk4 libadwaita gstreamer1-plugins-good`. The app does not use the `uv` Python.
 - At least one meeting in the `DONE` state (the extension shows "Last meeting processed: N speakers").
 
 ## Steps
 
-1. Run `make install`. Besides the service and the extension it:
+1. Run `./install.sh` (alias `make install`). Besides the service and the extension it:
    - copies the app to `<data home>/meeting-scribe/versions/<id>/app/meeting_scribe_review/`;
    - writes the launcher `<data home>/meeting-scribe/versions/<id>/bin/meeting-scribe-review` (system Python,
      `PYTHONPATH` set to that version's `app/`);
@@ -86,7 +86,7 @@ troubleshooting: [`preferences.md`](preferences.md).
 | Symptom | Cause and fix |
 |---|---|
 | `./install.sh` stops with `[ FIX ] gtk.*` (exit 10) | Run the printed `sudo dnf install ...` command yourself, then `./install.sh --check` again |
-| The menu item shows a notification asking you to run `make install` | The desktop entry is missing: run `make install` |
+| The menu item shows a notification asking you to run `./install.sh` | The desktop entry is missing: run `./install.sh` |
 | "The Meeting Scribe service is not running" in the window | `systemctl --user start meeting-scribe.service`, then Retry |
 | "The service must be restarted to match this app version" | `systemctl --user restart meeting-scribe.service` (an older service is still running) |
 | "Hugging Face refused access", or **Download models** stays disabled | See "Speech models" in [`preferences.md`](preferences.md); a disabled button means a download runs, the token is being stored, or both models are already ready |
@@ -94,7 +94,7 @@ troubleshooting: [`preferences.md`](preferences.md).
 | The window opens but no sound | Install `gstreamer1-plugins-good`; check the default audio output |
 | The app does not start from the menu | Run the launcher from a terminal and read the traceback; never paste meeting text from it |
 
-Uninstall: `make uninstall` removes the desktop entry, the launcher and the app (they live in `versions/`). Meetings,
-your `.env` and your `settings.json` are left untouched.
+Uninstall: `./uninstall.sh` (alias `make uninstall`) removes the desktop entry, the launcher and the app (they live in `versions/`). Meetings,
+your `.env`, your `settings.json`, the keyring items and the downloaded models are left untouched.
 
 **Preferences**: the same window opens the Preferences dialog from its menu, and `meeting-scribe-review --preferences` (the extension menu item) opens it directly; see [`preferences.md`](preferences.md).
