@@ -613,7 +613,7 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
       Evidence: `make check` 1901 python passed, packaging 1 passed, gjs 163 passed; citation check over
       `docs/specs/*.md` and `rules-registry.md`: 99 citations, 0 broken (22 repointed); Spanish scan only the known
       fixtures and `doc-sync-protocol.md`. Remaining: owner reviews and merges the integration PR.
-### F6 Install — in progress (integration `feat/install`)
+### F6 Install — done (owner merged tracker #130 on 2026-10-12; tag `v1.0.0`)
 Spec: `docs/specs/install.md` (approved 2026-10-12 under the owner's delegation). TDD: strict, runner `uv run pytest` / `make check`
 (source: AGENTS.md). Route: delegated direct (one writer per task, 2+ non-trivial files each).
 Delivery: integration branch `feat/install` from `main` (F5 merged); the tracker PR to `main` is still to be
@@ -700,6 +700,12 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
         force-push could not hide the previous work email. Future commits use `richard.romero@hotmail.cl` (repository `user.email`).
   - [x] (c) The references to the two private repositories were rephrased neutrally in this document, the spec section 11 and `docs/_templates/README.md`;
         a case-insensitive search for the two repository names finds none. Commit `chore: license the project under gpl-2.0-or-later and drop private references`.
+
+### F7 Polish — in progress (integration branch to be created after the F6 close-out PR)
+
+Scope: the backlog F7 epic (summary quality, Preferences and model-setup polish from the F5 and F6 reviews, CI with
+`make check` as a required check on `main`). TDD: strict, runner `uv run pytest` / `make check`.
+- [ ] F7.0 Plan the phase (tasks and order) from the backlog epic
 
 ## Route log
 
@@ -798,3 +804,5 @@ F0 merged to `main` (#2, squash). F1 complete on integration branch `feat/record
 integrated (#14, #16–#31; packaging/runbook #28–#30, smoke test #31). Final tail review
 `review-0b5874936265a288` approved. Tracker #15 is ready for the owner to merge into `main`.
 F1 merged to `main` (#15, merge commit 7301d96). F2 started on `feat/gnome-extension`; current: F2.4 done; F2.1–F2.3 integrated (#33–#34, #36–#40); F2 complete and verified in the real session (#33–#48); tracker #35 ready for the owner. Next: F3 Processing.
+
+F6 merged to `main` (#130, 2026-10-12): v1 complete, tag `v1.0.0`; the repository is public with `main` protected. Next: F7 Polish.
