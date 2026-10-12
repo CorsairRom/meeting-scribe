@@ -1,7 +1,7 @@
 ---
 type: runbook
 status: active
-last_updated: 2026-10-11
+last_updated: 2026-10-12
 phase: F5
 verifiable_by:
   - scripts/install.sh
@@ -24,8 +24,11 @@ the cloud choice: [ADR-009](../decisions/009-cloud-summaries-through-opencode-go
 ## Preconditions
 
 - `make install` was run (service, review app and extension). Its summary has an `ollama:` line.
-- Settings live in `~/.config/meeting-scribe/.env` (template: [`.env.example`](../../.env.example)). Restart the
-  service after editing them: `systemctl --user restart meeting-scribe.service`.
+- Settings are changed in the **Preferences** window (Meeting Scribe menu, or the gear in the Extensions app); see
+  [`preferences.md`](preferences.md). Model and provider changes apply at once, with no restart. Developers can still
+  override any of them with `SUMMARIES_*` variables in the environment or in `~/.config/meeting-scribe/.env`
+  (template: [`.env.example`](../../.env.example)); that override wins over Preferences and needs a service restart:
+  `systemctl --user restart meeting-scribe.service`.
 - A meeting in the review app that is processed (state done). The summary is built from its transcript.
 
 ## Steps: local summaries with Ollama
@@ -53,8 +56,9 @@ measurement on an 8 GB RTX 5060: it runs **100% on the GPU at a 16k context** (p
 (about 10k tokens) is one pass. Larger models did not fit: `qwen3.5:9b` loads at 8.8 GB even at 4k context (about 27%
 of it on the CPU, slow, and it failed at 16k) and `granite4.1:8b` took 35 minutes at 16k with 23% on the CPU.
 
-`SUMMARIES_LOCAL_MODEL` is any model name `ollama list` shows; set it in the settings file and the install check
-follows it. A model that does not fit the GPU makes Ollama split it between GPU and CPU, and the summary becomes very
+In Preferences the model is picked from the models `ollama list` shows (developer override:
+`SUMMARIES_LOCAL_MODEL`); the install check follows the same precedence (environment, `.env`, then the Preferences
+file). A model that does not fit the GPU makes Ollama split it between GPU and CPU, and the summary becomes very
 slow. **Check the split with `ollama ps` while a summary runs**: the `PROCESSOR` column must read `100% GPU`.
 
 ### Context size
@@ -77,17 +81,17 @@ The cloud is off by default. A cloud summary sends the transcript, with speaker 
 ([ADR-009](../decisions/009-cloud-summaries-through-opencode-go.md)); it happens only when you confirm it, every time.
 
 1. Store the API key in the GNOME Keyring, never in a file (BR-005):
-   [`store-cloud-api-key.md`](store-cloud-api-key.md). The Preferences window also has a **Set API key** action;
-   it writes to the same keyring entry (the Summary tab only points to Preferences when the key is missing).
-2. Choose the cloud as the provider: set `SUMMARIES_PROVIDER=cloud` (the Preferences window does the same).
-   That is the whole opt-in; the caption under the button says "Cloud" and the button asks for confirmation before it sends anything.
+   normally with **Set API key...** in Preferences (it writes to the keyring entry; the Summary tab only points to
+   Preferences when the key is missing); the manual alternative is [`store-cloud-api-key.md`](store-cloud-api-key.md).
+2. In Preferences choose **Run summaries: In the cloud**, then pick the Model from the list (the list needs the key).
+   Developer override: `SUMMARIES_PROVIDER=cloud`. That is the whole opt-in; the caption under the button says "Cloud" and the button asks for confirmation before it sends anything.
    `SUMMARIES_CLOUD_ENABLED` no longer exists. Upgrading never switches the cloud on: a `SUMMARIES_PROVIDER=cloud` line in
    the environment or `.env` without `SUMMARIES_CLOUD_ENABLED=true` next to it (or with it `false`) keeps the provider
    local, logs one warning and locks the field in Preferences until you delete those lines; then choose Cloud in the
    window. `SUMMARIES_CLOUD_ENABLED=true` with the provider `local` no longer allows a per-request cloud summary (one
    button, one provider); it is ignored with a warning.
    `SUMMARIES_CLOUD_MODEL` accepts any model the gateway serves on `/chat/completions` (default `deepseek-v4-pro`).
-3. Restart the service and press **Generate summary**; read the confirmation dialog and confirm only if you accept
+3. Press **Generate summary** (no restart is needed after a Preferences change); read the confirmation dialog and confirm only if you accept
    that the transcript leaves this computer.
 
 ## Verify
@@ -110,13 +114,13 @@ A finished summary appears in the Summary tab and as `summary.md` next to the me
 | Install says `model ... NOT found` | `ollama pull <model>` (the command is in the install output). The install never pulls. |
 | `SUMMARY_PROVIDER_UNAVAILABLE` | Ollama is unreachable from the service. Start it; `SUMMARIES_LOCAL_BASE_URL` must point at it. |
 | `SUMMARY_MODEL_RUN_FAILED` | Ollama is up but could not run the model (load failure or out of memory). Check `ollama ps` and `journalctl -u ollama`, free GPU memory or pick a smaller model. It is not retried. |
-| `SUMMARY_MODEL_NOT_FOUND` | The model is not in `ollama list`: pull it or fix `SUMMARIES_LOCAL_MODEL`. |
+| `SUMMARY_MODEL_NOT_FOUND` | The model is not in `ollama list`: pull it, or pick another one in Preferences (or fix `SUMMARIES_LOCAL_MODEL` if you override it). |
 | `SUMMARY_CONTEXT_TOO_LARGE` | The prompt reached the context window (Ollama would drop its start). Raise `SUMMARIES_LOCAL_CONTEXT_TOKENS` if the GPU still holds the model 100% (check `ollama ps`), or pick a smaller model. |
 | `SUMMARY_OUTPUT_LIMIT_REACHED` | The model used its whole output limit. Raise `SUMMARIES_MAX_OUTPUT_TOKENS` (final summary) or `SUMMARIES_NOTES_MAX_OUTPUT_TOKENS` (notes steps), or choose another model. |
 | `SUMMARY_PROVIDER_REJECTED` (HTTP 400) from the cloud | OpenCode Go rejects requests without client and session identification (`MissingSessionID`). The service sends `User-Agent: meeting-scribe/<version>` and `x-opencode-session` itself; a `SUMMARIES_CLOUD_BASE_URL` override that points at another gateway does not change that (GO-063). |
 | `SUMMARY_TIMEOUT` | The provider sent no data in time; retry, or raise `SUMMARIES_TIMEOUT_SECONDS`. A model that spills to the CPU is slow. |
 | `SUMMARY_GPU_BUSY`, `SUMMARY_BUSY` | A recording, processing or another summary holds the GPU. Wait; processing resumes by itself. |
-| `SUMMARY_CLOUD_DISABLED` | The provider is not `cloud`: set `SUMMARIES_PROVIDER=cloud` (or choose Cloud in Preferences). |
+| `SUMMARY_CLOUD_DISABLED` | The provider is not `cloud`: choose **In the cloud** in Preferences (developer override: `SUMMARIES_PROVIDER=cloud`). |
 | `SUMMARY_CLOUD_KEY_MISSING`, `..._LOCKED`, `..._UNAVAILABLE` | Store, unlock or reach the keyring: see [`store-cloud-api-key.md`](store-cloud-api-key.md). |
 | `SUMMARY_AUTH_FAILED`, `SUMMARY_RATE_LIMITED` | The gateway refused the key, or the plan limit is reached. Check the subscription and store the key again. |
 | "Open last summary" does nothing | No app is set for Markdown files. `xdg-mime default <app>.desktop text/markdown`. |

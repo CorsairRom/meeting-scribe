@@ -264,14 +264,22 @@ parse_env_value() {
   printf '%s' "$value"
 }
 
-# The configured local model: SUMMARIES_LOCAL_MODEL from the environment, else that one line of the
-# settings file (nothing else in it is read), else the default. The value is parsed by `parse_env_value` (above).
+# The configured local model, with the service's precedence: SUMMARIES_LOCAL_MODEL from the environment,
+# else that one line of `.env` (nothing else in it is read), else the `summaries.local_model` entry of
+# the Preferences file `settings.json` (nothing else in it is read; a value with JSON escapes is ignored),
+# else the default. The `.env` value is parsed by `parse_env_value` (above).
 readonly OLLAMA_MODEL_DEFAULT="qwen3:4b-instruct-2507-q4_K_M"
 readonly OLLAMA_TIMEOUT_DEFAULT=10
 ollama_model="${SUMMARIES_LOCAL_MODEL:-}"
 if [[ -z "$ollama_model" && -f "$CONFIG_HOME/meeting-scribe/.env" ]]; then
   ollama_model="$(grep -m1 '^SUMMARIES_LOCAL_MODEL=' "$CONFIG_HOME/meeting-scribe/.env" 2>/dev/null || true)"
   ollama_model="$(parse_env_value "${ollama_model#SUMMARIES_LOCAL_MODEL=}")"
+fi
+if [[ -z "$ollama_model" && -f "$CONFIG_HOME/meeting-scribe/settings.json" ]]; then
+  ollama_model="$(grep -o '"summaries\.local_model"[[:space:]]*:[[:space:]]*"[^"\\]*"' \
+    "$CONFIG_HOME/meeting-scribe/settings.json" 2>/dev/null | head -n1 || true)"
+  ollama_model="${ollama_model#*:}"
+  ollama_model="$(printf '%s' "$ollama_model" | sed -e 's/^[[:space:]]*"//' -e 's/"$//')"
 fi
 ollama_model="${ollama_model:-$OLLAMA_MODEL_DEFAULT}"
 ollama_timeout="${MEETING_SCRIBE_OLLAMA_TIMEOUT:-$OLLAMA_TIMEOUT_DEFAULT}"
@@ -367,7 +375,8 @@ case "$ollama_status" in
     echo "             Install it from https://ollama.com/download, then run: ollama pull $ollama_model"
     ;;
 esac
-echo "  config:    $CONFIG_HOME/meeting-scribe/.env (optional, see .env.example)"
+echo "  config:    open Preferences from the Meeting Scribe menu (saved in $CONFIG_HOME/meeting-scribe/settings.json)"
+echo "             .env in the same folder stays an optional developer override (see .env.example)"
 if ((start_failed || reload_failed)) || [[ -n "$extension_failed" ]]; then
   exit 1
 fi
