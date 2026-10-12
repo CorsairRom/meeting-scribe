@@ -84,8 +84,11 @@ The cloud is off by default. A cloud summary sends the transcript, with speaker 
    cloud is enabled; it writes to the same keyring entry.
 2. Choose the cloud as the provider: set `SUMMARIES_PROVIDER=cloud` (the Preferences window does the same).
    That is the whole opt-in; the button then says "(cloud)" and asks for confirmation before it sends anything.
-   `SUMMARIES_CLOUD_ENABLED` no longer exists: a line that sets it to `false` while the provider is `cloud` keeps the
-   provider local (and the field locked) until you delete it.
+   `SUMMARIES_CLOUD_ENABLED` no longer exists. Upgrading never switches the cloud on: a `SUMMARIES_PROVIDER=cloud` line in
+   the environment or `.env` without `SUMMARIES_CLOUD_ENABLED=true` next to it (or with it `false`) keeps the provider
+   local, logs one warning and locks the field in Preferences until you delete those lines; then choose Cloud in the
+   window. `SUMMARIES_CLOUD_ENABLED=true` with the provider `local` no longer allows a per-request cloud summary (one
+   button, one provider); it is ignored with a warning.
    `SUMMARIES_CLOUD_MODEL` accepts any model the gateway serves on `/chat/completions` (default `deepseek-v4-pro`).
 3. Restart the service and press **Generate summary**; read the confirmation dialog and confirm only if you accept
    that the transcript leaves this computer.

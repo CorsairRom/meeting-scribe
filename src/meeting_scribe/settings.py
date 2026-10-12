@@ -97,7 +97,7 @@ class Settings(MeetingScribeSettings):
         settings source (nested settings resolve their own), so a file created or removed in
         between would make ``env_files`` disagree with what was actually read.
         """
-        saved = dict(file_values or {})
+        saved = _known_values(file_values or {})
         env_files = effective_env_files()
         with file_layer(saved):
             settings = cls()
@@ -167,6 +167,17 @@ def get_settings() -> Settings:
     return Settings.load()
 
 
+def _known_values(values: Mapping[str, str]) -> dict[str, str]:
+    """Only registry keys reach the settings sources; anything else is ignored with a warning."""
+    known: dict[str, str] = {}
+    for key, value in values.items():
+        if field_spec(key) is None:
+            logger.warning("Saved settings: ignored unknown key %s", key)
+        else:
+            known[key] = value
+    return known
+
+
 def _spec(key: str) -> FieldSpec:
     spec = field_spec(key)
     if spec is None:
@@ -229,10 +240,14 @@ def _problems_of(error: ValidationError, section: str) -> list[FieldProblem]:
     return problems
 
 
-def _legacy_cloud_switch(
-    env_files: tuple[Path, ...],
-) -> tuple[Literal["env", "dotenv"], bool] | None:
-    """The obsolete ``SUMMARIES_CLOUD_ENABLED`` in the environment or ``.env`` (else None)."""
+type _LegacySwitch = tuple[Literal["env", "dotenv"], bool | None]
+
+
+def _legacy_cloud_switch(env_files: tuple[Path, ...]) -> _LegacySwitch | None:
+    """The obsolete ``SUMMARIES_CLOUD_ENABLED`` in the environment or ``.env`` (else None).
+
+    The flag is None when the value does not parse as a boolean (it counts as not set).
+    """
     raw: str | None = None
     layer: Literal["env", "dotenv"] = "env"
     for name, value in os.environ.items():
@@ -249,35 +264,47 @@ def _legacy_cloud_switch(
     try:
         return layer, TypeAdapter(bool).validate_python(raw.strip().lower())
     except ValidationError:
-        return None
+        return layer, None
 
 
 def _migrate_legacy_cloud_switch(
     settings: Settings, env_files: tuple[Path, ...], *, log: bool
 ) -> FieldSource | None:
-    """Nobody who deliberately kept the cloud off is switched on by the upgrade (spec section 7).
+    """The cloud is opt-in: an upgrade never switches it on (spec section 7).
 
-    Absent or true: ignored (true with one warning). Explicitly false while the provider is cloud:
-    the provider resolves to local, locked with the ``LEGACY_SETTING`` reason. Values are never
-    logged; nothing is rewritten. Returns the source that locks the provider, if any.
+    A provider chosen in the Preferences window (the saved file) is the opt-in by itself. A cloud
+    provider from the environment or ``.env`` needs the old explicit
+    ``SUMMARIES_CLOUD_ENABLED=true`` next to it; without it (absent, false or unparseable) the
+    provider resolves to local, locked with ``LEGACY_SETTING``. An explicit false also overrides a
+    saved cloud. Values are never logged and nothing is rewritten. Returns the lock source.
     """
     legacy = _legacy_cloud_switch(env_files)
-    if legacy is None:
-        return None
-    layer, enabled = legacy
-    if not enabled and settings.summaries.provider == "cloud":
-        settings.summaries = settings.summaries.model_copy(update={"provider": "local"})
-        if log:
+    enabled = legacy[1] if legacy else None
+    provider_layer = settings.source_of("summaries.provider").source
+    if settings.summaries.provider == "cloud" and enabled is not True:
+        explicit_off = enabled is False
+        if explicit_off or provider_layer in {"env", "dotenv"}:
+            settings.summaries = settings.summaries.model_copy(update={"provider": "local"})
+            if log:
+                logger.warning(
+                    "%s is obsolete: a cloud provider set in the environment needs it set to true, "
+                    "so the provider stays local. Choose Cloud in Preferences, then delete the "
+                    "legacy lines.",
+                    LEGACY_CLOUD_ENABLED,
+                )
+            lock_layer = legacy[0] if explicit_off and legacy else provider_layer
+            return FieldSource("dotenv" if lock_layer == "dotenv" else "env", LEGACY_SETTING)
+    if legacy is not None and log:
+        if enabled is True and settings.summaries.provider == "local":
             logger.warning(
-                "%s is obsolete and keeps the cloud off: the provider stays local. "
-                "Delete that line to choose the provider in Preferences.",
+                "%s is obsolete and ignored: it no longer allows a per-request cloud summary while "
+                "the provider is local. Choose Cloud in Preferences to use the cloud.",
                 LEGACY_CLOUD_ENABLED,
             )
-        return FieldSource(layer, LEGACY_SETTING)
-    if log:
-        logger.warning(
-            "%s is obsolete and ignored: the provider setting decides.", LEGACY_CLOUD_ENABLED
-        )
+        else:
+            logger.warning(
+                "%s is obsolete and ignored: the provider setting decides.", LEGACY_CLOUD_ENABLED
+            )
     return None
 
 
@@ -316,8 +343,9 @@ def load_saved_settings(store: SettingsFileStore) -> LoadedSettings:
         if not rejected:
             break  # an environment-only problem: nothing in the file can fix it
         for problem in result.failure():
-            logger.warning(
-                "Settings file: key %s fell back to its default (%s)", problem.key, problem.code
-            )
+            if problem.key in rejected:
+                logger.warning(
+                    "Settings file: key %s fell back to its default (%s)", problem.key, problem.code
+                )
         values = {key: value for key, value in values.items() if key not in rejected}
     return LoadedSettings(Settings.load(file_values=values), values)
