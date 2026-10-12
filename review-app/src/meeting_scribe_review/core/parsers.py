@@ -14,6 +14,7 @@ from meeting_scribe_review.core.models import (
     MeetingSummary,
     ModelList,
     ModelOption,
+    ModelsStatus,
     ProviderRow,
     SetOutcome,
     SettingsField,
@@ -293,4 +294,27 @@ def parse_keys(value: Any) -> Result[tuple[str, ...], ServiceError]:
 
 def parse_restarting(value: Any) -> Result[str, ServiceError]:
     """``Settings1.Restart``: ``s`` (``RESTARTING``)."""
+    return _parse_one(value, _text)
+
+
+def _models_status(row: Any) -> ModelsStatus:
+    fields = _mapping(row)
+    return ModelsStatus(
+        state=_text(_key(fields, "state")),
+        whisper_cached=_flag(_key(fields, "whisper_cached")),
+        pipeline_cached=_flag(_key(fields, "pipeline_cached")),
+        token_stored=_flag(_key(fields, "token_stored")),
+        step=_count(_key(fields, "step")),
+        total_steps=_count(_key(fields, "total_steps")),
+        failure_code=_text(_key(fields, "failure_code")),
+    )
+
+
+def parse_models_status(row: Any) -> Result[ModelsStatus, ServiceError]:
+    """``Models1.GetStatus``: ``a{sv}``."""
+    return _parse_one(row, _models_status)
+
+
+def parse_download_reply(value: Any) -> Result[str, ServiceError]:
+    """``Models1.Download``: ``s`` (``DOWNLOADING``, or ``READY`` when nothing was missing)."""
     return _parse_one(value, _text)

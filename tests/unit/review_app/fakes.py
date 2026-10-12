@@ -12,6 +12,7 @@ from meeting_scribe_review.core.errors import ServiceError
 from meeting_scribe_review.core.gateway import (
     Callback,
     GatewayListener,
+    ModelsListener,
     PlayerListener,
     SettingsListener,
     SummaryListener,
@@ -20,6 +21,7 @@ from meeting_scribe_review.core.models import (
     KeyStatus,
     MeetingSummary,
     ModelList,
+    ModelsStatus,
     ProviderRow,
     SetOutcome,
     SettingsField,
@@ -415,3 +417,89 @@ class FakeSettingsGateway:
 
     def args_of(self, method: str) -> list[tuple[Any, ...]]:
         return [args for name, args in self.calls if name == method]
+
+
+def models_status(
+    state: str = "PENDING",
+    *,
+    whisper: bool = False,
+    pipeline: bool = False,
+    token: bool = False,
+    step: int = 0,
+    total: int = 0,
+    failure: str = "",
+) -> ModelsStatus:
+    return ModelsStatus(state, whisper, pipeline, token, step, total, failure)
+
+
+@dataclass
+class FakeModelsGateway:
+    """Scripted ``Models1``; callbacks are synchronous unless ``deferred``. Never downloads."""
+
+    replies: dict[str, Any] = field(default_factory=dict)
+    calls: list[tuple[str, tuple[Any, ...]]] = field(default_factory=list)
+    listeners: list[ModelsListener] = field(default_factory=list)
+    deferred: bool = False
+    pending: list[Callable[[], None]] = field(default_factory=list)
+
+    def release(self, index: int = 0) -> None:
+        self.pending.pop(index)()
+
+    def _answer[T](self, method: str, default: T, done: Callback[T]) -> None:
+        self.calls.append((method, ()))
+        reply = self.replies.get(method, Ok(default))
+        if self.deferred:
+            self.pending.append(lambda: done(reply))
+        else:
+            done(reply)
+
+    def fail(self, method: str, code: str) -> None:
+        self.replies[method] = Err(ServiceError(code))
+
+    def models_status(self, done: Callback[ModelsStatus]) -> None:
+        self._answer("models_status", models_status(), done)
+
+    def download_models(self, done: Callback[str]) -> None:
+        self._answer("download_models", "DOWNLOADING", done)
+
+    def cancel_download(self, done: Callback[bool]) -> None:
+        self._answer("cancel_download", True, done)
+
+    def watch_models(self, listener: ModelsListener) -> None:
+        self.listeners.append(listener)
+
+    def unwatch_models(self, listener: ModelsListener) -> None:
+        self.listeners.remove(listener)
+
+    def count(self, method: str) -> int:
+        return len([name for name, _ in self.calls if name == method])
+
+
+@dataclass
+class FakeTokenStore:
+    """Records what would be stored in the keyring (never the real one); ``deferred`` holds them."""
+
+    stored: list[str] = field(default_factory=list)
+    store_result: Any = None  # a scripted ``Ok`` or ``Err`` for the next ``store``
+    status: Any = None  # a scripted ``Ok(KeyStatus)`` or ``Err``; default follows ``stored``
+    deferred: bool = False
+    pending: list[Callable[[], None]] = field(default_factory=list)
+
+    def release(self, index: int = 0) -> None:
+        self.pending.pop(index)()
+
+    def _answer(self, result: Any, done: Callable[[Any], None]) -> None:
+        if self.deferred:
+            self.pending.append(lambda: done(result))
+        else:
+            done(result)
+
+    def store(self, secret: str, done: Callback[None]) -> None:
+        self.stored.append(secret)
+        self._answer(self.store_result if self.store_result is not None else Ok(None), done)
+
+    def is_stored(self, done: Callback[KeyStatus]) -> None:
+        answer = self.status
+        if answer is None:
+            answer = Ok(KeyStatus.STORED if self.stored else KeyStatus.MISSING)
+        self._answer(answer, done)

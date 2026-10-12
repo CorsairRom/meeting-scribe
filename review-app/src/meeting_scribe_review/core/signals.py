@@ -3,7 +3,12 @@
 from collections.abc import Sequence
 from typing import Any
 
-from meeting_scribe_review.core.gateway import GatewayListener, SettingsListener, SummaryListener
+from meeting_scribe_review.core.gateway import (
+    GatewayListener,
+    ModelsListener,
+    SettingsListener,
+    SummaryListener,
+)
 
 
 def _text(value: Any) -> bool:
@@ -57,3 +62,14 @@ def dispatch_settings_signal(listener: SettingsListener, name: str, args: Any) -
         listener.on_settings_changed(tuple(args[0]))
         return True
     return False
+
+
+def dispatch_models_signal(listener: ModelsListener, name: str, args: Any) -> bool:
+    """Call the listener for a known ``Models1`` signal; ``False`` when unknown or malformed."""
+    if name == "ModelsProgress" and _shaped(args, _text, _count, _count):
+        listener.on_models_progress(args[0], args[1], args[2])
+    elif name == "ModelsFinished" and _shaped(args, _text, _text):
+        listener.on_models_finished(args[0], args[1])
+    else:
+        return False
+    return True
