@@ -578,7 +578,13 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
       Integrated #114. GREEN 1548 python / 145 gjs / 14 contracts. Follow-ups (stopped the review loop here):
       a stale success arriving after a newer attempt already failed replaces that failure text with the
       stored-key note; misplaced comment and duplicated reset in api_key.py; the gjs hold test waits 100 ms.
-- [ ] F5.9 validation with consent (local run; cloud only on explicit go), docs gate
+- [ ] F5.10 Preferences window (owner request 2026-10-11: no .env, no console; no separate cloud switch,
+      Provider=Cloud is the opt-in). Spec `docs/specs/preferences.md` approved (`b755136`): Settings1 D-Bus,
+      settings.json (0600) with env/.env as developer override, live vs restart fields, prefs.js launcher +
+      menu item, key stays in libsecret. Tasks P1-P7 (P8 optional model picker, not planned).
+- [ ] F5.9 validation with consent (local run; cloud only on explicit go), docs gate.
+      make install done 2026-10-11 (version 20261011195308-2317253; ollama reachable, qwen3.5:9b present);
+      owner to test a local summary.
 ### F6 Install — pending
 
 ## Route log
