@@ -20,6 +20,10 @@ verifiable_by:
   - tests/unit/test_readme_prerequisites.py
   - tests/unit/test_prefetch.py
   - tests/unit/speakers/test_pyannote_backend.py
+  - tests/unit/test_prefetch_check_offline.py
+  - tests/unit/test_cli.py
+  - tests/unit/base/test_hf_cache.py
+  - tests/gpu/test_offline_cached_load.py
   - tests/unit/model_setup/
   - tests/e2e/model_setup/test_models_over_dbus.py
   - tests/unit/review_app/test_models_presenter.py
@@ -235,7 +239,7 @@ THEN the loader passes no token (token=None) and the load succeeds from the cach
 AND the same holds when a login exists (the loader never reads it)
 ```
 
-**Test**: `tests/unit/speakers/test_pyannote_backend.py::test_load_pipeline_passes_no_token` (planned); manual check in the runbook (section 6)
+**Test**: `tests/unit/speakers/test_pyannote_backend.py::test_load_pipeline_passes_no_token`; `tests/gpu/test_offline_cached_load.py` (opt-in, real cached model, offline, no token); the runbook "Verify the offline, token-free load" (section 6)
 
 ### AC-16: The token reaches only the download process, and only on stdin
 
@@ -664,3 +668,6 @@ About 400 authored changed lines per task (advisory, counting additions plus del
 - 2026-10-12 (F6.3): the summary line comes from `current/bin/meeting-scribe prefetch-models --check`, bounded by `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT` (default 30 s, the spec's bound made overridable so a test can prove it); any non-zero exit, timeout or missing executable reports `PENDING`. Until F6.4 adds `--check`, the real command rejects the option, so the line says `PENDING` on a real machine; F6.4 makes it truthful.
 - 2026-10-12 (F6 review): the Ollama address follows the service's precedence, environment then `.env` then the default; `settings.json` is not read because Preferences has no `summaries.local_base_url` field (`preferences/domain/fields.py` lists only `summaries.local_model` among the Ollama settings), so the earlier wording of the review that named it does not apply.
 - 2026-10-12 (F6 review): an upgrade needs room for one new environment (8 GiB) plus the models, the same as a first install; the earlier 16 GiB figure double counted the old version, which is already on disk. The install summary's `ollama:` line says `reachable at preflight` because it repeats the result taken at the start of the run, and the `models: PENDING` line is followed by `(until then: meeting-scribe prefetch-models)` until Download models lands in F6.7.
+- 2026-10-12 (F6.4): `prefetch-models --progress-json` prints `{"event":"step","model":"pipeline"|"whisper","step":N,"total_steps":2}`, `{"event":"error","model","error_code","message"}` and `{"event":"finished","ready":bool}`, one per line, and no prose. The service uses `error_code` (the first error wins) and never forwards `message`.
+- 2026-10-12 (F6.4): "cached" is stricter than a snapshot folder: every needed file is present and readable, no link is dangling and no `*.incomplete` blob exists (`base/infrastructure/hf_cache.py`). The pipeline's required files are `config.yaml` plus every `$model/<path>` its config names, read with a regex (no YAML dependency); Whisper's are the five files `faster_whisper` downloads. `--check` cannot be combined with `--token-stdin` or `--progress-json` (usage error, exit 2). An empty first line on stdin with `--token-stdin` is exit 2 and names nothing.
+- 2026-10-12 (F6.4): besides the pattern `hf_...`, the exact token that was given is scrubbed from every line the command prints, so a token of any shape cannot leak through a library message. The error texts of the worker (access denied, cache miss) now name Preferences and Download models, and no longer name `hf auth login` or `make install`.

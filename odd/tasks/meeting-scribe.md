@@ -640,8 +640,14 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
       (`test_check_changes_nothing`) passed before the smoke run `./install.sh --check` on the real machine: exit 0, all 22
       checks OK. `MEETING_SCRIBE_PREFETCH_TIMEOUT` removed everywhere; decisions recorded in `docs/specs/install.md`.
       Note: `prefetch-models --check` arrives in F6.4, so the real summary says `models: PENDING` until then. Commit `c341e41` `feat(install): check the gpu, the disk and ollama and stop before any change`.
-- [ ] F6.4 Token-free processing: the pyannote loader uses no token, the fetcher takes one on stdin, `prefetch-models`
+- [x] F6.4 Token-free processing: the pyannote loader uses no token, the fetcher takes one on stdin, `prefetch-models`
       gets `--check` and machine-readable progress, error texts point to Preferences; offline verification without a login.
+      Evidence: RED = 15 failed plus 2 collection errors across `test_prefetch.py`, `test_cli.py`, `test_pyannote_backend.py`,
+      `test_pyannote_diarizer.py`, `test_faster_whisper_transcriber.py`, `test_hf_cache.py` (no `check_models`, no `hf_cache`, loader still
+      `token=True`, old error texts); GREEN = `make check` 2078 python passed, packaging 1 passed, gjs 163 passed, lint and import contracts clean. Offline proof:
+      `uv run pytest -m gpu -s tests/gpu/test_offline_cached_load.py` passed on the real cached pipeline with `HF_TOKEN` unset,
+      `HF_HUB_OFFLINE=1`, `HF_HUB_DISABLE_IMPLICIT_TOKEN=1` and `HF_TOKEN_PATH` redirected to a missing file (the token file was not
+      read). Commit `feat(speakers): load cached models without a token and fetch with one on stdin`.
 - [ ] F6.5 `model_setup` domain and `dev.meetingscribe.Models1` (status, download, cancel, progress, finished), keyring
       reader moved to the shared kernel, new error codes, api-contracts and catalog, e2e on a private bus.
 - [ ] F6.6 Review app core: Hugging Face token key store (libsecret), `Models1` gateway, presenter and tests.

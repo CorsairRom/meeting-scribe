@@ -28,10 +28,11 @@ the first run, and what each failure code means. Design: [`../specs/processing.m
   driver is the only system part. Without it, jobs fail with `GPU_UNAVAILABLE` (never a silent CPU fallback).
 - A Hugging Face account with the community-1 terms accepted. The diarization model is **gated**:
   1. Accept the terms at <https://hf.co/pyannote/speaker-diarization-community-1> while logged in.
-  2. Log in once in a real terminal: `hf auth login` (the CLI comes with `huggingface_hub`; run it from the
-     installed environment or any environment that has it). The token is stored by Hugging Face; this program never
-     reads or prints it.
-- Network access only while the models are downloaded. Processing itself runs offline (`HF_HUB_OFFLINE=1`).
+  2. Give the download a token: add it in Preferences (Speech models), or log in once in a real terminal with
+     `hf auth login` (the CLI comes with `huggingface_hub`). The download uses the Preferences token when there is one
+     and the `hf auth login` login otherwise. This program never prints either.
+- Network access only while the models are downloaded. Processing itself runs offline (`HF_HUB_OFFLINE=1`) and needs
+  neither a token nor a login: a cached model loads without them.
 
 ## Steps
 
@@ -49,7 +50,10 @@ the first run, and what each failure code means. Design: [`../specs/processing.m
    Pending is not a failure: recording works, processing does not until the models are cached.
 3. Fetch the models. The Download models action in Preferences arrives with F6.5 to F6.7; until then run
    `meeting-scribe prefetch-models` (installed path: `~/.local/share/meeting-scribe/current/bin/meeting-scribe
-   prefetch-models`) after the login and the terms above.
+   prefetch-models`) after the login and the terms above. Developer options of the same command:
+   `--check` (offline; prints `{"whisper": true, "pipeline": false}` and exits 0 only when both are cached, a partial
+   download never counts), `--token-stdin` (the token is the first line of standard input, never an argument) and
+   `--progress-json` (one JSON object per line: `step`, `error`, `finished`). The service runs it that way.
 
 ## First run
 
@@ -79,8 +83,8 @@ Unfinished meetings resume by themselves when the service starts.
 |---|---|---|
 | `GPU_UNAVAILABLE` | No usable CUDA device or driver | Fix the NVIDIA driver (`nvidia-smi`), restart the service, Reprocess. `PROCESSING_DEVICE=cpu` runs on the CPU explicitly (slow). |
 | `GPU_OUT_OF_MEMORY` | The GPU ran out of memory | Close other GPU programs and Reprocess. There is no automatic CPU retry. |
-| `DIARIZATION_MODEL_ACCESS_DENIED` | Terms not accepted or no Hugging Face login | Accept the terms at the model page, run `hf auth login`, fetch the models again (`meeting-scribe prefetch-models`), then Reprocess. Transcription is kept. |
-| `MODEL_UNAVAILABLE` | A model is not in the cache (the worker is offline) | Fetch the models (`meeting-scribe prefetch-models`; the install only reports `models: PENDING`), or check `TRANSCRIPTION_MODEL` / `SPEAKERS_PIPELINE`, then Reprocess. |
+| `DIARIZATION_MODEL_ACCESS_DENIED` | Terms not accepted, or no usable Hugging Face token | Accept the terms at the model page, add your token in Preferences (or run `hf auth login`), press Download models (or `meeting-scribe prefetch-models`), then Reprocess. Transcription is kept. |
+| `MODEL_UNAVAILABLE` | A model is not in the cache (the worker is offline) | Open Preferences and press Download models (or run `meeting-scribe prefetch-models`; the install only reports `models: PENDING`), or check `TRANSCRIPTION_MODEL` / `SPEAKERS_PIPELINE`, then Reprocess. |
 | `WORKER_TIMEOUT` | A worker exceeded its stage timeout | Reprocess. For very long meetings raise `PROCESSING_WORKER_TIMEOUT_FACTOR` or `PROCESSING_WORKER_MIN_TIMEOUT_SECONDS`. |
 | `WORKER_CRASHED` | A worker exited abnormally | Read the end of `processing.log` in the meeting folder (yourself, privately), then Reprocess. |
 | `WORKER_PROTOCOL_ERROR` | A worker spoke an unexpected protocol | Reinstall with `make install` (service and worker must be the same version). |
@@ -91,6 +95,14 @@ Unfinished meetings resume by themselves when the service starts.
 | Service exits 4 | The processing loop did not stop at shutdown | See [`record-via-gdbus.md`](record-via-gdbus.md) troubleshooting and GO-026. |
 
 Every code is listed in [`../architecture/error-codes-catalog.md`](../architecture/error-codes-catalog.md).
+
+## Verify the offline, token-free load
+
+Proof that processing needs no login (only with the models already cached, never downloads, never audio):
+`uv run pytest -m gpu -s tests/gpu/test_offline_cached_load.py`. It loads the cached pipeline in a subprocess with
+`HF_TOKEN` unset, `HF_HUB_OFFLINE=1`, `HF_HUB_DISABLE_IMPLICIT_TOKEN=1` and `HF_TOKEN_PATH` pointing at a file that
+does not exist. The offline cache check is covered by `tests/unit/test_prefetch_check_offline.py`, which runs
+`prefetch-models --check` on a fake cache in a throwaway HOME.
 
 ## Verify
 

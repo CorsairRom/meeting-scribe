@@ -5,12 +5,22 @@ never loads ``faster_whisper`` or ``ctranslate2``; only the transcribe worker ca
 """
 
 import importlib.metadata
+from pathlib import Path
 
+from meeting_scribe.base.infrastructure.hf_cache import snapshot_is_complete
 from meeting_scribe.transcription.domain.params import Device
 from meeting_scribe.transcription.infrastructure.cuda_preload import preload_cuda_libraries
 from meeting_scribe.transcription.infrastructure.faster_whisper_transcriber import ModelLike
 
 _ENGINES = ("faster-whisper", "ctranslate2")
+_REQUIRED_FILES = (
+    "config.json",
+    "preprocessor_config.json",
+    "model.bin",
+    "tokenizer.json",
+    "vocabulary.*",
+)
+"""What ``faster_whisper.utils.download_model`` fetches; all of it is needed to load offline."""
 
 
 class FasterWhisperBackend:
@@ -33,6 +43,16 @@ class FasterWhisperBackend:
         from faster_whisper.utils import download_model  # noqa: PLC0415 - lazy by design
 
         download_model(model)
+
+    def is_model_cached(self, model: str) -> bool:
+        """True when the model is fully in the cache. Offline: no network, no login, no load."""
+        from faster_whisper.utils import download_model  # noqa: PLC0415 - lazy by design
+
+        try:
+            snapshot = download_model(model, local_files_only=True)
+        except Exception:  # not cached, unknown name, library missing: all "not cached"
+            return False
+        return snapshot_is_complete(Path(snapshot), _REQUIRED_FILES)
 
     def engine_versions(self) -> dict[str, str]:
         """Read from package metadata: no import, so a cache hit never loads the library."""
