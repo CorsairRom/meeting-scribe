@@ -429,11 +429,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 63 | 0 | 0 |
+| GO | 64 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-063 — 2026-10-12
-**Next available IDs**: BR-006, CR-014, GO-064, AP-005
+**Last rule added**: GO-064 — 2026-10-12
+**Next available IDs**: BR-006, CR-014, GO-065, AP-005
 
 ---
 
@@ -560,3 +560,10 @@ with `Supersedes: <ID>`. Never delete rules.
 - **Detail**: (1) The gateway answers HTTP 400 `MissingSessionID` ("Request is missing x-opencode-session") to requests without session identification; with `User-Agent: meeting-scribe/<package version>` and `x-opencode-session: <opaque id>` it answers 200 (validated by the owner on 2026-10-11; source: <https://opencode.ai/docs/go>, "Where can I use it"). (2) The requirement is part of the provider entry: `CloudProvider.session_header` in `CLOUD_PROVIDERS` (`summaries/infrastructure/summaries_settings.py`). `OpenAiCompatibleProvider` sends the `User-Agent` on every cloud request and the session header on every chat request; `OpenAiCompatibleModelLister` sends the `User-Agent` on the `/models` listing. (3) The session id is `new_session_id()` (`summaries/domain/session.py`): the first 32 hex characters of the SHA-256 of a random UUID, created once per summary job and shared by all its steps through `SummaryProvider.complete(session_id=...)`. It is never derived from the meeting id, names or content and is never logged. (4) A local provider sends neither header. (5) `reasoning_effort: "none"` is sent only by the local provider (see the summaries spec, section 5).
 - **Source**: [summaries spec](../specs/summaries.md) section 5; [ADR-009](../decisions/009-cloud-summaries-through-opencode-go.md); F5.9 validation
 - **Verifiable in**: `tests/unit/summaries/test_openai_adapter.py`, `tests/unit/summaries/test_model_listing.py`, `tests/unit/summaries/test_generate_summary.py`, `tests/unit/summaries/test_client_identity.py`
+
+### GO-064 — Local summaries use native Ollama with an explicit context; an overfull prompt loses its beginning silently
+- **Date**: 2026-10-12
+- **Status**: active
+- **Detail**: (1) Ollama's OpenAI-compatible endpoint cannot set `num_ctx` per request (it stays at 4096), so the local provider is `OllamaChatProvider`, which calls the native `POST <origin>/api/chat` with `options.num_ctx` = `SUMMARIES_LOCAL_CONTEXT_TOKENS`, `options.num_predict`, `think: false` and `stream: true`; the OpenAI-compatible adapter is only for the cloud. (2) When the prompt exceeds `num_ctx`, Ollama silently truncates the BEGINNING of the prompt (the system instructions) and the model ignores the format; the final chunk reports `prompt_eval_count` equal to `num_ctx`. The adapter fails with `SUMMARY_CONTEXT_TOO_LARGE` when `prompt_eval_count >= num_ctx - 16`, before it looks at `done_reason == "length"` (`SUMMARY_OUTPUT_LIMIT_REACHED`), because a full window also ends as `length`. (3) Whether a model fits the GPU is a measurement, not arithmetic: check placement with `ollama ps` (the `PROCESSOR` column must read `100% GPU`). On the owner's 8 GB RTX 5060, `qwen3.5:9b` loads at 8.8 GB (27% CPU) and `granite4.1:8b` at 16k took 35 minutes; `qwen3:4b-instruct-2507-q4_K_M` is 100% GPU at 16k (peak about 5 GB). (4) Output is bounded by the prompts as well as by the token caps (`SUMMARIES_NOTES_MAX_OUTPUT_TOKENS` 768 for map and merge, `SUMMARIES_MAX_OUTPUT_TOKENS` 3072 for the final summary): a token cap only cuts the answer. (5) The model is still released with `keep_alive: 0` after a local summary.
+- **Source**: [summaries spec](../specs/summaries.md) sections 4 and 5; [ADR-006](../decisions/006-summary-provider-openai-compatible.md); Ollama docs (`/api/chat`, `modelfile`); measurements of 2026-10-12
+- **Verifiable in**: `tests/unit/summaries/test_ollama_provider.py`, `tests/unit/summaries/test_generate_summary.py`, `tests/unit/summaries/test_prompt_builder.py`

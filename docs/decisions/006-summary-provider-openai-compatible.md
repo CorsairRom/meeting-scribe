@@ -107,6 +107,8 @@ of any vendor. Privacy rules are enforced by configuration and review-app flow, 
 
 ## Implementation notes
 
+- **Local provider is native Ollama (2026-10-12, owner decision after measuring)**: Ollama's OpenAI-compatible endpoint cannot set the context size per request (it stays at 4096), so long meetings split into many slow chunks. The local adapter, `OllamaChatProvider`, therefore calls `POST <origin>/api/chat` (`options.num_ctx`, `options.num_predict`, `think: false`, streaming NDJSON) behind the same `SummaryProvider` port; the OpenAI-compatible adapter stays for the cloud. The decision to have one port stands; the "one adapter covers local and cloud" consequence no longer does. See the summaries spec section 5 and rules-registry GO-064.
+
 - Port: `summaries/domain` (`SummaryProvider`: transcript and options in, summary out, returning `Result`). Adapter: `summaries/infrastructure`, using `base_url`, `model`, `api_key`.
 - Settings: a `SummariesSettings` class with `env_prefix` (for example `SUMMARIES_`), composed into `Settings`; provider choice, base URL, model, and an explicit `cloud_enabled` flag default to local and disabled.
 - **Privacy rules**: cloud must be explicitly enabled in settings, visibly labelled "cloud" in the review app (ADR-005), and **confirmed per request**. The API key is read only from env/`.env`, never written to meeting folders and never logged. Local Ollama requests never leave loopback.

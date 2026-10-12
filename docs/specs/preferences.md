@@ -405,7 +405,7 @@ The registry (one `FieldSpec` per field; labels live in the app, not in the serv
 | Key | Kind | Backing setting | Apply | Notes |
 |---|---|---|---|---|
 | `summaries.provider` | choice `local`, `cloud` | `SUMMARIES_PROVIDER` | live | Cloud = opt-in (AC-4). Shown as "Run summaries: On this computer / In the cloud"; the key keeps its name (see "Decisions taken during implementation", D-3) |
-| `summaries.local_model` | text | `SUMMARIES_LOCAL_MODEL` | live | Not empty; picked from `ListModels("local")`, never typed (AC-16) |
+| `summaries.local_model` | text | `SUMMARIES_LOCAL_MODEL` | live | Not empty; picked from `ListModels("local")`, never typed (AC-16). Default `qwen3:4b-instruct-2507-q4_K_M` (changed 2026-10-12; the local context default is now 16384, see the summaries spec) |
 | `summaries.cloud_provider` | choice `opencode-go` | `SUMMARIES_CLOUD_PROVIDER` | live | The cloud provider; one option today, "OpenCode Go". It decides the display name and the base URL (`https://opencode.ai/zen/go/v1`); the free base URL is no longer user-facing (`SUMMARIES_CLOUD_BASE_URL` stays a developer override) |
 | `summaries.language` | choice `auto` or an ISO code | `SUMMARIES_LANGUAGE` | live | UI: "Meeting language" or a fixed language; curated list of common languages, validator stays the ISO rule |
 | `summaries.cloud_model` | text | `SUMMARIES_CLOUD_MODEL` | live | Shown only for Cloud; picked from `ListModels("cloud")`, never typed (AC-17); enabled only when a key is stored |

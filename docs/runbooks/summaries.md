@@ -35,41 +35,38 @@ model and never sends a prompt; a gap is a warning, the install still succeeds. 
 
 1. Install Ollama from <https://ollama.com/download> and make sure it runs. On a system install this is
    `systemctl status ollama`; start it with `sudo systemctl start ollama` (or run `ollama serve` in a terminal).
-2. Pull the default model (about 6.6 GB; it is a download, so run it yourself):
+2. Pull the default model (about 2.5 GB; it is a download, so run it yourself):
 
    ```bash
-   ollama pull qwen3.5:9b
+   ollama pull qwen3:4b-instruct-2507-q4_K_M
    ```
 
-3. Check that the service sees it: `ollama list` shows `qwen3.5:9b`. The install summary then reads
-   `ollama:    reachable; model qwen3.5:9b present`.
+3. Check that the service sees it: `ollama list` shows `qwen3:4b-instruct-2507-q4_K_M`. The install summary
+   then reads `ollama:    reachable; model qwen3:4b-instruct-2507-q4_K_M present`.
 4. Open a processed meeting in the review app, go to the Summary tab and press **Generate summary**. A local summary
    sends the transcript to the local model only; nothing leaves the machine.
 
 ### Model choice
 
-`SUMMARIES_LOCAL_MODEL` is any model name `ollama list` shows (default `qwen3.5:9b`, which fits an 8 GB GPU with a
-short context). Set `SUMMARIES_LOCAL_MODEL` in the settings file and the install check follows it. A larger model
-or a longer context may not fit the GPU; Ollama then splits the model between GPU and CPU and the summary is slower.
-Check the split with `ollama ps` while a summary runs.
+The default is `qwen3:4b-instruct-2507-q4_K_M` (2.5 GB, text-only, non-thinking, Apache-2.0). It was chosen by
+measurement on an 8 GB RTX 5060: it runs **100% on the GPU at a 16k context** (peak about 5 GB), so a 2-hour meeting
+(about 10k tokens) is one pass. Larger models did not fit: `qwen3.5:9b` loads at 8.8 GB even at 4k context (about 27%
+of it on the CPU, slow, and it failed at 16k) and `granite4.1:8b` took 35 minutes at 16k with 23% on the CPU.
+
+`SUMMARIES_LOCAL_MODEL` is any model name `ollama list` shows; set it in the settings file and the install check
+follows it. A model that does not fit the GPU makes Ollama split it between GPU and CPU, and the summary becomes very
+slow. **Check the split with `ollama ps` while a summary runs**: the `PROCESSOR` column must read `100% GPU`.
 
 ### Context size
 
-Ollama's own default context is 4096 tokens below 24 GiB of VRAM (check the `CONTEXT` column of `ollama ps`), and the
-OpenAI-compatible endpoint the service uses cannot change it per request. A long meeting is summarized in steps that
-fit `SUMMARIES_LOCAL_CONTEXT_TOKENS` (default `4096`), so the two numbers must match. Raise both together, in one of two
-ways:
+The service talks to Ollama's native API (`/api/chat`) and sends the context size with every request
+(`options.num_ctx` = `SUMMARIES_LOCAL_CONTEXT_TOKENS`, default `16384`), so nothing has to be configured in Ollama
+(no `OLLAMA_CONTEXT_LENGTH`, no Modelfile). The native root is derived from `SUMMARIES_LOCAL_BASE_URL`: the scheme and
+host of `http://127.0.0.1:11434/v1` give `http://127.0.0.1:11434/api/chat`; the host must stay loopback.
 
-- For the whole Ollama server: set `OLLAMA_CONTEXT_LENGTH` (for a system install, `sudo systemctl edit ollama` and add
-  `Environment="OLLAMA_CONTEXT_LENGTH=8192"`, then `sudo systemctl restart ollama`).
-- For one model only, with a Modelfile:
-
-  ```bash
-  printf 'FROM qwen3.5:9b\nPARAMETER num_ctx 8192\n' > Modelfile
-  ollama create qwen3.5-9b-8k -f Modelfile
-  ```
-
-  then set `SUMMARIES_LOCAL_MODEL=qwen3.5-9b-8k` and `SUMMARIES_LOCAL_CONTEXT_TOKENS=8192`.
+Output is bounded too: `SUMMARIES_NOTES_MAX_OUTPUT_TOKENS` (default `768`) for the notes of long meetings and
+`SUMMARIES_MAX_OUTPUT_TOKENS` (default `3072`) for the final summary. The prompts ask for short notes (at most 12
+bullets per part) and a capped summary (at most 8 topics, at most 15 task rows), because a token cap only cuts an answer.
 
 A bigger context needs more VRAM. If the answer is cut or the context is too large, the app shows the error with the
 setting to change (see Troubleshooting).
@@ -108,13 +105,13 @@ A finished summary appears in the Summary tab and as `summary.md` next to the me
 
 | Symptom or code | Cause and fix |
 |---|---|
-| Install says `ollama: NOT found` | Ollama is not installed or not on `PATH`. Install it, then `ollama pull qwen3.5:9b`. |
+| Install says `ollama: NOT found` | Ollama is not installed or not on `PATH`. Install it, then `ollama pull qwen3:4b-instruct-2507-q4_K_M`. |
 | Install says `found but not reachable` | The server is stopped. `sudo systemctl start ollama` or `ollama serve`, then re-run `make install`. |
 | Install says `model ... NOT found` | `ollama pull <model>` (the command is in the install output). The install never pulls. |
 | `SUMMARY_PROVIDER_UNAVAILABLE` | Ollama is unreachable from the service. Start it; `SUMMARIES_LOCAL_BASE_URL` must point at it. |
 | `SUMMARY_MODEL_NOT_FOUND` | The model is not in `ollama list`: pull it or fix `SUMMARIES_LOCAL_MODEL`. |
-| `SUMMARY_CONTEXT_TOO_LARGE` | Raise the Ollama context and `SUMMARIES_LOCAL_CONTEXT_TOKENS` together (above). |
-| `SUMMARY_OUTPUT_LIMIT_REACHED` | The model used its whole output limit, often on hidden reasoning. Raise `SUMMARIES_MAX_OUTPUT_TOKENS` or choose another model. |
+| `SUMMARY_CONTEXT_TOO_LARGE` | The prompt reached the context window (Ollama would drop its start). Raise `SUMMARIES_LOCAL_CONTEXT_TOKENS` if the GPU still holds the model 100% (check `ollama ps`), or pick a smaller model. |
+| `SUMMARY_OUTPUT_LIMIT_REACHED` | The model used its whole output limit. Raise `SUMMARIES_MAX_OUTPUT_TOKENS` (final summary) or `SUMMARIES_NOTES_MAX_OUTPUT_TOKENS` (notes steps), or choose another model. |
 | `SUMMARY_PROVIDER_REJECTED` (HTTP 400) from the cloud | OpenCode Go rejects requests without client and session identification (`MissingSessionID`). The service sends `User-Agent: meeting-scribe/<version>` and `x-opencode-session` itself; a `SUMMARIES_CLOUD_BASE_URL` override that points at another gateway does not change that (GO-063). |
 | `SUMMARY_TIMEOUT` | The provider sent no data in time; retry, or raise `SUMMARIES_TIMEOUT_SECONDS`. A model that spills to the CPU is slow. |
 | `SUMMARY_GPU_BUSY`, `SUMMARY_BUSY` | A recording, processing or another summary holds the GPU. Wait; processing resumes by itself. |
