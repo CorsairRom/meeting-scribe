@@ -6,6 +6,8 @@ verifiable_by:
   - src/meeting_scribe/base/domain/errors.py
   - src/meeting_scribe/recording/domain/errors.py
   - src/meeting_scribe/meetings/domain/errors.py
+  - src/meeting_scribe/preferences/domain/errors.py
+  - src/meeting_scribe/preferences/domain/fields.py
   - src/meeting_scribe/transcription/domain/errors.py
   - tests/unit/meetings/test_errors.py
   - tests/unit/recording/test_errors.py
@@ -93,6 +95,8 @@ All classes derive from `MeetingScribeError` in `src/meeting_scribe/base/domain/
 | `SummaryCloudKeyLockedError` | `SUMMARY_CLOUD_KEY_LOCKED` | `summaries`: the keyring holds the key but is locked; unlock it and retry (the service never prompts) | `dev.meetingscribe.Error.SUMMARY_CLOUD_KEY_LOCKED` |
 | `SummaryCloudKeyUnavailableError` | `SUMMARY_CLOUD_KEY_UNAVAILABLE` | `summaries`: the Secret Service could not be reached (no service on the session bus, a D-Bus error or a timeout); distinct from a missing or locked key; the message says the keyring service is not reachable | `dev.meetingscribe.Error.SUMMARY_CLOUD_KEY_UNAVAILABLE` |
 | `SummaryCloudDisabledError` | `SUMMARY_CLOUD_DISABLED` | `meetings`: the cloud provider was requested while `SUMMARIES_CLOUD_ENABLED` is false; the message says to enable it in the settings | `dev.meetingscribe.Error.SUMMARY_CLOUD_DISABLED` |
+| `SettingsStorageFailedError` | `SETTINGS_STORAGE_FAILED` | `preferences`: the settings file could not be written; nothing changed; the message says to check disk space and the config folder permissions | `dev.meetingscribe.Error.SETTINGS_STORAGE_FAILED` |
+| `SettingsFileInvalidError` | `SETTINGS_FILE_INVALID` | `preferences`: the settings file is damaged or has an unknown version; logged at start and surfaced by `GetAll`, never raised to a client; the next successful save moves it to `settings.json.invalid` | not returned by a method |
 | `SummaryCloudNotConfirmedError` | `SUMMARY_CLOUD_NOT_CONFIRMED` | `meetings`: the cloud provider was requested without `cloud_confirmed`; the message says to confirm in the app | `dev.meetingscribe.Error.SUMMARY_CLOUD_NOT_CONFIRMED` |
 | `SummaryAlreadyRunningError` | `SUMMARY_ALREADY_RUNNING` | `meetings`: a summary of this meeting is already running; wait or cancel | `dev.meetingscribe.Error.SUMMARY_ALREADY_RUNNING` |
 | `SummaryBusyError` | `SUMMARY_BUSY` | `meetings`: a summary of another meeting is running (one at a time); wait or cancel | `dev.meetingscribe.Error.SUMMARY_BUSY` |
@@ -106,6 +110,18 @@ All classes derive from `MeetingScribeError` in `src/meeting_scribe/base/domain/
 
 Domain packages add their own subclasses next to their domain code (for example a `recording` error) and
 register them in this table.
+
+### Per-field codes (`Settings1.Set`)
+
+These are rows inside a `Set` reply, not D-Bus errors and not `MeetingScribeError` classes (`FieldCode` in
+`src/meeting_scribe/preferences/domain/fields.py`). Messages carry keys and next steps, never values.
+
+| Code | Meaning |
+|---|---|
+| `FIELD_UNKNOWN` | The key is not an exposed setting |
+| `FIELD_LOCKED` | The environment or `.env` sets the field; remove that override to unlock it |
+| `FIELD_INVALID` | The value failed the settings validators (or the folder is relative, a file, or contains `..`) |
+| `FIELD_FOLDER_NOT_WRITABLE` | The meetings folder cannot be created or written |
 
 ---
 

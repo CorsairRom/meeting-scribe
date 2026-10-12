@@ -71,6 +71,7 @@ modules = [
     "meeting_scribe.transcription",
     "meeting_scribe.speakers",
     "meeting_scribe.summaries",
+    "meeting_scribe.preferences",
 ]
 
 [[tool.importlinter.contracts]]
@@ -84,6 +85,7 @@ containers = [
     "meeting_scribe.speakers",
     "meeting_scribe.summaries",
     "meeting_scribe.meetings",
+    "meeting_scribe.preferences",
 ]
 
 [[tool.importlinter.contracts]]
@@ -112,6 +114,7 @@ forbidden_modules = [
     "meeting_scribe.speakers",
     "meeting_scribe.summaries",
     "meeting_scribe.meetings",
+    "meeting_scribe.preferences",
 ]
 
 [[tool.importlinter.contracts]]
@@ -124,8 +127,15 @@ source_modules = [
     "meeting_scribe.speakers.domain",
     "meeting_scribe.summaries.domain",
     "meeting_scribe.meetings.domain",
+    "meeting_scribe.preferences.domain",
 ]
 forbidden_modules = ["pydantic_settings", "dbus_fast", "gi"]
+
+[[tool.importlinter.contracts]]
+name = "Preferences application stays free of D-Bus and settings libraries"
+type = "forbidden"
+source_modules = ["meeting_scribe.preferences.application"]
+forbidden_modules = ["dbus_fast", "pydantic_settings", "gi"]
 
 [[tool.importlinter.contracts]]
 name = "Summaries domain and application stay free of HTTP and settings libraries"
@@ -143,6 +153,7 @@ source_modules = [
     "meeting_scribe.speakers",
     "meeting_scribe.summaries",
     "meeting_scribe.meetings",
+    "meeting_scribe.preferences",
 ]
 forbidden_modules = ["meeting_scribe.main", "meeting_scribe.settings"]
 

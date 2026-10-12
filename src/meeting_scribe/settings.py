@@ -1,19 +1,33 @@
 """Application settings: a root ``Settings`` composed of per-domain settings classes."""
 
+import os
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, Self
 
-from pydantic import Field, PrivateAttr, field_validator
+from dotenv import dotenv_values
+from pydantic import Field, PrivateAttr, ValidationError, field_validator
 from pydantic_settings import SettingsConfigDict
+from returns.result import Failure, Result, Success
 
 from meeting_scribe.base.infrastructure.settings import (
     APP_DIR_NAME,
     MeetingScribeSettings,
     effective_env_files,
+    file_layer,
     xdg_env_file,
+    xdg_settings_file,
 )
 from meeting_scribe.meetings.infrastructure.processing_settings import ProcessingSettings
+from meeting_scribe.preferences.domain.fields import (
+    FIELD_REGISTRY,
+    FieldCode,
+    FieldProblem,
+    FieldSource,
+    FieldSpec,
+    field_spec,
+)
 from meeting_scribe.recording.infrastructure.recording_settings import RecordingSettings
 from meeting_scribe.speakers.infrastructure.speakers_settings import SpeakersSettings
 from meeting_scribe.summaries.infrastructure.summaries_settings import SummariesSettings
@@ -28,6 +42,7 @@ __all__ = [
     "effective_env_files",
     "get_settings",
     "xdg_env_file",
+    "xdg_settings_file",
 ]
 
 type LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -57,19 +72,64 @@ class Settings(MeetingScribeSettings):
 
     # Env files resolved when ``load`` ran; empty for settings built any other way.
     _env_files: tuple[Path, ...] = PrivateAttr(default=())
+    # Which layer supplied each exposed field, computed once at load.
+    _sources: dict[str, FieldSource] = PrivateAttr(default_factory=dict)
 
     @classmethod
-    def load(cls) -> Self:
+    def load(cls, file_values: Mapping[str, str] | None = None) -> Self:
         """Build settings from the environment and note the env file in effect.
+
+        ``file_values`` are the user's saved values (``settings.json``): they fill only what the
+        process environment and ``.env`` did not set (precedence: env > .env > file > defaults).
 
         Best effort, for the startup log only: the file is looked up here and again by each
         settings source (nested settings resolve their own), so a file created or removed in
         between would make ``env_files`` disagree with what was actually read.
         """
+        saved = dict(file_values or {})
         env_files = effective_env_files()
-        settings = cls()
+        with file_layer(saved):
+            settings = cls()
         settings._env_files = env_files
+        settings._sources = _field_sources(saved, env_files)
         return settings
+
+    @classmethod
+    def with_overrides(cls, values: Mapping[str, str]) -> Result[Self, list[FieldProblem]]:
+        """Load with ``values`` as the saved layer; invalid input is a list of per-field problems.
+
+        The same validators that guard the environment run here (AC-3). Messages are the
+        validators' own and never hold the offending value.
+        """
+        problems = [
+            FieldProblem(key, FieldCode.UNKNOWN, "This setting cannot be changed here.")
+            for key in values
+            if field_spec(key) is None
+        ]
+        if problems:
+            return Failure(problems)
+        with file_layer(values):
+            problems = _section_problems()
+        if problems:
+            return Failure(problems)
+        try:
+            return Success(cls.load(file_values=values))
+        except ValidationError as error:
+            return Failure(_problems_of(error, ""))
+
+    def source_of(self, key: str) -> FieldSource:
+        return self._sources.get(key, FieldSource())
+
+    def exposed_value(self, key: str) -> str:
+        """The effective value of an exposed field as text."""
+        spec = _spec(key)
+        return str(getattr(getattr(self, spec.section), spec.name))
+
+    @staticmethod
+    def exposed_default(key: str) -> str:
+        spec = _spec(key)
+        section = _section_class(spec.section)
+        return str(section.model_fields[spec.name].default)
 
     @property
     def env_files(self) -> tuple[Path, ...]:
@@ -85,3 +145,65 @@ class Settings(MeetingScribeSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings.load()
+
+
+def _spec(key: str) -> FieldSpec:
+    spec = field_spec(key)
+    if spec is None:
+        raise KeyError(key)
+    return spec
+
+
+def _section_class(section: str) -> type[MeetingScribeSettings]:
+    annotation = Settings.model_fields[section].annotation
+    if not (isinstance(annotation, type) and issubclass(annotation, MeetingScribeSettings)):
+        raise KeyError(section)
+    return annotation
+
+
+def _env_name(spec: FieldSpec) -> str:
+    prefix = _section_class(spec.section).model_config.get("env_prefix") or ""
+    return f"{prefix}{spec.name}".upper()
+
+
+def _field_sources(saved: Mapping[str, str], env_files: tuple[Path, ...]) -> dict[str, FieldSource]:
+    """Which layer wins per exposed field: environment, ``.env``, saved file, else default."""
+    environment = {name.upper() for name in os.environ}
+    dotenv = {
+        name.upper() for env_file in env_files for name in dotenv_values(env_file, encoding="utf-8")
+    }
+    sources: dict[str, FieldSource] = {}
+    for spec in FIELD_REGISTRY:
+        name = _env_name(spec)
+        if name in environment:
+            sources[spec.key] = FieldSource("env")
+        elif name in dotenv:
+            sources[spec.key] = FieldSource("dotenv")
+        elif spec.key in saved:
+            sources[spec.key] = FieldSource("file")
+        else:
+            sources[spec.key] = FieldSource("default")
+    return sources
+
+
+def _section_problems() -> list[FieldProblem]:
+    """Build every exposed section alone (under the caller's file layer) and map its errors."""
+    problems: list[FieldProblem] = []
+    for section in dict.fromkeys(spec.section for spec in FIELD_REGISTRY):
+        try:
+            _section_class(section)()
+        except ValidationError as error:
+            problems.extend(_problems_of(error, section))
+    return problems
+
+
+def _problems_of(error: ValidationError, section: str) -> list[FieldProblem]:
+    problems: list[FieldProblem] = []
+    for detail in error.errors(include_input=False, include_url=False, include_context=False):
+        location = str(detail["loc"][0]) if detail["loc"] else ""
+        key = f"{section}.{location}" if section and location else (section or "settings")
+        if field_spec(key) is None:
+            key = section or "settings"  # an env-only field or a cross-field rule
+        message = str(detail["msg"]).removeprefix("Value error, ")
+        problems.append(FieldProblem(key, FieldCode.INVALID, message))
+    return problems
