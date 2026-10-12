@@ -1,7 +1,7 @@
 ---
 type: spec
 feature: summaries
-status: approved  # draft | approved | in-progress | done | blocked
+status: in-progress  # draft | approved | in-progress | done | blocked
 mvp: true
 prd_ref: FR-6, NFR-1, NFR-2, NFR-3, NFR-6, safety requirements 1-3
 depends_on:
@@ -83,7 +83,7 @@ AND on success summary.md exists in the meeting folder, meeting.json holds the s
     SummaryFinished(meeting, "DONE", "") is emitted after both are saved
 ```
 
-**Test**: `tests/unit/meetings/test_summary_controller.py::test_summarize_saves_the_file_then_the_section`, `tests/e2e/meetings/test_summaries_over_dbus.py::test_summarize_signals`
+**Test**: `tests/unit/meetings/test_summary_controller.py::test_summarize_saves_the_file_then_the_section`, `tests/e2e/meetings/test_summaries_over_dbus.py::test_a_local_summary_runs_announces_and_is_readable`
 
 ### AC-2: Only a DONE meeting can be summarized
 
@@ -107,7 +107,7 @@ AND the Participants line of summary.md lists each active speaker once, using th
 AND the date, time and duration in the header come from meeting.json, not from the model
 ```
 
-**Test**: `tests/unit/summaries/test_prompt_input.py::test_effective_names_and_merges`, `tests/unit/summaries/test_render_summary.py::test_header_is_computed_locally`
+**Test**: `tests/unit/meetings/test_summary_controller.py::test_the_provider_gets_the_effective_names_and_merges`, `tests/unit/summaries/test_render_summary.py::test_header_is_computed_locally`
 
 ### AC-4: Long transcripts are summarized in steps
 
@@ -141,7 +141,7 @@ GIVEN an unknown provider id
 THEN it fails with INVALID_VALUE
 ```
 
-**Test**: `tests/unit/meetings/test_summary_controller.py::test_cloud_gates`
+**Test**: `tests/unit/meetings/test_summary_controller.py::test_cloud_gates_follow_the_provider`
 
 ### AC-6: Providers are described by the service, including the "cloud" label
 
@@ -153,7 +153,7 @@ AND the cloud row's label contains the word "cloud" and its available is false w
 AND no row contains the API key or the base URL of the cloud provider
 ```
 
-**Test**: `tests/unit/meetings/test_summary_controller.py::test_providers_rows`, `tests/e2e/meetings/test_summaries_over_dbus.py::test_providers`
+**Test**: `tests/unit/meetings/test_summary_controller.py::test_providers_rows`, `tests/e2e/meetings/test_summaries_over_dbus.py::test_the_providers_come_from_the_service_with_the_cloud_label`
 
 ### AC-7: What is sent to the cloud
 
@@ -190,7 +190,7 @@ AND no log record, D-Bus reply, error message, meeting.json or summary.md produc
 AND the key is sent only in the Authorization header of the cloud request
 ```
 
-**Test**: `tests/unit/summaries/test_summaries_settings.py::test_key_is_masked`, `tests/unit/summaries/test_openai_adapter.py::test_key_only_in_the_header` (in-process fake transport), `tests/unit/meetings/test_summary_controller.py::test_no_secret_in_logs` (caplog)
+**Test**: `tests/unit/summaries/test_summaries_settings.py::test_the_api_key_is_not_a_setting`, `tests/unit/summaries/test_openai_adapter.py::test_key_only_in_the_header` (in-process fake transport), `tests/unit/meetings/test_summary_controller.py::test_no_secret_in_logs` (caplog)
 
 ### AC-10: Progress, cancel and timeouts
 
@@ -246,7 +246,7 @@ GIVEN a local summary ends (done, failed or cancelled) and SUMMARIES_UNLOAD_LOCA
 THEN the model is released from the GPU before the next worker may start
 ```
 
-**Test**: `tests/unit/meetings/test_summary_controller.py::test_local_summary_respects_the_gpu`, `tests/unit/meetings/test_processing_controller.py::test_no_worker_while_a_local_summary_runs`, `tests/unit/summaries/test_openai_adapter.py::test_release_after_local_use`
+**Test**: `tests/unit/meetings/test_summary_controller.py::test_local_summary_respects_the_gpu`, `tests/unit/meetings/test_processing_queue.py::test_no_worker_while_a_local_summary_runs`, `tests/unit/summaries/test_ollama_releaser.py::test_release_after_local_use`
 
 ### AC-13: Provider failures have stable codes and next steps
 
@@ -270,7 +270,7 @@ THEN the step fails with SUMMARY_CONTEXT_TOO_LARGE and the message names the two
      (the Ollama context and SUMMARIES_LOCAL_CONTEXT_TOKENS)
 ```
 
-**Test**: `tests/unit/summaries/test_openai_adapter.py::test_truncation_guard`
+**Test**: `tests/unit/summaries/test_ollama_provider.py::test_truncation_guard`
 
 ### AC-15: Regeneration keeps one backup; staleness is computed
 
@@ -302,7 +302,7 @@ GIVEN no meeting has a summary
 THEN GetSummary and LastSummary fail with ENTITY_NOT_FOUND_SUMMARY
 ```
 
-**Test**: `tests/e2e/meetings/test_summaries_over_dbus.py::test_get_summary`, `::test_last_summary`
+**Test**: `tests/e2e/meetings/test_summaries_over_dbus.py::test_a_local_summary_runs_announces_and_is_readable`, `tests/unit/meetings/test_summary_controller.py::test_get_summary_returns_the_text_and_facts_without_a_path`, `::test_last_summary_is_the_newest_with_its_file_and_an_absolute_path`, `::test_last_summary_without_any_summary_is_entity_not_found`
 
 ### AC-17: The review app generates and shows the summary
 
@@ -510,7 +510,7 @@ Layout under `src/meeting_scribe/summaries/`:
 |---|---|
 | `domain/` | `SummaryRequest` (plain input: header facts, participants, utterance lines, language, budget), `SummaryText`, `SummaryProvider` port, `ModelReleaser` port, `TranscriptChunker`, `PromptBuilder`, the `Headings` value with its English texts (the message ids) and the `HeadingCatalog` port, `SummaryRenderer` (header computed locally plus the model body), `InputFingerprint`, errors (section 9) |
 | `application/` | `GenerateSummary` use case: one pass or map-reduce, cancel and progress callbacks, output validation with one repair request, release of the model |
-| `infrastructure/` | `SummariesSettings` (`SUMMARIES_` prefix, section 8), `OpenAiCompatibleProvider` (one class for Ollama and the cloud gateway), `OllamaModelReleaser`, `FilesystemSummaryFiles` (atomic write, backup rotation, read), `GettextHeadingCatalog` (reads the `locale/` catalogs, see section 11) |
+| `infrastructure/` | `SummariesSettings` (`SUMMARIES_` prefix, section 8), `OllamaChatProvider` (local, native `/api/chat`), `OpenAiCompatibleProvider` (the cloud gateway only), `OllamaModelReleaser`, `FilesystemSummaryFiles` (atomic write, backup rotation, read), `GettextHeadingCatalog` (reads the `locale/` catalogs, see section 11) |
 
 **Port** (shape, not code to copy):
 
@@ -935,8 +935,7 @@ The owner answered all eight questions on 2026-10-11.
 6. **OQ-6** Default local model: **`qwen3:4b-instruct-2507-q4_K_M`** (changed 2026-10-12 after measuring on the 8 GB
    RTX 5060: `qwen3.5:9b` loads at 8.8 GB and runs 27% on the CPU, `granite4.1:8b` took 35 minutes at 16k, this model is
    100% on the GPU at 16k with a peak of about 5 GB). `make install` only checks it exists and never pulls it.
-7. **OQ-7** Menu item: **"Open last summary" opens `summary.md` in the default app for `.md` files** (option a; on the
-   owner's machine, Sublime Text).
+7. **OQ-7** Menu item: **"Open last summary" opens `summary.md` in the default app for `.md` files** (option a).
 8. **OQ-8** Choosing the provider: **one "Generate summary" button that uses the provider set in the settings**
    (option a, `SUMMARIES_PROVIDER`). Safety requirement 3 still applies: when the configured provider is the cloud, the
    caption under the button carries "Cloud" and the model (F5.9) and every cloud

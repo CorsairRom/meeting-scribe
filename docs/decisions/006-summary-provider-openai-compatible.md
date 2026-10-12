@@ -107,6 +107,8 @@ of any vendor. Privacy rules are enforced by configuration and review-app flow, 
 
 ## Implementation notes
 
+- **API key, cloud opt-in and the local adapter (2026-10-12)**: three details of this ADR changed during F5 and are superseded in part by [ADR-009](009-cloud-summaries-through-opencode-go.md); the decision text above is kept as the record. (1) The API key is not read from env/`.env`: it lives in the GNOME Keyring and is read only when a confirmed cloud summary starts. (2) The `cloud_enabled` flag was removed: choosing `provider=cloud` in the Preferences window (or `SUMMARIES_PROVIDER=cloud` as a developer override) is the opt-in; the cloud label and the per-request confirmation are unchanged ([preferences spec](../specs/preferences.md) section 7). (3) Local runs use the native Ollama API, as the next note describes.
+
 - **Local provider is native Ollama (2026-10-12, owner decision after measuring)**: Ollama's OpenAI-compatible endpoint cannot set the context size per request (it stays at 4096), so long meetings split into many slow chunks. The local adapter, `OllamaChatProvider`, therefore calls `POST <origin>/api/chat` (`options.num_ctx`, `options.num_predict`, `think: false`, streaming NDJSON) behind the same `SummaryProvider` port; the OpenAI-compatible adapter stays for the cloud. The decision to have one port stands; the "one adapter covers local and cloud" consequence no longer does. See the summaries spec section 5 and rules-registry GO-064.
 
 - Port: `summaries/domain` (`SummaryProvider`: transcript and options in, summary out, returning `Result`). Adapter: `summaries/infrastructure`, using `base_url`, `model`, `api_key`.

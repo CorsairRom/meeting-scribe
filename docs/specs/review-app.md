@@ -89,7 +89,7 @@ AND the call returns the refreshed speaker rows
 AND SpeakersChanged(meeting) is emitted
 ```
 
-**Test**: `tests/unit/meetings/test_review_controller.py::test_rename_persists_and_rewrites_the_transcript`
+**Test**: `tests/unit/meetings/test_review_controller.py::test_rename_saves_the_name_and_returns_the_refreshed_rows`, `tests/unit/meetings/test_meetings_review_interface.py::test_edits_emit_the_signal_once_and_a_noop_emits_nothing`
 
 ### AC-3: Name validation
 
@@ -116,7 +116,7 @@ AND the active speaker count of the meeting drops by one in List and Get
 AND utterances.json and the sample files are not modified
 ```
 
-**Test**: `tests/unit/meetings/test_review_controller.py::test_merge_is_non_destructive`
+**Test**: `tests/unit/meetings/test_review_controller.py::test_merge_and_unmerge_round_trip_through_meeting_json`
 
 ### AC-5: Merge rules
 
@@ -153,7 +153,7 @@ GIVEN a Reprocess that is saved while an edit is in flight
 THEN the edit and the state change are serialised under one lock and the edit never overwrites the new state
 ```
 
-**Test**: `tests/unit/meetings/test_review_controller.py::test_edit_refused_unless_done`, `::test_edit_and_reprocess_are_serialised`
+**Test**: `tests/unit/meetings/test_review_controller.py::test_edits_are_refused_unless_the_meeting_is_done`, `::test_edits_run_under_the_lock`
 
 ### AC-8: The transcript is served as data
 
@@ -166,7 +166,7 @@ GIVEN a meeting with zero utterances
 THEN GetTranscript returns an empty list and the app shows "No speech detected"
 ```
 
-**Test**: `tests/e2e/meetings/test_review_over_dbus.py::test_get_transcript`
+**Test**: `tests/e2e/meetings/test_review_over_dbus.py::test_get_speakers_and_transcript`
 
 ### AC-9: Voice samples are served as data
 
@@ -179,7 +179,7 @@ THEN it gets ENTITY_NOT_FOUND_SPEAKER_SAMPLE
 AND the app shows the row without a play button and the text "No sample"
 ```
 
-**Test**: `tests/e2e/meetings/test_review_over_dbus.py::test_get_speaker_sample`, `tests/unit/review_app/test_review_presenter.py::test_row_without_sample_has_no_play`
+**Test**: `tests/e2e/meetings/test_review_over_dbus.py::test_get_speaker_sample_returns_bytes_and_typed_errors`, `tests/unit/review_app/test_review_presenter.py::test_the_row_without_a_sample_has_no_play_and_says_no_sample`
 
 ### AC-10: Names survive a crash and a restart
 

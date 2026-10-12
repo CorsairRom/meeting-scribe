@@ -185,7 +185,7 @@ AND the stored indicator comes from a keyring existence check that does not load
 AND "Remove key" deletes the item and the indicator turns off
 ```
 
-**Test**: `tests/unit/review_app/test_preferences_presenter.py::test_key_never_leaves_the_store`, `tests/unit/preferences/test_no_secret_in_settings.py` (an exposed-key allow-list test plus caplog)
+**Test**: `tests/unit/review_app/test_preferences_presenter.py::test_a_state_never_holds_a_key`, `tests/unit/preferences/test_no_secret_in_settings.py` (an exposed-key allow-list test plus caplog)
 
 ### AC-10: Precedence is fixed and visible
 
@@ -226,7 +226,7 @@ GIVEN the service is not running
 THEN the dialog opens read-only with "The Meeting Scribe service is not running" and the start command
 ```
 
-**Test**: `tests/unit/review_app/test_launch.py::test_preferences_option`, `gnome-extension/tests/indicatorModel.test.js` (menu item), `gnome-extension/tests/shellGlue.test.js` (prefs.js static check, GO-031), `tests/unit/test_install_scripts.py::test_prefs_is_packed`
+**Test**: `tests/unit/review_app/test_application_args.py::test_the_preferences_flag_asks_for_the_dialog`, `gnome-extension/tests/indicatorModel.test.js` (menu item), `gnome-extension/tests/shellGlue.test.js` (prefs.js static check, GO-031), `tests/unit/test_extension_pack.py::test_bundle_carries_prefs_js_and_its_launcher_helper`, `tests/unit/test_install_scripts.py::test_install_renders_the_preferences_action_with_the_same_launcher`
 
 ### AC-13: Legacy `SUMMARIES_CLOUD_ENABLED` is migrated safely
 
@@ -244,7 +244,7 @@ THEN one WARNING says the variable is obsolete and no longer allows a per-reques
 AND no code reads cloud_enabled any more
 ```
 
-**Test**: `tests/unit/test_settings_overrides.py::test_legacy_cloud_enabled`
+**Test**: `tests/unit/test_settings_overrides.py::test_legacy_cloud_provider_without_an_explicit_true_stays_local`, `::test_legacy_false_overrides_a_saved_cloud_too`, `::test_legacy_true_with_the_cloud_provider_keeps_the_cloud`
 
 ### AC-14: Settings values are private
 
@@ -604,16 +604,16 @@ verified.
 
 ## Definition of Done
 
-- [ ] All acceptance criteria pass in `make check`
-- [ ] `Settings1` is documented in `architecture/api-contracts.md` before the code (P3)
-- [ ] New error codes registered in `architecture/error-codes-catalog.md`
-- [ ] `SUMMARIES_CLOUD_ENABLED` removed from the code, `.env.example` and `ARCHITECTURE.md` section 7; the migration rule is tested
-- [ ] New import contracts for `preferences` listed in `ARCHITECTURE.md`
+- [x] All acceptance criteria pass in `make check`
+- [x] `Settings1` is documented in `architecture/api-contracts.md` before the code (P3)
+- [x] New error codes registered in `architecture/error-codes-catalog.md`
+- [x] `SUMMARIES_CLOUD_ENABLED` removed from the code, `.env.example` and `ARCHITECTURE.md` section 7; the migration rule is tested
+- [x] New import contracts for `preferences` listed in `ARCHITECTURE.md`
 - [ ] Unit tests written first (RED), then implementation (GREEN)
-- [ ] Lint, format, type check and import contracts clean
-- [ ] The key appears in no settings file, log, D-Bus reply or error (AC-9, AC-14)
-- [ ] `prefs.js` is packed by `make install` and checked statically
-- [ ] `docs/runbooks/preferences.md` written (precedence, locked fields, restart, the settings file)
+- [x] Lint, format, type check and import contracts clean
+- [x] The key appears in no settings file, log, D-Bus reply or error (AC-9, AC-14)
+- [x] `prefs.js` is packed by `make install` and checked statically
+- [x] `docs/runbooks/preferences.md` written (precedence, locked fields, restart, the settings file)
 - [ ] Manual validation with the user's consent: open from the menu and the gear, change settings, restart from the window
 - [ ] Docs gate before the integration PR is reported ready (`project/doc-sync-protocol.md`)
 

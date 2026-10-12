@@ -1,7 +1,7 @@
 ---
 type: scope
 status: draft
-last_updated: 2026-10-09
+last_updated: 2026-10-12
 ai_instructions:
   - "This is the contract of what IS and IS NOT implemented in the current release (v1)."
   - "If a deliverable is not in 'IN SCOPE', do NOT build it now even if it appears in the PRD."
@@ -76,7 +76,7 @@ and generate a summary — all running locally on the developer's machine.
 | FR-3 transcribe + diarize after stop | F3 | `src/meeting_scribe/meetings/`, `src/meeting_scribe/transcription/`, `src/meeting_scribe/speakers/`, `src/meeting_scribe/worker.py` | `tests/unit/meetings/`, `tests/unit/transcription/`, `tests/unit/speakers/` |
 | FR-4 voice samples, notification | F3 | `src/meeting_scribe/speakers/` (samples); `src/meeting_scribe/meetings/` (notification, `Meetings1`) | `tests/unit/speakers/` |
 | FR-5 review: listen, rename, merge | F4 | `src/meeting_scribe/speakers/`, `src/meeting_scribe/meetings/`, `review-app/src/meeting_scribe_review/`, `gnome-extension/` | `tests/unit/speakers/`, `tests/unit/review_app/`, `tests/e2e/meetings/`, `gnome-extension/tests/` |
-| FR-6 summary via LLM provider | F5 | pending | pending |
+| FR-6 summary via LLM provider | F5 | `src/meeting_scribe/summaries/`, `src/meeting_scribe/preferences/`, `src/meeting_scribe/meetings/` (`SummaryController`, `Summaries1`), `review-app/src/meeting_scribe_review/`, `gnome-extension/` | `tests/unit/summaries/`, `tests/unit/preferences/`, `tests/unit/meetings/`, `tests/unit/review_app/`, `tests/e2e/summaries/`, `tests/e2e/preferences/`, `tests/e2e/meetings/`, `gnome-extension/tests/` |
 | FR-7 install | F2.5 (runbook in F6) | `scripts/install.sh`, `scripts/uninstall.sh` | `tests/unit/test_install_scripts.py` |
 
 > When you add a deliverable, fill its row. If a column is empty, that deliverable is not finished.

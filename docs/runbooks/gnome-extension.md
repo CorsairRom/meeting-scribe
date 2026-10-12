@@ -76,7 +76,7 @@ review app and the service ([`../specs/preferences.md`](../specs/preferences.md)
 
 **Open last summary (date)** (F5.7) follows the same visibility as the review item. It shows the start of the most
 recent summarized meeting as a readable date and time in your locale (no title, no path) and opens its `summary.md`
-with the default app for Markdown files (Sublime Text on the owner's machine). It is hidden when there is no summary
+with the default app for Markdown files. It is hidden when there is no summary
 yet or the service is older. The menu asks the service again each time it opens and after every `SummaryFinished`. If no
 app opens it, one notification says to check the app set for Markdown files; fix it with
 `xdg-mime default <app>.desktop text/markdown`.
