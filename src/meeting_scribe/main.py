@@ -238,7 +238,6 @@ def _real_summary_adapters(settings: Settings) -> SummaryAdapters:
         ),
         cloud_provider=OpenAiCompatibleProvider(
             base_url=summaries.cloud_base_url,
-            cloud=True,
             max_retries=summaries.max_retries,
             read_timeout_seconds=summaries.timeout_seconds,
             key_store=keys,

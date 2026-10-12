@@ -1,4 +1,6 @@
-"""One OpenAI-compatible chat adapter: Ollama locally, the cloud gateway on request (spec 5).
+"""The OpenAI-compatible chat adapter of the cloud gateway, used on request only (spec 5).
+
+The local provider is the native Ollama adapter (``ollama_provider``).
 
 It streams, so a cancel closes the HTTP stream between deltas and the read timeout means "no data
 for N seconds". The ``openai`` client retries connection errors, 408, 409, 429 and 5xx with
@@ -21,7 +23,6 @@ from meeting_scribe.summaries.domain.errors import (
     SummaryAuthFailedError,
     SummaryCancelledError,
     SummaryCloudKeyMissingError,
-    SummaryContextTooLargeError,
     SummaryError,
     SummaryModelNotFoundError,
     SummaryOutputLimitReachedError,
@@ -51,15 +52,8 @@ from meeting_scribe.summaries.infrastructure.provider_support import (
     stopped_outcome,
 )
 
-LOCAL_PLACEHOLDER_KEY = "ollama"
-"""Ollama requires an API key and ignores it."""
-LOCAL_REASONING_EFFORT = "none"
-"""Turns the hidden thinking of local models off (verified on qwen3.5:9b, Ollama 0.18)."""
-TRUNCATION_MARGIN_TOKENS = 16
 _THINK = re.compile(r"\A\s*<think>.*?</think>\s*", re.DOTALL)
 _HTTP_UNAUTHORIZED, _HTTP_FORBIDDEN, _HTTP_NOT_FOUND = 401, 403, 404
-_HTTP_RATE_LIMITED, _HTTP_SERVER_ERROR = HTTP_RATE_LIMITED, HTTP_SERVER_ERROR
-_HTTP_TRANSIENT = HTTP_TRANSIENT
 
 
 def _wire(messages: list[Message]) -> list[ChatCompletionMessageParam]:
@@ -74,31 +68,24 @@ class OpenAiCompatibleProvider:
         self,
         *,
         base_url: str,
-        cloud: bool,
         max_retries: int,
         read_timeout_seconds: float,
         key_store: CloudKeyStore | None = None,
-        reasoning_effort: str | None = None,
         user_agent: str | None = None,
         session_header: str | None = None,
         http_client: httpx2.Client | None = None,
     ) -> None:
         self._base_url = base_url
-        self._cloud = cloud
         self._max_retries = max_retries
         self._read_timeout = read_timeout_seconds
         self._key_store = key_store
-        # Sent as ``reasoning_effort`` when set. Local thinking models (qwen3.5) otherwise spend
-        # the whole output budget on hidden reasoning and answer with nothing.
-        self._reasoning_effort = reasoning_effort
         # Gateways such as OpenCode Go reject anonymous requests (HTTP 400 MissingSessionID): they
         # want a client name and, per job, an opaque session id in ``session_header``.
         self._user_agent = user_agent
         self._session_header = session_header
-        # Local transcripts must never go through HTTP_PROXY/ALL_PROXY, so the local client ignores
-        # the proxy environment (trust_env=False). The cloud client keeps it: a user proxy to
-        # reach the gateway may be legitimate, and the traffic is HTTPS anyway.
-        self._http_client = http_client or openai.DefaultHttpx2Client(trust_env=cloud)
+        # The client keeps the proxy environment: a user proxy to reach the gateway may be
+        # legitimate, and the traffic is HTTPS anyway. (Local transcripts never come here.)
+        self._http_client = http_client or openai.DefaultHttpx2Client(trust_env=True)
 
     def complete(
         self,
@@ -132,8 +119,6 @@ class OpenAiCompatibleProvider:
         )
 
     def _key(self) -> Result[str, SummaryError]:
-        if not self._cloud:
-            return Success(LOCAL_PLACEHOLDER_KEY)
         if self._key_store is None:
             return Failure(SummaryCloudKeyMissingError("No cloud key store is configured."))
         return self._key_store.get_key().map(lambda secret: secret.get_secret_value())
@@ -169,7 +154,7 @@ class OpenAiCompatibleProvider:
                 watchdog.attach(stream)
                 completion = self._read(stream)
             except Exception as error:  # mapped below; nothing here may raise to the caller
-                failure = self._map_error(error, limits)
+                failure = self._map_error(error)
                 return stopped_outcome(cancel, watchdog) or self._failed(error, failure, started)
         stopped = stopped_outcome(cancel, watchdog)
         if stopped is not None:
@@ -179,12 +164,10 @@ class OpenAiCompatibleProvider:
                 Failure(SummaryProviderUnavailableError("The provider stream ended early.")),
                 kind="midstream",
             )
-        return Outcome(self._guard(completion, limits))
+        return Outcome(self._guard(completion))
 
     def _extra_options(self, session_id: str) -> dict[str, Any]:
         options: dict[str, Any] = {}
-        if self._reasoning_effort is not None:
-            options["reasoning_effort"] = self._reasoning_effort
         if self._session_header is not None:
             options["extra_headers"] = {self._session_header: session_id}
         return options
@@ -226,9 +209,9 @@ class OpenAiCompatibleProvider:
             completion_tokens=completion_tokens,
         )
 
-    def _guard(
-        self, completion: Completion, limits: CompletionLimits
-    ) -> Result[Completion, SummaryError]:
+    @staticmethod
+    def _guard(completion: Completion) -> Result[Completion, SummaryError]:
+        # The cloud budget is a plan, not a hard window, so only the output limit is checked here.
         if completion.finish_reason == "length":
             return Failure(
                 SummaryOutputLimitReachedError(
@@ -237,57 +220,36 @@ class OpenAiCompatibleProvider:
                     "model."
                 )
             )
-        reported = completion.prompt_tokens
-        if (
-            not self._cloud
-            and reported is not None
-            and reported >= limits.context_tokens - TRUNCATION_MARGIN_TOKENS
-        ):
-            return Failure(
-                SummaryContextTooLargeError(
-                    "The prompt reached the context window, so Ollama may have dropped the start "
-                    "of it. Raise the Ollama context (OLLAMA_CONTEXT_LENGTH) and "
-                    "SUMMARIES_LOCAL_CONTEXT_TOKENS together."
-                )
-            )
         return Success(completion)
 
-    def _map_error(self, error: Exception, limits: CompletionLimits) -> SummaryError:
+    def _map_error(self, error: Exception) -> SummaryError:
         if isinstance(error, openai.APITimeoutError | httpx2.TimeoutException):
             return SummaryTimeoutError(
                 "The provider sent no data in time. Retry, or raise SUMMARIES_TIMEOUT_SECONDS."
             )
         if isinstance(error, openai.APIStatusError):
-            return self._map_status(error.status_code, limits)
+            return self._map_status(error.status_code)
         return self._unavailable()
 
-    def _map_status(self, status: int, limits: CompletionLimits) -> SummaryError:
+    def _map_status(self, status: int) -> SummaryError:
         if status in {_HTTP_UNAUTHORIZED, _HTTP_FORBIDDEN}:
             return SummaryAuthFailedError(
                 "The provider rejected the key. Check the stored cloud API key."
             )
         if status == _HTTP_NOT_FOUND:
-            if self._cloud:
-                return SummaryModelNotFoundError(
-                    "The cloud model was not found. Check SUMMARIES_CLOUD_MODEL."
-                )
             return SummaryModelNotFoundError(
-                f"The model is not available in Ollama. Run `ollama pull {limits.model}` "
-                "or fix SUMMARIES_LOCAL_MODEL."
+                "The cloud model was not found. Check SUMMARIES_CLOUD_MODEL."
             )
-        if status == _HTTP_RATE_LIMITED:
+        if status == HTTP_RATE_LIMITED:
             return SummaryRateLimitedError("The provider is rate limiting. Try again later.")
-        if status >= _HTTP_SERVER_ERROR or status in _HTTP_TRANSIENT:
+        if status >= HTTP_SERVER_ERROR or status in HTTP_TRANSIENT:
             return self._unavailable()
         return SummaryProviderRejectedError(
             f"The provider rejected the request (HTTP {status}). Check the provider settings."
         )
 
-    def _unavailable(self) -> SummaryProviderUnavailableError:
-        if self._cloud:
-            return SummaryProviderUnavailableError(
-                "The cloud provider is unreachable. Check the network and try again."
-            )
+    @staticmethod
+    def _unavailable() -> SummaryProviderUnavailableError:
         return SummaryProviderUnavailableError(
-            "Ollama is unreachable. Start Ollama (systemctl status ollama) and try again."
+            "The cloud provider is unreachable. Check the network and try again."
         )

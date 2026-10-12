@@ -95,4 +95,29 @@ def test_instructions_leave_room_inside_the_fixed_margin() -> None:
 
 
 def test_prompt_version_is_an_integer() -> None:
-    assert PROMPT_VERSION == 2
+    assert PROMPT_VERSION == 3
+
+
+def test_map_notes_are_a_short_compressed_list() -> None:
+    system = _all_prompts()["map"][0].content.lower()
+
+    assert "at most 12 bullets" in system
+    assert "do not copy" in system
+    assert "merge repeated" in system
+
+
+def test_merged_notes_stay_compressed() -> None:
+    system = _all_prompts()["merge"][0].content.lower()
+
+    assert "at most 12 bullets" in system
+    assert "merge repeated" in system
+
+
+@pytest.mark.parametrize("kind", ["single", "reduce", "repair"])
+def test_the_final_summary_has_explicit_length_caps(kind: str) -> None:
+    system = _all_prompts()[kind][0].content.lower()
+
+    assert "at most 8 topics" in system
+    assert "1 to 3 bullets" in system
+    assert "at most 15 rows" in system
+    assert "without duplicates" in system

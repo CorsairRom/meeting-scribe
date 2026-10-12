@@ -30,7 +30,6 @@ from meeting_scribe.summaries.infrastructure.openai_provider import OpenAiCompat
 
 KEY = "test-key-not-a-secret"
 BODY_MARKER = "PRIVATE-BODY-MARKER"
-LOCAL_URL = "http://127.0.0.1:11434/v1"
 CLOUD_URL = "https://gateway.invalid/v1"
 LIMITS = CompletionLimits(
     model="model-x", temperature=0.2, max_output_tokens=512, context_tokens=4096
@@ -130,12 +129,10 @@ class FakeKeyStore:
 def make(
     handler: Handler,
     *,
-    cloud: bool = False,
     max_retries: int = 0,
     read_timeout: float = 30.0,
     requests: list[httpx2.Request] | None = None,
     key_store: FakeKeyStore | None = None,
-    reasoning_effort: str | None = None,
     user_agent: str | None = None,
     session_header: str | None = None,
 ) -> OpenAiCompatibleProvider:
@@ -145,12 +142,10 @@ def make(
         return handler(request)
 
     return OpenAiCompatibleProvider(
-        base_url=CLOUD_URL if cloud else LOCAL_URL,
-        cloud=cloud,
-        key_store=(key_store or FakeKeyStore()) if cloud else None,
+        base_url=CLOUD_URL,
+        key_store=key_store or FakeKeyStore(),
         max_retries=max_retries,
         read_timeout_seconds=read_timeout,
-        reasoning_effort=reasoning_effort,
         user_agent=user_agent,
         session_header=session_header,
         http_client=httpx2.Client(transport=httpx2.MockTransport(record)),
@@ -184,30 +179,10 @@ def test_the_request_has_the_chat_completions_shape() -> None:
     assert body["stream_options"] == {"include_usage": True}
 
 
-def test_reasoning_effort_is_sent_when_the_provider_has_it() -> None:
-    seen: list[httpx2.Request] = []
-    provider = make(lambda _r: sse_response(ok_stream()), requests=seen, reasoning_effort="none")
-
-    complete(provider)
-
-    assert json.loads(seen[0].content)["reasoning_effort"] == "none"
-
-
-@pytest.mark.parametrize("cloud", [False, True])
-def test_reasoning_effort_is_not_sent_by_default(cloud: bool) -> None:
-    seen: list[httpx2.Request] = []
-    provider = make(lambda _r: sse_response(ok_stream()), cloud=cloud, requests=seen)
-
-    complete(provider)
-
-    assert "reasoning_effort" not in json.loads(seen[0].content)
-
-
 def test_the_gateway_gets_the_client_name_and_the_job_session() -> None:
     seen: list[httpx2.Request] = []
     provider = make(
         lambda _r: sse_response(ok_stream()),
-        cloud=True,
         requests=seen,
         user_agent="meeting-scribe/9.9",
         session_header="x-opencode-session",
@@ -225,7 +200,6 @@ def test_a_session_header_without_a_caller_id_still_sends_an_opaque_one() -> Non
     seen: list[httpx2.Request] = []
     provider = make(
         lambda _r: sse_response(ok_stream()),
-        cloud=True,
         requests=seen,
         session_header="x-opencode-session",
     )
@@ -266,7 +240,7 @@ def test_a_leading_think_block_is_stripped_and_never_kept() -> None:
 
 def test_key_only_in_the_header() -> None:
     seen: list[httpx2.Request] = []
-    provider = make(lambda _r: sse_response(ok_stream()), cloud=True, requests=seen)
+    provider = make(lambda _r: sse_response(ok_stream()), requests=seen)
 
     complete(provider)
 
@@ -283,32 +257,20 @@ def test_a_missing_or_locked_key_fails_before_any_request() -> None:
     seen: list[httpx2.Request] = []
     locked = FakeKeyStore(Failure(SummaryCloudKeyLockedError("locked")))
 
-    result = complete(
-        make(lambda _r: sse_response(ok_stream()), cloud=True, requests=seen, key_store=locked)
-    )
+    result = complete(make(lambda _r: sse_response(ok_stream()), requests=seen, key_store=locked))
 
     assert isinstance(result.failure(), SummaryCloudKeyLockedError)
     assert seen == []
 
 
-def test_the_key_is_read_for_each_cloud_request_and_never_for_the_local_one() -> None:
+def test_the_key_is_read_for_each_request() -> None:
     store = FakeKeyStore()
-    cloud = make(lambda _r: sse_response(ok_stream()), cloud=True, key_store=store)
-    local = make(lambda _r: sse_response(ok_stream()))
+    cloud = make(lambda _r: sse_response(ok_stream()), key_store=store)
 
     complete(cloud)
     complete(cloud)
-    complete(local)
 
     assert store.calls == 2
-
-
-def test_the_local_provider_sends_a_fixed_placeholder_key() -> None:
-    seen: list[httpx2.Request] = []
-
-    complete(make(lambda _r: sse_response(ok_stream()), requests=seen))
-
-    assert seen[0].headers["authorization"] == "Bearer ollama"
 
 
 @pytest.mark.parametrize(
@@ -341,12 +303,6 @@ def test_a_rejected_request_names_only_the_http_status() -> None:
     assert BODY_MARKER not in str(failure)
 
 
-def test_a_missing_local_model_names_the_pull_command() -> None:
-    failure = complete(make(lambda _r: httpx2.Response(404, text="x"))).failure()
-
-    assert "ollama pull model-x" in str(failure)
-
-
 def test_an_unreachable_provider_is_unavailable() -> None:
     def refuse(request: httpx2.Request) -> httpx2.Response:
         raise httpx2.ConnectError("refused", request=request)
@@ -354,7 +310,7 @@ def test_an_unreachable_provider_is_unavailable() -> None:
     failure = complete(make(refuse)).failure()
 
     assert isinstance(failure, SummaryProviderUnavailableError)
-    assert "Ollama" in str(failure)
+    assert "cloud provider" in str(failure)
 
 
 def test_a_read_timeout_maps_to_timeout() -> None:
@@ -451,39 +407,11 @@ def test_a_stream_that_never_finishes_is_a_failure_not_a_summary() -> None:
     assert isinstance(failure, SummaryProviderUnavailableError)
 
 
-@pytest.mark.parametrize(("prompt_tokens", "fails"), [(4096, True), (4080, True), (4079, False)])
-def test_truncation_guard(prompt_tokens: int, fails: bool) -> None:
-    result = complete(make(lambda _r: sse_response(ok_stream(prompt_tokens=prompt_tokens))))
-
-    if fails:
-        failure = result.failure()
-        assert isinstance(failure, SummaryContextTooLargeError)
-        assert "OLLAMA_CONTEXT_LENGTH" in str(failure)
-        assert "SUMMARIES_LOCAL_CONTEXT_TOKENS" in str(failure)
-    else:
-        assert isinstance(result, Success)
-
-
-def test_the_guard_needs_the_reported_usage() -> None:
-    body = sse(chunk("answer"), chunk(finish="stop"))
-
-    assert isinstance(complete(make(lambda _r: sse_response(body))), Success)
-
-
-def test_the_cloud_budget_is_not_a_hard_window() -> None:
-    result = complete(make(lambda _r: sse_response(ok_stream(prompt_tokens=4090)), cloud=True))
-
-    assert isinstance(result, Success)
-
-
-@pytest.mark.parametrize("cloud", [False, True])
 @pytest.mark.parametrize("text", ["cut", None])
-def test_an_answer_cut_at_the_output_limit_is_not_a_context_problem(
-    cloud: bool, text: str | None
-) -> None:
+def test_an_answer_cut_at_the_output_limit_is_not_a_context_problem(text: str | None) -> None:
     body = sse(chunk(text), chunk(finish="length"))
 
-    failure = complete(make(lambda _r: sse_response(body), cloud=cloud)).failure()
+    failure = complete(make(lambda _r: sse_response(body))).failure()
 
     assert isinstance(failure, SummaryOutputLimitReachedError)
     assert not isinstance(failure, SummaryContextTooLargeError)
@@ -578,7 +506,7 @@ def test_the_request_timeout_is_the_smaller_of_the_idle_bound_and_the_time_left(
 def test_no_failure_quotes_content_or_the_key() -> None:
     for status in (401, 404, 429, 400, 500):
         failure = complete(
-            make(lambda _r, s=status: httpx2.Response(s, text=KEY + BODY_MARKER), cloud=True)
+            make(lambda _r, s=status: httpx2.Response(s, text=KEY + BODY_MARKER))
         ).failure()
         assert isinstance(failure, Exception)
         assert KEY not in str(failure)
@@ -599,24 +527,11 @@ def _with_proxy_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("no_proxy", raising=False)
 
 
-def test_the_local_provider_never_trusts_the_proxy_environment(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _with_proxy_env(monkeypatch)
-
-    provider = OpenAiCompatibleProvider(
-        base_url=LOCAL_URL, cloud=False, max_retries=0, read_timeout_seconds=1.0
-    )
-
-    assert provider._http_client._mounts == {}
-
-
 def test_the_cloud_provider_keeps_the_proxy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     _with_proxy_env(monkeypatch)
 
     provider = OpenAiCompatibleProvider(
         base_url=CLOUD_URL,
-        cloud=True,
         max_retries=0,
         read_timeout_seconds=1.0,
         key_store=FakeKeyStore(),

@@ -6,7 +6,7 @@ from meeting_scribe.summaries.domain.headings import Headings, language_name
 from meeting_scribe.summaries.domain.ports import Message
 from meeting_scribe.summaries.domain.request import SummaryRequest
 
-PROMPT_VERSION = 2
+PROMPT_VERSION = 3
 """Stored with each summary; bump it when the prompt text changes."""
 
 _NOTES_SEPARATOR = "\n\n---\n\n"
@@ -30,8 +30,9 @@ class PromptBuilder:
     def map_notes(self, chunk: str, index: int, total: int) -> list[Message]:
         system = (
             "You extract compact notes from one part of a meeting transcript: topics, decisions,"
-            " action items with their owner, and open questions. Write short Markdown bullets,"
-            " without a title, using only what the part says.\n"
+            " action items with their owner, and open questions. Write a compressed Markdown bullet"
+            " list without a title, using only what the part says. Do not copy lines verbatim:"
+            " paraphrase briefly and merge repeated points. Write at most 12 bullets.\n"
             f"{self._rules()}"
         )
         user = (
@@ -43,8 +44,9 @@ class PromptBuilder:
     def merge_notes(self, notes: Sequence[str]) -> list[Message]:
         system = (
             "You merge partial meeting notes into one shorter set of notes of the same kind."
-            " Remove duplicates, keep every decision, action item with its owner, and open"
-            " question. Write short Markdown bullets, without a title.\n"
+            " Merge repeated points, keep every decision, action item with its owner, and open"
+            " question. Write a compressed Markdown bullet list without a title, at most 12"
+            " bullets.\n"
             f"{self._rules()}"
         )
         return [
@@ -102,7 +104,10 @@ class PromptBuilder:
             f"## {h.decisions}\n- <decision>\n"
             f"## {h.action_items}\n| {h.owner} | {h.task} |\n|---|---|\n| <name> | <task> |\n"
             f"## {h.open_questions}\n- <question>\n"
-            f'If a section has nothing, write "{h.none}" under its heading.'
+            f'If a section has nothing, write "{h.none}" under its heading.\n'
+            "Keep it short. Topics: at most 8 topics, each with 1 to 3 bullets. Decisions and open"
+            " questions: short bullets without duplicates. Action items: one table row per task,"
+            " without duplicates, at most 15 rows. Do not copy transcript lines verbatim."
         )
 
 

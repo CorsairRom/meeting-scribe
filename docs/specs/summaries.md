@@ -527,20 +527,32 @@ Entities stay frozen and pass `now` in (CR-006); the repository stays a Null Obj
 text between the transcript markers is data, never instructions, which limits prompt injection from meeting speech).
 **Technical terms are never translated** (product decision 4): the prompt tells the model to keep technical terms as
 spoken, in their original form (for example "deploy" or "pull request"), even when the rest is in another language.
+**Length control** (`prompt_version` 3): the output is bounded by instructions, not only by the token cap. Map and
+merge notes are a compressed bullet list (paraphrase, no verbatim copying, repeated points merged, at most 12 bullets).
+The final summary has caps per section: at most 8 topics with 1 to 3 bullets each, decisions and open questions
+short and without duplicates, an action-item table with at most 15 rows and no duplicate tasks.
 Prompt text lives in the domain with a `prompt_version` integer stored in `meeting.json`.
 
 ### 4. Long transcripts, context and chunking
 
 The real context window is the weak point of the local path, so the design assumes nothing about it:
 
-- Ollama's default context is 4096 tokens on GPUs under 24 GiB of VRAM, and the OpenAI-compatible endpoint has no
-  parameter to change it; it is changed with `OLLAMA_CONTEXT_LENGTH` or a Modelfile `PARAMETER num_ctx` (Ollama docs,
-  see [Library facts](#library-facts-verified-context7-2026-10-11)). This GPU has 8 GB, so the default applies.
-- **`SUMMARIES_LOCAL_CONTEXT_TOKENS` defaults to 4096** (safe by default) and is the budget the service plans
-  against. A user who raises Ollama's context raises this setting with it (runbook). The cloud budget is
-  `SUMMARIES_CLOUD_CONTEXT_TOKENS`.
-- **Token estimate**: characters divided by 3 (conservative for Spanish and English; no tokenizer dependency).
-- **Usable input per request** = context - `SUMMARIES_MAX_OUTPUT_TOKENS` - 600 (instructions and margin).
+- Ollama's default context is 4096 tokens on GPUs under 24 GiB of VRAM, and its OpenAI-compatible endpoint has no
+  parameter to change it (Ollama docs, see [Library facts](#library-facts-verified-context7-2026-10-11)). So the
+  local provider uses the **native** `/api/chat` and sends `options.num_ctx` on every request (section 5).
+- **`SUMMARIES_LOCAL_CONTEXT_TOKENS` defaults to 16384** and is both the `num_ctx` the service asks Ollama for and the
+  budget it plans against, so the two cannot disagree. The default model fits 100% on the 8 GB GPU at that context
+  (measured 2026-10-12, peak about 5 GB). The cloud budget is `SUMMARIES_CLOUD_CONTEXT_TOKENS`.
+- **Output budgets by role**: a map or merge step writes short notes and is capped at
+  `SUMMARIES_NOTES_MAX_OUTPUT_TOKENS` (default 768); the final summary (and its format repair) is capped at
+  `SUMMARIES_MAX_OUTPUT_TOKENS` (default 3072). The prompts also bound the length (section 3), because the token cap
+  only cuts the answer, it does not make it shorter.
+- **Token estimate**: characters divided by 2.25 (a measured ratio minus a safety margin; no tokenizer dependency; assumption A-7).
+- **Usable input per request** = context - the output budget of that kind of step - 600 (instructions and margin).
+  The final request (single pass and reduce) reserves 3072: 12712 tokens at the defaults. Map and merge steps reserve
+  the notes budget (768): 15016 tokens, so long meetings use fewer, larger chunks. Measured on 2026-10-12 with a
+  fictional 2-hour Spanish meeting (45,782 characters, about 18k real tokens, about 20k estimated at 2.25 characters
+  per token): three map requests of 8.8k-13.7k real tokens plus the reduce, 43 s, 100% GPU (A-7, GO-065).
 - **Single pass** when the whole transcript fits. Otherwise **map-reduce**:
   1. *Chunk* on utterance boundaries to the usable budget (an oversized utterance is split on sentences, then characters).
   2. *Map*: each chunk yields partial notes (topics, decisions, action items with owner, open questions) in compact Markdown.
@@ -548,23 +560,33 @@ The real context window is the weak point of the local path, so the design assum
      batches, level by level, until one request remains.
 - **Progress**: `total` is known after chunking (chunks plus the reduce steps planned so far) and may grow by the
   extra batch levels; the app shows "step n of m".
-- **Truncation guard** (AC-14): Ollama can silently drop the start of a prompt that exceeds its real window. If
-  `usage.prompt_tokens` is within 16 of the configured window, the step fails instead of producing a summary of half
-  a meeting. This catches a user who set the Ollama context equal to the setting; the setting being higher than the
-  real window is caught by the same guard only when the prompt actually reaches the real window (documented in the
-  runbook: check `ollama ps`, the CONTEXT column).
-- Quality note: a 1-hour meeting at 4096 tokens is roughly 9 chunk requests plus the reduce. It is slow but correct;
-  raising the context (8192 fits an 8 GB card, assumption A-3) cuts the steps.
+- **Truncation guard** (AC-14): Ollama silently drops the BEGINNING of a prompt that exceeds `num_ctx` (the
+  instructions), and the model then ignores the format. The native API reports `prompt_eval_count == num_ctx` in that
+  case, so a local step with `prompt_eval_count` within 16 of the window fails with `SUMMARY_CONTEXT_TOO_LARGE`
+  instead of producing a summary of half a meeting. The check runs before the output-limit check, because a prompt
+  that filled the window also ends with `done_reason: length`.
+- Quality note: at 16384 a meeting of up to about 45 minutes is one pass; a 2-hour meeting (about 18k real tokens)
+  splits into about three chunks. Before 2026-10-12 the window was 4096 and a 1-hour meeting took about 9 chunks.
 
-### 5. The provider adapter (Ollama default, cloud gateway opt-in)
+### 5. The provider adapters (Ollama native for local, OpenAI-compatible cloud gateway opt-in)
 
-One class, `OpenAiCompatibleProvider`, configured by `base_url`, `model`, a `cloud` flag and, for the cloud, a `CloudKeyStore` (ADR-006, ADR-009).
-It uses the official `openai` Python client (new dependency, assumption A-5):
+**Local: `OllamaChatProvider`** (2026-10-12, owner decision after measuring; ADR-006 implementation note). It calls
+Ollama's native `POST <origin>/api/chat`, where `<origin>` is the scheme and host of `SUMMARIES_LOCAL_BASE_URL` (the
+`/v1` path of the default is ignored, and the host stays loopback-only, AC-8). Request: `model`, `messages`,
+`stream: true`, `think: false` (no hidden reasoning), `options.num_ctx` = `SUMMARIES_LOCAL_CONTEXT_TOKENS`,
+`options.num_predict` = the output budget of the step, `options.temperature`. Response: NDJSON lines with
+`message.content`; the last has `done: true`, `done_reason` (`stop` or `length`), `prompt_eval_count` and
+`eval_count` (verified in the Ollama docs, see Library facts). The HTTP client uses `trust_env=False`. It shares the
+retry budget, the total deadline, the cancel watchdog and the error mapping with the cloud adapter
+(`provider_support.py`); a `{"error": ...}` line in the stream is a retryable mid-stream failure and is never quoted.
+Model release is unchanged (`keep_alive: 0`, below).
+
+**Cloud: `OpenAiCompatibleProvider`**, configured by `base_url`, `model`, a `cloud` flag and a `CloudKeyStore`
+(ADR-006, ADR-009). It uses the official `openai` Python client (new dependency, assumption A-5). It is cloud-only (the local
+branches were removed 2026-10-12). The rest of this section describes it.
 
 - **Endpoint**: `chat.completions.create(model=..., messages=..., temperature=..., max_tokens=..., stream=True)`.
-  Ollama's `/v1/chat/completions` supports `messages`, `temperature`, `max_tokens`, `stream`, `seed` and
-  `response_format`; the Ollama API key is required but ignored, so the local provider sends a fixed placeholder
-  (verified in the Ollama docs). The cloud gateway (default OpenCode Go, ADR-009) uses `base_url="https://opencode.ai/zen/go/v1"`, `POST /chat/completions` and a Bearer key; only models served on `/chat/completions` work (DeepSeek, GLM, Kimi, MiMo, LongCat), not those on `/responses` or `/messages`.
+  The cloud gateway (default OpenCode Go, ADR-009) uses `base_url="https://opencode.ai/zen/go/v1"`, `POST /chat/completions` and a Bearer key; only models served on `/chat/completions` work (DeepSeek, GLM, Kimi, MiMo, LongCat), not those on `/responses` or `/messages`.
 - **Streaming** is used for both: it lets cancellation abort the HTTP request between deltas (closing the stream),
   and makes the read timeout mean "no data for N seconds" instead of "the whole generation took N seconds", which
   matters for a slow local model.
@@ -584,10 +606,6 @@ It uses the official `openai` Python client (new dependency, assumption A-5):
   per summary job and shared by its steps. It is never derived from the meeting id, names or content and never
   logged. The header name is a field of the provider entry in `CLOUD_PROVIDERS` (`session_header`); the local
   provider sends neither header.
-- **Reasoning effort** (provider-level option): the local provider sends `"reasoning_effort": "none"` (the `openai`
-  client's `reasoning_effort` parameter) so a thinking model such as `qwen3.5:9b` does not spend the whole output
-  budget on hidden reasoning and answer with nothing (verified on Ollama 0.18: 2048 reasoning tokens, empty content,
-  `finish_reason: length` without it; 4 s and a correct summary with it). The cloud provider does not send it.
 - **Releasing the GPU** (`OllamaModelReleaser`): after a local summary ends in any way, and when
   `SUMMARIES_UNLOAD_LOCAL_MODEL` is true, the service asks Ollama to unload the model with a native
   `POST <origin>/api/generate {"model": ..., "keep_alive": 0}` (documented by Ollama as the immediate unload; the
@@ -625,7 +643,7 @@ It uses the official `openai` Python client (new dependency, assumption A-5):
   "title": "<model-written short title>",
   "input_fingerprint": "sha256:<hex>",
   "chunks": 3,
-  "prompt_version": 2,
+  "prompt_version": 3,
   "last_failure": {"error_code": "SUMMARY_TIMEOUT", "at": "2026-10-11T10:40:00+00:00"}
 }
 ```
@@ -665,9 +683,9 @@ setting**: it is read from the GNOME Keyring through the `CloudKeyStore` port (s
 | Variable | Default | Meaning |
 |---|---|---|
 | `SUMMARIES_PROVIDER` | `local` | The provider the "Generate summary" button uses, `local` or `cloud` (product decision 8). Choosing `cloud` is the cloud opt-in (product decision 9); it also needs a key |
-| `SUMMARIES_LOCAL_BASE_URL` | `http://127.0.0.1:11434/v1` | Ollama's OpenAI-compatible endpoint; the host must be loopback (AC-8) |
-| `SUMMARIES_LOCAL_MODEL` | `qwen3.5:9b` | Ollama model name (installed on the owner's machine; install only checks it exists) |
-| `SUMMARIES_LOCAL_CONTEXT_TOKENS` | `4096` | The window the service plans against; raise it together with Ollama's context (section 4) |
+| `SUMMARIES_LOCAL_BASE_URL` | `http://127.0.0.1:11434/v1` | Local Ollama; the host must be loopback (AC-8). The native `/api/chat` of the same origin is used (section 5) |
+| `SUMMARIES_LOCAL_MODEL` | `qwen3:4b-instruct-2507-q4_K_M` | Ollama model name (2.5 GB, text-only, non-thinking, Apache-2.0; fits 100% on the 8 GB GPU at 16k; install only checks it exists) |
+| `SUMMARIES_LOCAL_CONTEXT_TOKENS` | `16384` | The `num_ctx` sent to Ollama on every request and the window the service plans against (section 4) |
 | `SUMMARIES_UNLOAD_LOCAL_MODEL` | `true` | Ask Ollama to unload the model after a local summary (AC-12) |
 | `SUMMARIES_CLOUD_ENABLED` | removed | Removed by product decision 9: the cloud is on only when `SUMMARIES_PROVIDER=cloud`. The migration rule is in [`preferences.md`](preferences.md) section 7 |
 | `SUMMARIES_CLOUD_BASE_URL` | `https://opencode.ai/zen/go/v1` | OpenAI-compatible cloud gateway (default OpenCode Go, ADR-009); must be https |
@@ -676,7 +694,8 @@ setting**: it is read from the GNOME Keyring through the `CloudKeyStore` port (s
 | `SUMMARIES_CLOUD_PROVIDER` | `opencode-go` | The cloud provider choice shown in Preferences as "Provider" (one option, "OpenCode Go"); it decides the default of the two settings below |
 | `SUMMARIES_CLOUD_PROVIDER_NAME` | `OpenCode Go` | Name shown in the "cloud" label (`cloud: <name>, <model>`) |
 | `SUMMARIES_LANGUAGE` | `auto` | `auto` follows the meeting language (product decision 4), or an ISO code |
-| `SUMMARIES_MAX_OUTPUT_TOKENS` | `2048` | Output limit per request (>= 256) |
+| `SUMMARIES_MAX_OUTPUT_TOKENS` | `3072` | Output limit of the final summary and its repair (>= 256) |
+| `SUMMARIES_NOTES_MAX_OUTPUT_TOKENS` | `768` | Output limit of a map or merge notes step (>= 128) |
 | `SUMMARIES_TEMPERATURE` | `0.2` | Low, for faithful minutes (0 to 1) |
 | `SUMMARIES_TIMEOUT_SECONDS` | `300` | Seconds without data before a step times out (> 0) |
 | `SUMMARIES_TOTAL_TIMEOUT_SECONDS` | `3600` | Bound for one whole summary (> 0) |
@@ -725,9 +744,10 @@ New classes derive from `MeetingScribeError`; each is registered in `error-codes
 | `SUMMARY_AUTH_FAILED` | 401 or 403 | Check the key |
 | `SUMMARY_RATE_LIMITED` | 429 after the retries | Try again later |
 | `SUMMARY_PROVIDER_REJECTED` | Another 4xx (HTTP status only) | Check the provider settings |
+| `SUMMARY_MODEL_RUN_FAILED` | A reachable Ollama answers HTTP 500, or sends an error line in the stream (model load or out of memory); never retried | Check memory (`ollama ps`, `journalctl -u ollama`) or pick a smaller model |
 | `SUMMARY_TIMEOUT` | Step or total timeout | Retry; raise the timeout |
 | `SUMMARY_CONTEXT_TOO_LARGE` | Truncation guard, or no room or budget for the transcript | Raise the context and the matching setting |
-| `SUMMARY_OUTPUT_LIMIT_REACHED` | The model used the whole output limit (often hidden reasoning) | Raise `SUMMARIES_MAX_OUTPUT_TOKENS` or choose another model |
+| `SUMMARY_OUTPUT_LIMIT_REACHED` | The model used the whole output limit | Raise `SUMMARIES_MAX_OUTPUT_TOKENS` (`SUMMARIES_NOTES_MAX_OUTPUT_TOKENS` for notes) or choose another model |
 | `SUMMARY_OUTPUT_INVALID` | Empty or malformed model output after one repair | Retry or use another model |
 | `SUMMARY_CANCELLED` | Cancelled by the user or by a recording start | Press Generate again |
 | `SUMMARY_STORAGE_FAILED` | `summary.md` or `meeting.json` could not be written | Check disk space and permissions |
@@ -868,6 +888,7 @@ No test sends a request to Ollama or a cloud provider, plays audio or reads `~/D
 | `keep_alive: 0` on `/api/generate` unloads a model immediately; `OLLAMA_KEEP_ALIVE` sets the server default | `/ollama/ollama` (`faq.mdx`) | Verified in docs; behavior not exercised (A-6) |
 | OpenCode Go is an OpenAI-compatible gateway: `https://opencode.ai/zen/go/v1/chat/completions` with a Bearer key serves DeepSeek, GLM, Kimi, MiMo and LongCat; Grok and GPT use `/responses`, MiniMax uses `/messages` | <https://opencode.ai/docs/go>, <https://opencode.ai/docs/zen> (owner decision, ADR-009) | Taken from the provider docs; not exercised (A-1) |
 | `openai` client: `base_url`, `api_key`, `timeout` (float or granular timeout object, default 10 minutes), `max_retries` (default 2; connection errors, 408, 409, 429, 5xx), `with_options` per request, exception classes `APIConnectionError`, `APITimeoutError`, `RateLimitError`, `APIStatusError` with `status_code`, custom `http_client` | `/openai/openai-python` (README) | Verified in docs; the package is not yet a dependency (A-5) |
+| Native `POST /api/chat`: request `model`, `messages`, `stream`, `think` (boolean; `false` requests no thinking), `options` (`num_ctx`, `num_predict`, `temperature`); streaming answers are NDJSON objects with `message.content`, the final one with `done: true`, `done_reason` (`stop`, or `length` when `num_predict` or the context is exhausted), `prompt_eval_count` and `eval_count`; `keep_alive: 0` unloads a model | `/ollama/ollama` (`docs/api.md`, `docs/capabilities/thinking.mdx`, `docs/modelfile.mdx`, `llm/server.go`) | Verified in docs 2026-10-12; behaviour on the owner's machine measured by the orchestrator (Ollama 0.18.1) |
 | `ollama` is installed at `/usr/local/bin/ollama` and `systemctl is-active ollama` reports `active` (system unit; the user unit is inactive; no `ollama` rpm) | Local read-only checks | Verified on this machine; no request was sent to it |
 
 **Not verified** (no network call to a provider was allowed): which models are pulled in Ollama; the installed
@@ -883,11 +904,11 @@ chosen cloud model.
 |---|---|---|
 | A-1 | The cloud model id `deepseek-v4-pro` is served by OpenCode Go on `/chat/completions` and accepts a plain chat request without the optional thinking parameters. The model name stays a setting | F5.9, one cloud run on an explicit go; check the provider's model list before release |
 | A-2 | The cloud context budget of 100000 tokens is safe for the chosen model (published figures vary by model) | F5.9 |
-| A-3 | An 8B-class model at Q4 plus an 8192-token context fits in about 6 GB of the 8 GB card shared with the desktop (the default model `qwen3.5:9b` is 6.6 GB on disk on the owner's machine, so a short context is the safe choice and the default stays 4096; rough arithmetic for a typical 8B model: about 5 GB of weights plus about 1 GB of key-value cache for a typical 8B model with grouped-query attention at 8k, which is an estimate, not a measurement) | F5.9 with `ollama ps` on a synthetic transcript, on the user's go; if it does not fit, keep 4096 or pick a smaller model |
-| A-4 | The installed Ollama defaults to 4096 tokens on this GPU (documented default under 24 GiB) | F5.9 (`ollama ps`, CONTEXT column) |
+| A-3 | **Superseded 2026-10-12 by measurement**: `qwen3:4b-instruct-2507-q4_K_M` is 100% on the GPU at 16384 with a peak of about 5 GB, while the 9B model did not fit (8.8 GB). Original text: an 8B-class model at Q4 plus an 8192-token context fits in about 6 GB of the 8 GB card shared with the desktop (the default model `qwen3.5:9b` is 6.6 GB on disk on the owner's machine, so a short context is the safe choice and the default stays 4096; rough arithmetic for a typical 8B model: about 5 GB of weights plus about 1 GB of key-value cache for a typical 8B model with grouped-query attention at 8k, which is an estimate, not a measurement) | F5.9 with `ollama ps` on a synthetic transcript, on the user's go; if it does not fit, keep 4096 or pick a smaller model |
+| A-4 | The installed Ollama defaults to 4096 tokens on this GPU (documented default under 24 GiB); the service no longer depends on it because the native request sets `num_ctx` | F5.9 (`ollama ps`, CONTEXT column) |
 | A-5 | `openai` installs on Python 3.12 without heavy dependencies and without conflicting with the lock; otherwise use `httpx2` directly | F5.3 (`uv add openai`, `make check`) |
 | A-6 | Closing the stream aborts generation in Ollama, and `keep_alive: 0` frees the VRAM before the next Whisper load | F5.9 on the user's go (a stop-and-measure with `nvidia-smi` is the same kind of check as GO-037) |
-| A-7 | The token estimate of 3 characters per token is conservative enough for Spanish and English; the truncation guard catches a miss | F5.2 (unit) and F5.9 |
+| A-7 | **Corrected 2026-10-12**: 3 characters per token was not conservative. Measured with the qwen3:4b-instruct tokenizer on a Spanish meeting dialogue (timestamps and speaker prefixes): 22,397 characters = 8,883 prompt tokens, 2.52 characters per token, so 3 undercounted by about 16% and a 2-hour meeting (45,782 characters) went into one request that Ollama truncated. The estimate is now 2.25 characters per token (that ratio minus about 10%); the truncation guard still catches a miss | F5.2 (unit) and F5.9 |
 | A-8 | The default handler for Markdown exists in the user's session; if not, the open fails with one notification | F5.7 (glue is checked statically, GO-031) and the owner's manual check |
 | A-9 | The Shell glue can open a file URI from the service with `Gio.AppInfo.launch_default_for_uri` without blocking | F5.7 |
 | A-10 | A summary of a typical 1-hour meeting finishes in a few minutes locally and in under a minute on the cloud | F5.9 (informs the default timeouts) |
@@ -911,8 +932,9 @@ The owner answered all eight questions on 2026-10-11.
    as the fallback for any other language (AC-23). No Spanish text in code, only in the catalog file.
 5. **OQ-5** Regenerate and Reprocess: **regenerate overwrites, keeping one backup** (`summary.previous.md`);
    **Reprocess keeps the summary and marks it out of date** (option b).
-6. **OQ-6** Default local model: **`qwen3.5:9b`**, already installed on the owner's machine (6.6 GB, fits the 8 GB
-   RTX 5060 with a short context). `make install` only checks it exists and never pulls it.
+6. **OQ-6** Default local model: **`qwen3:4b-instruct-2507-q4_K_M`** (changed 2026-10-12 after measuring on the 8 GB
+   RTX 5060: `qwen3.5:9b` loads at 8.8 GB and runs 27% on the CPU, `granite4.1:8b` took 35 minutes at 16k, this model is
+   100% on the GPU at 16k with a peak of about 5 GB). `make install` only checks it exists and never pulls it.
 7. **OQ-7** Menu item: **"Open last summary" opens `summary.md` in the default app for `.md` files** (option a; on the
    owner's machine, Sublime Text).
 8. **OQ-8** Choosing the provider: **one "Generate summary" button that uses the provider set in the settings**
@@ -966,7 +988,8 @@ The owner answered all eight questions on 2026-10-11.
   applies to both.
 - **F5.3**: `SUMMARIES_CLOUD_PROVIDER_NAME` (default `OpenCode Go`) is a setting so the service builds the label
   `cloud: <name>, <model>`. `SUMMARIES_LOCAL_CONTEXT_TOKENS` and `SUMMARIES_CLOUD_CONTEXT_TOKENS` must exceed
-  `SUMMARIES_MAX_OUTPUT_TOKENS` plus 600.
+  at least 1880 (256 output + 600 margin + 1024 input); a context smaller than the output budgets plus the margin is not
+  rejected: the effective output budgets are clamped to `context - 600 - 1024` with a warning in the log.
 - **F5.3**: a connect or first-byte wait cannot be interrupted by a cancel (no stream exists yet); it is bounded by
   the connect timeout (5 s) and the read timeout capped by the time left.
 - **F5.9 (2026-10-12)**: the button says just "Generate summary"; a small caption under it names where it runs and

@@ -1,18 +1,26 @@
 """Token estimate and chunking on utterance boundaries (spec 4)."""
 
+import math
 import re
 from collections.abc import Callable, Sequence
 
 from meeting_scribe.summaries.domain.request import SummaryLine
 
-CHARS_PER_TOKEN = 3
-"""Conservative for Spanish and English; no tokenizer dependency (assumption A-7)."""
+CHARS_PER_TOKEN = 2.25
+"""Characters per token, a deliberate undercount: no tokenizer dependency (assumption A-7).
+
+Measured 2026-10-12 with the qwen3:4b-instruct tokenizer on a Spanish meeting dialogue
+(timestamps and speaker prefixes): 22,397 characters were 8,883 prompt tokens, 2.52 characters
+per token. The old value of 3 undercounted tokens by about 16% and one request overran the
+window. 2.25 is that ratio minus about 10%. Other models and languages differ; the truncation
+guard still catches a miss.
+"""
 SEPARATOR = "\n"
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
 
 def estimate_tokens(text: str) -> int:
-    return -(-len(text) // CHARS_PER_TOKEN)
+    return math.ceil(len(text) / CHARS_PER_TOKEN)
 
 
 def fits(text: str, budget_tokens: int) -> bool:
@@ -58,7 +66,7 @@ def _pieces(line: SummaryLine, budget_tokens: int) -> list[str]:
     if fits(whole, budget_tokens):
         return [whole]
     prefix = format_line(line.model_copy(update={"text": ""}))
-    room = max(1, budget_tokens * CHARS_PER_TOKEN - len(prefix))
+    room = max(1, int(budget_tokens * CHARS_PER_TOKEN) - len(prefix))
     return [prefix + part for part in _split(line.text, room)]
 
 
