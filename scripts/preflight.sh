@@ -76,9 +76,12 @@ pf_count() { # pf_count STATUS: how many items have it
 pf_os() {
   local file="${OS_RELEASE_FILE:-/etc/os-release}" key value id="" version=""
   if [[ -r "$file" ]]; then
-    while IFS='=' read -r key value; do
+    # `|| [[ -n "$key" ]]` keeps a last line that has no trailing newline.
+    while IFS='=' read -r key value || [[ -n "$key" ]]; do
       value="${value%\"}"
       value="${value#\"}"
+      value="${value%\'}"
+      value="${value#\'}"
       case "$key" in
         ID) id="$value" ;;
         VERSION_ID) version="$value" ;;
@@ -190,7 +193,7 @@ pf_report_text() {
       echo "Summary: nothing blocks the install."
     fi
   elif ((fixable == 0)); then
-    echo "Summary: $fixable fixable, $human human-only. Nothing was changed. Do the human-only steps, then run ./install.sh --check again."
+    echo "Summary: 0 fixable, $human human-only. Nothing was changed. Do the human-only steps, then run ./install.sh --check again."
   else
     echo "Summary: $fixable fixable, $human human-only. Nothing was changed. Run the fix commands, then run ./install.sh --check again."
   fi
@@ -290,7 +293,7 @@ pf_check_session() {
     pf_add OK session.bus "the session bus is reachable" \
       "the service, the extension and the apps talk over the session bus"
   else
-    pf_add HUMAN session.bus "no session bus was found (DBUS_SESSION_BUS_ADDRESS is unset)" \
+    pf_add HUMAN session.bus "no session bus was found (DBUS_SESSION_BUS_ADDRESS is unset and there is no socket at XDG_RUNTIME_DIR/bus)" \
       "the service, the extension and the apps talk over the session bus, and systemctl --user needs it"
     pf_step "Run ./install.sh from a terminal inside the GNOME session (not over SSH or from a tool without the session variables)"
   fi
@@ -360,10 +363,15 @@ pf_check_optional_tools() {
 # The requirements, in one place (docs/specs/install.md section 2). The service environment was
 # measured at 7.1 GiB and the models at 1.65 GiB; the NVIDIA "8 GB" cards report 8151 to 8192 MiB.
 readonly PF_MIN_VRAM_MIB=8000
-readonly PF_DISK_SERVICE_GIB=8  # one service environment on a first install
-readonly PF_DISK_UPGRADE_GIB=16 # two environments coexist during an upgrade
-readonly PF_DISK_MODELS_GIB=2   # the speech models, when they are not cached
+# One NEW service environment is needed on a first install and on an upgrade alike: the old version
+# is already on disk and is pruned only after the new one runs.
+readonly PF_DISK_SERVICE_GIB=8
+readonly PF_DISK_MODELS_GIB=2 # the speech models, when they are not cached
 readonly PF_KIB_PER_GIB=1048576
+# timeout(1) exits 124 when the command ran past the limit (SIGTERM) and 137 (128 + 9) when
+# --kill-after had to SIGKILL it because it ignored SIGTERM: both mean "did not answer".
+readonly PF_EXIT_TIMED_OUT=124
+readonly PF_EXIT_KILLED=137
 readonly PF_NVIDIA_SMI_TIMEOUT_DEFAULT=10
 readonly PF_OLLAMA_TIMEOUT_DEFAULT=3
 readonly PF_OLLAMA_URL_DEFAULT="http://127.0.0.1:11434"
@@ -403,7 +411,7 @@ pf_check_gpu() {
   fi
   out="$(timeout --kill-after=2 "$timeout_s" nvidia-smi \
     --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>/dev/null)" || rc=$?
-  if ((rc == 124 || rc == 137)); then
+  if ((rc == PF_EXIT_TIMED_OUT || rc == PF_EXIT_KILLED)); then
     pf_add HUMAN gpu.driver "nvidia-smi did not answer within $timeout_s s" "$why_driver"
   elif ((rc != 0)); then
     pf_add HUMAN gpu.driver "nvidia-smi failed (exit $rc), so the driver is not usable" "$why_driver"
@@ -486,14 +494,11 @@ pf_models_cached() { # pf_models_cached HUB_DIR
 # Free space is measured per filesystem: the requirements of directories on the same filesystem
 # (compared by device, so two btrfs subvolumes count as one) add up, the others are checked apart.
 pf_check_disk() {
-  local hub service_gib models_gib version why report="" short=""
+  local hub service_gib models_gib why report="" short=""
   local data_dev data_avail data_mount hub_dev hub_avail hub_mount
-  why="the service environment is about 7.1 GiB (two coexist during an upgrade) and the speech models about 1.65 GiB"
+  why="a new service environment is about 7.1 GiB (the old version is pruned only after the new one runs) and the speech models about 1.65 GiB"
   hub="${HF_HUB_CACHE:-${HF_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/huggingface}/hub}"
   service_gib="$PF_DISK_SERVICE_GIB"
-  for version in "$VERSIONS_DIR"/*; do
-    if [[ -d "$version" ]]; then service_gib="$PF_DISK_UPGRADE_GIB"; fi
-  done
   models_gib="$PF_DISK_MODELS_GIB"
   if pf_models_cached "$hub"; then models_gib=0; fi
 
@@ -572,18 +577,33 @@ pf_resolve_ollama_model() {
   PF_OLLAMA_MODEL="${model:-$PF_OLLAMA_MODEL_DEFAULT}"
 }
 
+# The local Ollama address the service would use, with its precedence: SUMMARIES_LOCAL_BASE_URL from
+# the environment, else that one line of `.env`, else the default. Preferences has no such field
+# (preferences/domain/fields.py), so settings.json is not read. A trailing `/` and `/v1` are removed
+# (local summaries use the native API at the same origin). Sets PF_OLLAMA_BASE_URL.
+pf_resolve_ollama_base_url() {
+  local base="${SUMMARIES_LOCAL_BASE_URL:-}" env_file="$CONFIG_HOME/meeting-scribe/.env"
+  if [[ -z "$base" && -f "$env_file" ]]; then
+    base="$(grep -m1 '^SUMMARIES_LOCAL_BASE_URL=' "$env_file" 2>/dev/null || true)"
+    base="$(pf_parse_env_value "${base#SUMMARIES_LOCAL_BASE_URL=}")"
+  fi
+  base="${base:-$PF_OLLAMA_URL_DEFAULT}"
+  base="${base%/}"
+  base="${base%/v1}"
+  PF_OLLAMA_BASE_URL="${base%/}"
+}
+
 # Ollama is only read: `command -v ollama` and one GET of /api/tags. The installer never starts it,
 # never pulls a model and never sends a prompt; the fixes are printed.
 pf_check_ollama() {
-  local base="${SUMMARIES_LOCAL_BASE_URL:-$PF_OLLAMA_URL_DEFAULT}" timeout_s tags="" listed line
+  local base timeout_s tags="" listed line
   local found=0
   local why_installed="local summaries need Ollama, and the install stops without it"
   local why_reachable="summaries talk to the local Ollama API"
   local why_model="the summary needs the configured local model; the installer never pulls it"
   timeout_s="$(pf_seconds "${MEETING_SCRIBE_OLLAMA_TIMEOUT:-}" "$PF_OLLAMA_TIMEOUT_DEFAULT")"
-  base="${base%/}"
-  base="${base%/v1}"
-  base="${base%/}"
+  pf_resolve_ollama_base_url
+  base="$PF_OLLAMA_BASE_URL"
   pf_resolve_ollama_model
 
   if ! pf_have ollama; then

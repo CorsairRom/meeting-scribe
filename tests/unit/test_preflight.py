@@ -316,9 +316,12 @@ def test_check_changes_nothing(
     assert not (sandbox.home.parent / "calls.log.failed").exists()
 
 
+@pytest.mark.parametrize("env", [{}, {"FAKE_GI_MISSING": "gi", "XDG_SESSION_TYPE": "x11"}])
 @pytest.mark.parametrize("args", [[], ["--check"], ["--check", "--json"], ["--help"]])
-def test_sudo_is_never_called_and_nothing_prompts(sandbox: Env, args: list[str]) -> None:
-    result = sandbox.run(INSTALL, *args, **IDLE)  # standard input is closed by the sandbox
+def test_sudo_is_never_called_and_nothing_prompts(
+    sandbox: Env, args: list[str], env: dict[str, str]
+) -> None:
+    result = sandbox.run(INSTALL, *args, **IDLE, **env)  # standard input is closed by the sandbox
     assert not any(line.startswith("sudo") for line in sandbox.calls())
     assert "sudo was called" not in result.stderr
     if "--json" not in args:
@@ -326,6 +329,8 @@ def test_sudo_is_never_called_and_nothing_prompts(sandbox: Env, args: list[str])
         for line in output.splitlines():
             if "sudo" in line:
                 assert line.strip().startswith("fix:"), line  # only inside a printed fix command
+        if env and "--help" not in args:  # the failing path really printed a sudo fix
+            assert "fix: sudo dnf install python3-gobject" in output
 
 
 def test_a_printed_sudo_fix_is_inside_a_fix_line_and_never_executed(sandbox: Env) -> None:
@@ -462,7 +467,14 @@ def test_every_blocking_item_has_what_why_and_fix(sandbox: Env) -> None:
         assert item["why"], item  # why it is needed
         if item["status"] == "FIX":
             assert item["fix"], item
-            assert all(line.startswith("sudo ") or line for line in item["fix"])
+            for command in item["fix"]:  # one printed, copy-pasteable command per line
+                assert command == command.strip()
+                assert command
+                assert "\n" not in command
+                if "sudo" in command:
+                    assert command.startswith(("sudo dnf install ", "sudo systemctl start ")), (
+                        command
+                    )
         else:
             assert item["human"] is True
             assert item["fix"] == []
@@ -553,7 +565,7 @@ def test_session_checks_read_the_extension_metadata(
     assert item["status"] == status, item
     if status == "HUMAN":
         required = " ".join(re.findall(r"\d+", declared))  # what the metadata lists
-        assert shell in item["summary"] or "GNOME Shell" in item["summary"]
+        assert shell in item["summary"]  # what was detected
         assert required.split()[0] in " ".join([item["summary"], *item["steps"]])
 
 
@@ -668,7 +680,9 @@ def test_the_gpu_detail_names_the_gpu_the_memory_and_the_driver(sandbox: Env) ->
     assert "7000" in checks["gpu.vram"]["detail"]  # the free amount is printed as information
 
 
-def test_several_gpus_the_first_row_decides_and_the_others_are_listed(sandbox: Env) -> None:
+def test_several_gpus_the_first_row_names_the_driver_and_the_largest_total_decides_vram(
+    sandbox: Env,
+) -> None:
     _, checks = _check(
         sandbox, FAKE_NVIDIA_ROWS="First GPU, 4096 MiB, 9.1;Second GPU, 8192 MiB, 9.1"
     )
@@ -763,14 +777,15 @@ def test_directories_on_different_filesystems_are_checked_apart(sandbox: Env) ->
     assert data.is_dir()
 
 
-def test_an_existing_version_doubles_the_service_requirement(sandbox: Env) -> None:
+def test_an_existing_version_does_not_raise_the_requirement(sandbox: Env) -> None:
+    # The old version is already on disk and is pruned after the new one runs: an upgrade needs
+    # room for ONE new environment (8 GiB) plus the models (2 GiB), exactly like a first install.
     data, _ = _disk_dirs(sandbox)
     (data / "meeting-scribe" / "versions" / "20260101000000-1").mkdir(parents=True)
-    table = _df([(sandbox.home, "/dev/home", 17.0, "/home")])
-    _, checks = _check(sandbox, FAKE_DF=table)  # 16 GiB for two environments plus 2 GiB of models
+    _, checks = _check(sandbox, FAKE_DF=_df([(sandbox.home, "/dev/home", 9.5, "/home")]))
     assert checks["disk.space"]["status"] == "FIX"
-    assert "18.0 GiB required" in checks["disk.space"]["summary"]
-    _, checks = _check(sandbox, FAKE_DF=_df([(sandbox.home, "/dev/home", 18.0, "/home")]))
+    assert "10.0 GiB required" in checks["disk.space"]["summary"]
+    _, checks = _check(sandbox, FAKE_DF=_df([(sandbox.home, "/dev/home", 10.0, "/home")]))
     assert checks["disk.space"]["status"] == "OK"
 
 
@@ -955,3 +970,123 @@ def test_a_model_name_without_a_tag_matches_its_latest_tag(sandbox: Env) -> None
 
 def test_a_model_name_is_matched_whole_not_as_a_prefix(sandbox: Env) -> None:
     assert _model_check(sandbox, SUMMARIES_LOCAL_MODEL="llama3")["status"] == "FIX"
+
+
+# -- review fixes: Ollama address, timeouts, os-release, wording ---------------------------------
+
+
+def _curl_urls(sandbox: Env) -> list[str]:
+    return [line for line in sandbox.calls() if line.startswith("curl")]
+
+
+def test_the_ollama_address_comes_from_the_dotenv_line(sandbox: Env) -> None:
+    (_config(sandbox) / ".env").write_text(
+        'HF_TOKEN=not-a-real-token\nSUMMARIES_LOCAL_BASE_URL="http://127.0.0.1:9998/v1"  # mine\n'
+    )
+    result = sandbox.run(INSTALL, "--check", "--json")
+    assert any("http://127.0.0.1:9998/api/tags" in line for line in _curl_urls(sandbox))
+    assert "not-a-real-token" not in result.stdout + result.stderr
+
+
+def test_the_environment_address_wins_over_the_dotenv_and_the_default(sandbox: Env) -> None:
+    (_config(sandbox) / ".env").write_text("SUMMARIES_LOCAL_BASE_URL=http://127.0.0.1:9998\n")
+    sandbox.run(INSTALL, "--check", SUMMARIES_LOCAL_BASE_URL="http://127.0.0.1:9999/v1")
+    (url,) = _curl_urls(sandbox)
+    assert "http://127.0.0.1:9999/api/tags" in url
+    assert "9998" not in url
+
+
+def test_the_preferences_file_has_no_ollama_address_so_it_is_ignored(sandbox: Env) -> None:
+    # Preferences owns no such field (preferences/domain/fields.py): the service reads the address
+    # from the environment and `.env` only, so the preflight must not read it from settings.json.
+    (_config(sandbox) / "settings.json").write_text(
+        '{"version":1,"values":{"summaries.local_base_url":"http://127.0.0.1:9997/v1"}}'
+    )
+    sandbox.run(INSTALL, "--check")
+    (url,) = _curl_urls(sandbox)
+    assert "http://127.0.0.1:11434/api/tags" in url
+    assert "9997" not in url
+
+
+def _log_timeouts(sandbox: Env) -> None:
+    """Replace the `timeout` link by a wrapper that logs its arguments, then runs the real one."""
+    fakes = Path(sandbox.env["PATH"])
+    real = (fakes / "timeout").resolve()
+    (fakes / "timeout").unlink()
+    wrapper = fakes / "timeout"
+    wrapper.write_text(f'#!/usr/bin/env bash\necho "timeout $*" >> "$FAKE_LOG"\nexec {real} "$@"\n')
+    wrapper.chmod(0o755)
+
+
+def _timeouts(sandbox: Env, tool: str) -> list[str]:
+    return [x for x in sandbox.calls() if x.startswith("timeout") and f" {tool}" in x]
+
+
+@pytest.mark.parametrize("value", ["abc", "0", "-5", "1.5", ""])
+def test_an_invalid_nvidia_smi_timeout_falls_back_to_10_seconds(sandbox: Env, value: str) -> None:
+    _log_timeouts(sandbox)
+    sandbox.run(INSTALL, "--check", MEETING_SCRIBE_NVIDIA_SMI_TIMEOUT=value)
+    assert _timeouts(sandbox, "nvidia-smi")[0].startswith("timeout --kill-after=2 10 nvidia-smi")
+
+
+@pytest.mark.parametrize("value", ["abc", "0", "-5", "1.5", ""])
+def test_an_invalid_ollama_timeout_falls_back_to_3_seconds(sandbox: Env, value: str) -> None:
+    _log_timeouts(sandbox)
+    sandbox.run(INSTALL, "--check", MEETING_SCRIBE_OLLAMA_TIMEOUT=value)
+    (call,) = _timeouts(sandbox, "curl")
+    assert call.startswith("timeout --kill-after=2 5 curl")  # 3 s plus 2 s of margin
+    assert "--max-time 3 " in call
+
+
+@pytest.mark.parametrize("value", ["abc", "0", "-5", "1.5", ""])
+def test_an_invalid_models_check_timeout_falls_back_to_30_seconds(sandbox: Env, value: str) -> None:
+    _log_timeouts(sandbox)
+    result = sandbox.run(INSTALL, MEETING_SCRIBE_MODELS_CHECK_TIMEOUT=value, **IDLE)
+    assert result.returncode == 0, result.stderr
+    (call,) = _timeouts(sandbox, str(sandbox.root))
+    assert call.startswith("timeout --kill-after=5 30 ")
+    assert call.endswith("prefetch-models --check")
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        ('ID=fedora\nVERSION_ID="44"\n', "fedora-44"),
+        ("ID=fedora\nVERSION_ID=44", "fedora-44"),  # no trailing newline
+        ("ID='fedora'\nVERSION_ID='44'", "fedora-44"),  # single quotes
+        ('NAME="Fedora Linux"\nID=fedora\nVERSION_ID="44"\nVARIANT_ID=workstation\n', "fedora-44"),
+        ("ID=arch\n", "arch"),  # a rolling release has no VERSION_ID
+        ("NAME=Nothing\n", "unknown"),
+        ("", "unknown"),
+    ],
+)
+def test_pf_os_reads_the_os_release_file_as_data(
+    sandbox: Env, tmp_path: Path, content: str, expected: str
+) -> None:
+    fixture = tmp_path / "os-release-fixture"
+    fixture.write_text(content)
+    result = sandbox.snippet("pf_os", OS_RELEASE_FILE=str(fixture))
+    assert result.stdout.strip() == expected
+
+
+def test_pf_os_without_the_file_is_unknown(sandbox: Env, tmp_path: Path) -> None:
+    result = sandbox.snippet("pf_os", OS_RELEASE_FILE=str(tmp_path / "missing"))
+    assert result.stdout.strip() == "unknown"
+
+
+def test_the_session_bus_summary_names_both_probes(sandbox: Env) -> None:
+    run_dir = sandbox.home.parent / "run"
+    _, checks = _check(sandbox, DBUS_SESSION_BUS_ADDRESS="", XDG_RUNTIME_DIR=str(run_dir))
+    summary = checks["session.bus"]["summary"]
+    assert "DBUS_SESSION_BUS_ADDRESS" in summary
+    assert "XDG_RUNTIME_DIR" in summary
+    assert "/bus" in summary
+
+
+def test_the_human_only_summary_has_no_fix_commands_to_run(sandbox: Env) -> None:
+    items = _add("HUMAN", "gpu.driver", "no driver", "needs a GPU", steps="install it")
+    result = sandbox.snippet(f"{items} pf_report text")
+    assert result.stdout.splitlines()[-1] == (
+        "Summary: 0 fixable, 1 human-only. Nothing was changed. "
+        "Do the human-only steps, then run ./install.sh --check again."
+    )

@@ -646,6 +646,8 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
       reader moved to the shared kernel, new error codes, api-contracts and catalog, e2e on a private bus.
 - [ ] F6.6 Review app core: Hugging Face token key store (libsecret), `Models1` gateway, presenter and tests.
 - [ ] F6.7 Review app UI: "Speech models" group in Preferences (token field, terms link, Download models with progress and cancel).
+      Also remove the interim line `(until then: meeting-scribe prefetch-models)` that `scripts/install.sh` prints after `models: PENDING`
+      (and its assertion in `tests/unit/test_install_scripts.py`).
 - [ ] F6.8 Update and uninstall: idempotent re-run proof, uninstall mirrors the entry point and lists what it keeps, existing `hf auth login` still works.
 - [ ] F6.9 Docs and validation: `docs/runbooks/install.md`, README section "Install (humans and AI agents)", the other runbooks,
       ADR-010 and ADR-011 active, docs gate, validation with consent on the real machine (no recording, no audio).

@@ -11,19 +11,18 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.install_sandbox import (  # noqa: F401
+from tests.unit.install_sandbox import (
     ACTIVATION,
     COREUTILS,
     DESKTOP_ENTRY,
     EXTENSION,
-    FAKES,
     INSTALL,
     ROOT,
     SCRIPTS,
     UNINSTALL,
     UNIT,
     Env,
-    sandbox_fixture,
+    sandbox_fixture,  # noqa: F401  # the `sandbox` fixture
 )
 
 
@@ -110,6 +109,8 @@ def test_install_reports_models_pending_and_still_succeeds(sandbox: Env) -> None
     summary = _summary(result)
     assert MODELS_PENDING in summary
     assert "recording works meanwhile" in summary
+    # the interim path stays visible until Download models lands (remove the line in F6.7)
+    assert "             (until then: meeting-scribe prefetch-models)" in summary
     # the service, the unit, the activation file, the review app and the extension are installed
     assert sandbox.exe.exists()
     assert sandbox.unit_path.exists()
@@ -991,7 +992,9 @@ def _ollama_calls(sandbox: Env) -> list[str]:
 def test_install_reports_the_reachable_ollama_with_the_configured_model(sandbox: Env) -> None:
     result = sandbox.run(INSTALL, **IDLE)
     assert result.returncode == 0, result.stderr
-    assert "  ollama:    reachable; model qwen3:4b-instruct-2507-q4_K_M present" in _summary(result)
+    assert "  ollama:    reachable at preflight; model qwen3:4b-instruct-2507-q4_K_M present" in (
+        _summary(result)
+    )
     assert _ollama_calls(sandbox) == []  # never run: no list, pull, serve or create
 
 
