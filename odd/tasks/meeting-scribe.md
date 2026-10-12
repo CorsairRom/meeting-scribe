@@ -526,7 +526,7 @@ Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv 
       ready, Meetings1 review methods confirmed by introspection); the owner opened the app from the menu and
       reported it works. Docs gate: read-only audit (5 P1, 5 P2 doc drifts, no code issue) fixed in `6718079`;
       language scan clean; `make check` green (1123 python / 122 gjs, 12 contracts). Tracker #82 marked ready.
-### F5 Summaries — in progress (integration `feat/summaries`)
+### F5 Summaries — done (tracker #99 merged 2026-10-12)
 TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: delegated direct.
 - [x] F5.0a Phase start: F4 done, F5 in progress (mvp-scope, AGENTS, backlog, README, spec statuses).
 - [x] F5.0b Design spec `docs/specs/summaries.md` (approved) + ADR-008 (Decisions section). Owner decisions
@@ -603,7 +603,7 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
         Evidence: `make lint` contracts 15 kept; `make check` 1901 python passed, packaging 1 passed, gjs 163
         passed; Spanish language scan over docs/ scripts/ src/ README.md AGENTS.md: no matches. Validation with
         consent is F5.9 below.
-- [ ] F5.9 validation with consent (local run; cloud only on explicit go), docs gate.
+- [x] F5.9 validation with consent (local run; cloud only on explicit go), docs gate. Closed 2026-10-12: the owner merged #99.
       make install done 2026-10-12 (version 20261012015947-1358289; ollama reachable,
       qwen3:4b-instruct-2507-q4_K_M present). Owner tested a local summary and a cloud summary (OpenCode Go)
       successfully on 2026-10-12.
@@ -613,7 +613,31 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
       Evidence: `make check` 1901 python passed, packaging 1 passed, gjs 163 passed; citation check over
       `docs/specs/*.md` and `rules-registry.md`: 99 citations, 0 broken (22 repointed); Spanish scan only the known
       fixtures and `doc-sync-protocol.md`. Remaining: owner reviews and merges the integration PR.
-### F6 Install — pending
+### F6 Install — in progress (integration `feat/install`)
+Spec: `docs/specs/install.md` (draft, for owner approval). TDD: strict, runner `uv run pytest` / `make check`
+(source: AGENTS.md). Route: delegated direct (one writer per task, 2+ non-trivial files each).
+Delivery: integration branch `feat/install` from `main` (F5 merged); the tracker PR to `main` is still to be
+created (it needs the owner's go to push); work-unit PRs of about 400 authored lines target `feat/install` and the
+owner merges the tracker. Docs gate before the tracker is ready (see `docs/project/doc-sync-protocol.md`).
+Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers are a separate phase after F6.
+- [x] F6.0a Phase start: F5 done, F6 in progress (mvp-scope, AGENTS, backlog, README, F5 spec statuses, this document).
+- [ ] F6.0b Design spec `docs/specs/install.md` and ADR-010 draft; waits for the owner's approval and answers to its open questions.
+- [ ] F6.1 Root `install.sh` and `uninstall.sh` entry points (thin wrappers over `scripts/`), `make install` alias,
+      option parsing (`--check`, `--json`, `--help`), exit-code contract and report formatter, with fakes-based tests.
+- [ ] F6.2 Preflight, system checks: GNOME Wayland session, GNOME Shell version from the extension metadata, `uv`,
+      `ffmpeg`, `pactl`, `systemctl`, `gdbus`, `gnome-extensions`, GTK4, libadwaita, PyGObject, libsecret; the README
+      prerequisites list and the drift test that keeps it equal to the check ids.
+- [ ] F6.3 Preflight, hardware and services: NVIDIA driver, VRAM, free disk by filesystem, Ollama installed, reachable,
+      default model present; the install stops with zero changes; summary line "models: pending" replaces the model download step.
+- [ ] F6.4 Token-free processing: the pyannote loader uses no token, the fetcher takes one on stdin, `prefetch-models`
+      gets `--check` and machine-readable progress, error texts point to Preferences; offline verification without a login.
+- [ ] F6.5 `model_setup` domain and `dev.meetingscribe.Models1` (status, download, cancel, progress, finished), keyring
+      reader moved to the shared kernel, new error codes, api-contracts and catalog, e2e on a private bus.
+- [ ] F6.6 Review app core: Hugging Face token key store (libsecret), `Models1` gateway, presenter and tests.
+- [ ] F6.7 Review app UI: "Speech models" group in Preferences (token field, terms link, Download models with progress and cancel).
+- [ ] F6.8 Update and uninstall: idempotent re-run proof, uninstall mirrors the entry point and lists what it keeps, existing `hf auth login` still works.
+- [ ] F6.9 Docs and validation: `docs/runbooks/install.md`, README section "Install (humans and AI agents)", the other runbooks,
+      ADR-010 active, docs gate, validation with consent on the real machine (no recording, no audio).
 
 ## Route log
 
@@ -622,6 +646,7 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
 | Mapping | delegated (2 Explore mappers, parallel) | prototype = 5 files; conventions = 3 repos |
 | F0.1 + F0.2 | delegated (1 writer) | 2+ non-trivial files (pyproject, settings, main, kernel, tests) |
 | F5.10 P7 | delegated (1 writer) | 2+ non-trivial files (runbook, install.sh, summaries.md, tests) |
+| F6.0 | delegated (1 docs writer) | 2+ non-trivial doc files (phase start, spec, ADR) and reading that prepares the write |
 | gitignore fix | inline | one mechanical file, root cause already understood |
 | F0.3 + F0.4 | delegated (1 writer, ran in parallel with the code review — disjoint files) | 30+ doc files |
 | review suggestions | inline | two mechanical one-line doc edits |

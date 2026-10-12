@@ -69,7 +69,7 @@ import-linter, errors as `returns.Result`.
 - **No push, no PR, no merge without asking.**
 - **Doc sync**: follow `docs/project/doc-sync-protocol.md`; update docs in the same commit as the code.
 - **Docs gate**: before an integration PR is reported as ready to merge, `make check` is green and a read-only docs audit has no open P1/P2 and a language scan finds no Spanish outside chat (see "Integration PR docs gate" in `docs/project/doc-sync-protocol.md`).
-- **Current phase**: F5 Summaries (in progress); the phase table in `docs/project/mvp-scope.md` is the source of truth and a drift test keeps this line in sync.
+- **Current phase**: F6 Install (in progress); the phase table in `docs/project/mvp-scope.md` is the source of truth and a drift test keeps this line in sync.
 - **Bug fix**: do not refactor unrelated code or widen scope.
 
 ## Tooling
