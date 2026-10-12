@@ -15,9 +15,14 @@ Prerequisites: Fedora with GNOME on Wayland, [`uv`](https://docs.astral.sh/uv/),
 PulseAudio shim).
 
 ```bash
-make install     # everything: service, systemd user unit, D-Bus activation, GNOME extension
-make uninstall   # reverse it (keeps your meetings, your `.env`, your `settings.json` and the API key in the keyring)
+./install.sh --check   # read-only preflight: what is missing, why, and the exact command to fix it (add --json for agents)
+./install.sh           # everything: service, systemd user unit, D-Bus activation, GNOME extension (alias: make install)
+./uninstall.sh         # reverse it (keeps your meetings, your `.env`, your `settings.json` and the API key in the keyring)
 ```
+
+`make install` and `make uninstall` are aliases and take `ARGS` (for example `make install ARGS=--check`). The installer
+never runs `sudo` and never prompts: it prints the commands. Exit codes: 0 success, 1 an install stage failed or was
+refused, 2 usage error, 10 blocked by a fixable prerequisite, 11 blocked only by steps a human must do.
 
 You never start the service by hand. `make install` does the following, and is safe to re-run to upgrade. It checks
 the recording first: while a recording is in progress, or its state cannot be read, it changes nothing and exits with an

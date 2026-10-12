@@ -2,13 +2,29 @@
 # Reverses install.sh. Idempotent. Never touches recorded meetings or the user's .env.
 # Refuses while a recording is running or its state cannot be read, unless FORCE=1 (which here
 # overrides both: uninstalling is destructive by intent).
+# Run it as ./uninstall.sh (the root wrapper) or `make uninstall` (alias).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/_common.sh
 source "$REPO_ROOT/scripts/_common.sh"
 
-refuse_unless_safe "'make uninstall'" recording "Or run 'make uninstall FORCE=1' to stop it anyway." || exit 1
+usage() {
+  cat <<'USAGE'
+Usage: ./uninstall.sh [--help]   (alias: make uninstall)
+
+Removes what ./install.sh created. It keeps your meetings, settings.json, .env, the keyring entries
+and the downloaded models. FORCE=1 ./uninstall.sh stops it even while a recording runs.
+USAGE
+}
+for arg in "$@"; do
+  case "$arg" in
+    -h | --help) usage; exit 0 ;;
+    *) echo "error: unknown option: $arg" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+refuse_unless_safe "'./uninstall.sh'" recording "Or run 'FORCE=1 ./uninstall.sh' to stop it anyway." || exit 1
 
 echo "==> Stopping the service and removing the unit and activation file"
 systemctl --user disable --now "$UNIT_NAME" || true
