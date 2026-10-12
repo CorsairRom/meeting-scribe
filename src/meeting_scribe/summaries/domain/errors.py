@@ -52,6 +52,12 @@ class SummaryCancelledError(SummaryError):
     error_code = "SUMMARY_CANCELLED"
 
 
+class SummaryModelsUnavailableError(SummaryError):
+    """The list of installed or offered models could not be read."""
+
+    error_code = "SUMMARY_MODELS_UNAVAILABLE"
+
+
 class SummaryCloudKeyMissingError(SummaryError):
     error_code = "SUMMARY_CLOUD_KEY_MISSING"
 
