@@ -606,7 +606,13 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
 - [ ] F5.9 validation with consent (local run; cloud only on explicit go), docs gate.
       make install done 2026-10-12 (version 20261012015947-1358289; ollama reachable,
       qwen3:4b-instruct-2507-q4_K_M present). Owner tested a local summary and a cloud summary (OpenCode Go)
-      successfully on 2026-10-12. Remaining: docs gate before the integration PR.
+      successfully on 2026-10-12.
+      Docs gate (2026-10-12, branch `f5/docs-gate`): read-only audit P1 0 / P2 8 / P3 6, all fixed (backlog, scope
+      FR-6 row, ARCHITECTURE, summaries spec, ADR-006/009 notes, key runbook, PRD open questions, README, spec
+      statuses and Definition of Done, review-app runbook, `.env.example`, editor wording, test citations).
+      Evidence: `make check` 1901 python passed, packaging 1 passed, gjs 163 passed; citation check over
+      `docs/specs/*.md` and `rules-registry.md`: 99 citations, 0 broken (22 repointed); Spanish scan only the known
+      fixtures and `doc-sync-protocol.md`. Remaining: owner reviews and merges the integration PR.
 ### F6 Install — pending
 
 ## Route log
