@@ -6,6 +6,7 @@ is off); the cloud call carries the key as a bearer token to the configured http
 """
 
 import logging
+import threading
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -29,9 +30,38 @@ logger = logging.getLogger(__name__)
 # as "not supported yet".
 CLOUD_CHAT_COMPLETIONS_FAMILIES = ("deepseek-", "glm-", "kimi-", "mimo-", "longcat-")
 
-LOCAL_TIMEOUT_SECONDS = 5.0
-CLOUD_TIMEOUT_SECONDS = 10.0
-_HTTP_ERROR, _HTTP_UNAUTHORIZED, _HTTP_FORBIDDEN = 400, 401, 403
+LOCAL_DEADLINE_SECONDS = 5.0
+CLOUD_DEADLINE_SECONDS = 10.0
+"""The most a whole listing may take (connect, send, wait and read together)."""
+_FIRST_HTTP_ERROR_STATUS, _HTTP_UNAUTHORIZED, _HTTP_FORBIDDEN = 400, 401, 403
+
+
+def _get(
+    client: httpx2.Client, url: str, headers: dict[str, str] | None, deadline_seconds: float
+) -> httpx2.Response:
+    """One GET that is over within ``deadline_seconds`` in total, not per phase.
+
+    The request runs in a daemon helper thread that the caller abandons when the time is up
+    (``httpx2`` timeouts bound each phase, so a trickling server could otherwise hold a ``Set``
+    or a window refresh far longer). Raises ``TimeoutError`` at the deadline.
+    """
+    outcome: list[httpx2.Response | BaseException] = []
+
+    def run() -> None:
+        try:
+            outcome.append(client.get(url, headers=headers))
+        except BaseException as error:
+            outcome.append(error)
+
+    worker = threading.Thread(target=run, name="model-list", daemon=True)
+    worker.start()
+    worker.join(deadline_seconds)
+    if not outcome:
+        raise TimeoutError("The model list did not arrive in time.")
+    result = outcome[0]
+    if isinstance(result, BaseException):
+        raise result
+    return result
 
 
 def _unavailable(message: str) -> Failure[SummaryError]:
@@ -65,20 +95,21 @@ class OllamaModelLister:
         self,
         base_url: str,
         http_client: httpx2.Client | None = None,
-        timeout_seconds: float = LOCAL_TIMEOUT_SECONDS,
+        deadline_seconds: float = LOCAL_DEADLINE_SECONDS,
     ) -> None:
         parts = urlsplit(base_url)
         self._url = f"{parts.scheme}://{parts.netloc}/api/tags"
+        self._deadline = deadline_seconds
         # trust_env=False: a loopback call must never be routed through HTTP_PROXY/ALL_PROXY.
-        self._client = http_client or httpx2.Client(timeout=timeout_seconds, trust_env=False)
+        self._client = http_client or httpx2.Client(timeout=deadline_seconds, trust_env=False)
 
     def list_models(self) -> Result[list[ModelEntry], SummaryError]:
         try:
-            response = self._client.get(self._url)
+            response = _get(self._client, self._url, None, self._deadline)
         except Exception as error:  # a stopped Ollama, a timeout
             logger.warning("Ollama model list failed: %s", type(error).__name__)
             return _unavailable("Ollama did not answer. Check that it is running.")
-        if response.status_code >= _HTTP_ERROR:
+        if response.status_code >= _FIRST_HTTP_ERROR_STATUS:
             logger.warning("Ollama model list answered HTTP %s", response.status_code)
             return _unavailable("Ollama could not list its models.")
         body = _json(response)
@@ -95,15 +126,19 @@ class OpenAiCompatibleModelLister:
         self,
         base_url: str,
         http_client: httpx2.Client | None = None,
-        timeout_seconds: float = CLOUD_TIMEOUT_SECONDS,
+        deadline_seconds: float = CLOUD_DEADLINE_SECONDS,
     ) -> None:
         self._url = f"{base_url.rstrip('/')}/models"
-        self._client = http_client or httpx2.Client(timeout=timeout_seconds)
+        self._deadline = deadline_seconds
+        self._client = http_client or httpx2.Client(timeout=deadline_seconds)
 
     def list_models(self, key: SecretStr) -> Result[list[ModelEntry], SummaryError]:
         try:
-            response = self._client.get(
-                self._url, headers={"Authorization": f"Bearer {key.get_secret_value()}"}
+            response = _get(
+                self._client,
+                self._url,
+                {"Authorization": f"Bearer {key.get_secret_value()}"},
+                self._deadline,
             )
         except Exception as error:  # offline, a timeout; the message may echo the key: log the type
             logger.warning("Cloud model list failed: %s", type(error).__name__)
@@ -111,7 +146,7 @@ class OpenAiCompatibleModelLister:
         status = response.status_code
         if status in {_HTTP_UNAUTHORIZED, _HTTP_FORBIDDEN}:
             return Failure(SummaryAuthFailedError("The cloud provider rejected the API key."))
-        if status >= _HTTP_ERROR:
+        if status >= _FIRST_HTTP_ERROR_STATUS:
             logger.warning("Cloud model list answered HTTP %s", status)
             return _unavailable(f"The cloud provider could not list its models (HTTP {status}).")
         body = _json(response)

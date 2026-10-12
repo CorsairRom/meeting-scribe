@@ -4,7 +4,11 @@ import pytest
 from pydantic import ValidationError
 
 from meeting_scribe.settings import Settings
-from meeting_scribe.summaries.infrastructure.summaries_settings import SummariesSettings
+from meeting_scribe.summaries.infrastructure.summaries_settings import (
+    CLOUD_PROVIDERS,
+    DEFAULT_CLOUD_PROVIDER,
+    SummariesSettings,
+)
 
 _VARS = (
     "SUMMARIES_PROVIDER",
@@ -186,3 +190,12 @@ def test_cloud_provider_choice(monkeypatch: pytest.MonkeyPatch) -> None:
     overridden = SummariesSettings()
     assert overridden.cloud_base_url == "https://gateway.example.test/v1"
     assert overridden.cloud_provider_name == "OpenCode Go"
+
+
+def test_the_cloud_provider_identity_has_one_source() -> None:
+    fields = SummariesSettings.model_fields
+    default = CLOUD_PROVIDERS[DEFAULT_CLOUD_PROVIDER]
+
+    assert fields["cloud_provider"].default == DEFAULT_CLOUD_PROVIDER
+    assert fields["cloud_provider_name"].default == default.name
+    assert fields["cloud_base_url"].default == default.base_url

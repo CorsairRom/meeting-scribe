@@ -77,6 +77,9 @@ class PreferencesSession:
     def cancel_api_key(self) -> None:
         self._api_key.cancel()
 
+    def refresh_models(self) -> None:
+        self._preferences.refresh_models()
+
     def remove_key(self) -> None:
         self._preferences.remove_key()
 

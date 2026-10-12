@@ -22,8 +22,9 @@ class ModelCheck:
         self._key = key
 
     def __call__(self, raw: str) -> Result[str, FieldProblem]:
-        listing = self._catalog.list_models(self._scope)
-        if not listing.available:
+        # Never a fetch here: ``Set`` holds its lock. No fresh list means the offline rule.
+        listing = self._catalog.cached_models(self._scope)
+        if listing is None or not listing.available:
             return Success(raw)
         row = next((row for row in listing.models if row.id == raw), None)
         if row is None:

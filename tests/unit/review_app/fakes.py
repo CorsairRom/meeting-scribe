@@ -19,6 +19,7 @@ from meeting_scribe_review.core.gateway import (
 from meeting_scribe_review.core.models import (
     KeyStatus,
     MeetingSummary,
+    ModelList,
     ProviderRow,
     SetOutcome,
     SettingsField,
@@ -357,6 +358,7 @@ def default_settings() -> list[SettingsField]:
         setting("summaries.local_model", "fake-local-model"),
         setting("summaries.language", "auto", kind="choice", choices=("auto",)),
         setting("summaries.cloud_model", "fake-cloud-model"),
+        setting("summaries.cloud_provider", "opencode-go", kind="choice", choices=("opencode-go",)),
         setting("storage.meetings_dir", "/fake/meetings", kind="path", apply="restart"),
     ]
 
@@ -371,6 +373,11 @@ class FakeSettingsGateway:
     pending: tuple[str, ...] = ()
     errors: tuple[Any, ...] = ()  # FieldIssue rows the next set_values returns
     listeners: list[SettingsListener] = field(default_factory=list)
+    model_lists: dict[str, Any] = field(default_factory=dict)  # scope -> a scripted Ok or Err
+
+    def list_models(self, scope: str, done: Callback[ModelList]) -> None:
+        self.calls.append(("list_models", (scope,)))
+        done(self.model_lists.get(scope, Ok(ModelList("SUMMARY_MODELS_UNAVAILABLE"))))
 
     def get_all(self, done: Callback[list[SettingsField]]) -> None:
         self.calls.append(("get_all", ()))

@@ -1,5 +1,7 @@
 """Model listing: Ollama tags, the provider's /models, the cloud allowlist and the use case."""
 
+import time
+
 import httpx2
 import pytest
 from pydantic import SecretStr
@@ -14,6 +16,8 @@ from meeting_scribe.summaries.domain.errors import (
 from meeting_scribe.summaries.domain.ports import NOT_SUPPORTED_YET, ModelEntry
 from meeting_scribe.summaries.infrastructure.model_listing import (
     CLOUD_CHAT_COMPLETIONS_FAMILIES,
+    CLOUD_DEADLINE_SECONDS,
+    LOCAL_DEADLINE_SECONDS,
     OllamaModelLister,
     OpenAiCompatibleModelLister,
 )
@@ -238,3 +242,39 @@ def test_an_unknown_scope_is_unavailable() -> None:
     result = use_case(FakeKeys(Success(SecretStr(KEY)))).execute("other")
 
     assert isinstance(result.failure(), SummaryModelsUnavailableError)
+
+
+# -- the total deadline --------------------------------------------------------------------
+
+
+def slow(seconds: float):
+    def handler(_request: httpx2.Request) -> httpx2.Response:
+        time.sleep(seconds)
+        return httpx2.Response(200, json=listing("glm-5"))
+
+    return handler
+
+
+def test_a_slow_local_answer_hits_the_total_deadline() -> None:
+    lister = OllamaModelLister("http://127.0.0.1:11434/v1", client(slow(2.0)), deadline_seconds=0.1)
+
+    started = time.monotonic()
+    result = lister.list_models()
+
+    assert time.monotonic() - started < 1.0
+    assert isinstance(result.failure(), SummaryModelsUnavailableError)
+
+
+def test_a_slow_cloud_answer_hits_the_total_deadline_without_leaking_the_key(caplog) -> None:
+    lister = OpenAiCompatibleModelLister(CLOUD_BASE, client(slow(2.0)), deadline_seconds=0.1)
+
+    started = time.monotonic()
+    result = lister.list_models(SecretStr(KEY))
+
+    assert time.monotonic() - started < 1.0
+    assert isinstance(result.failure(), SummaryModelsUnavailableError)
+    assert KEY not in caplog.text
+
+
+def test_the_default_deadlines_are_five_and_ten_seconds() -> None:
+    assert (LOCAL_DEADLINE_SECONDS, CLOUD_DEADLINE_SECONDS) == (5.0, 10.0)

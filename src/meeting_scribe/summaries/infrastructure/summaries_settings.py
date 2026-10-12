@@ -31,6 +31,8 @@ class CloudProvider:
 CLOUD_PROVIDERS: dict[str, CloudProvider] = {
     "opencode-go": CloudProvider("OpenCode Go", "https://opencode.ai/zen/go/v1"),
 }
+DEFAULT_CLOUD_PROVIDER: Literal["opencode-go"] = "opencode-go"
+_DEFAULT_CLOUD = CLOUD_PROVIDERS[DEFAULT_CLOUD_PROVIDER]
 
 
 class SummariesSettings(MeetingScribeSettings):
@@ -41,9 +43,9 @@ class SummariesSettings(MeetingScribeSettings):
     local_model: str = Field(default="qwen3.5:9b", min_length=1, max_length=MAX_MODEL_NAME)
     local_context_tokens: int = Field(default=4096, gt=0)
     unload_local_model: bool = True
-    cloud_provider: Literal["opencode-go"] = "opencode-go"
-    cloud_provider_name: str = Field(default="OpenCode Go", min_length=1)
-    cloud_base_url: str = "https://opencode.ai/zen/go/v1"
+    cloud_provider: Literal["opencode-go"] = DEFAULT_CLOUD_PROVIDER
+    cloud_provider_name: str = Field(default=_DEFAULT_CLOUD.name, min_length=1)
+    cloud_base_url: str = _DEFAULT_CLOUD.base_url
     cloud_model: str = Field(default="deepseek-v4-pro", min_length=1, max_length=MAX_MODEL_NAME)
     cloud_context_tokens: int = Field(default=100000, gt=0)
     language: str = "auto"
@@ -59,7 +61,7 @@ class SummariesSettings(MeetingScribeSettings):
         """The chosen cloud provider supplies the name and URL a developer override did not set."""
         if not isinstance(data, dict):
             return data
-        provider = CLOUD_PROVIDERS.get(str(data.get("cloud_provider", "opencode-go")))
+        provider = CLOUD_PROVIDERS.get(str(data.get("cloud_provider", DEFAULT_CLOUD_PROVIDER)))
         if provider is None:
             return data  # the Literal rejects the unknown choice with its own message
         return {"cloud_provider_name": provider.name, "cloud_base_url": provider.base_url, **data}

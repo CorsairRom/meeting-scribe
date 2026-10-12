@@ -12,6 +12,8 @@ from meeting_scribe_review.core.errors import INVALID_REPLY, ServiceError
 from meeting_scribe_review.core.models import (
     FieldIssue,
     MeetingSummary,
+    ModelList,
+    ModelOption,
     ProviderRow,
     SetOutcome,
     SettingsField,
@@ -26,6 +28,7 @@ _INVALID = Err(ServiceError(INVALID_REPLY))
 _SUMMARY_FIELDS = 5
 _UTTERANCE_FIELDS = 4
 _ISSUE_FIELDS = 3
+_MODEL_FIELDS = 3
 
 
 class _InvalidReplyError(Exception):
@@ -253,6 +256,24 @@ def _outcome(row: Any) -> SetOutcome:
         apply_failed=_flag(_key(fields, "apply_failed")),
         errors=tuple(_issue(error) for error in errors),
     )
+
+
+def _model(row: Any) -> ModelOption:
+    model_id, supported, reason = _tuple(row, _MODEL_FIELDS)
+    return ModelOption(_text(model_id), _flag(supported), _text(reason))
+
+
+def _model_list(row: Any) -> ModelList:
+    fields = _mapping(row)
+    models = _key(fields, "models")
+    if isinstance(models, str) or not isinstance(models, Sequence):
+        raise _InvalidReplyError
+    return ModelList(_text(_key(fields, "status")), tuple(_model(model) for model in models))
+
+
+def parse_model_list(row: Any) -> Result[ModelList, ServiceError]:
+    """``Settings1.ListModels``: ``a{sv}``."""
+    return _parse_one(row, _model_list)
 
 
 def parse_settings_fields(rows: Any) -> Result[list[SettingsField], ServiceError]:
