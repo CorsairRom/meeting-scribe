@@ -693,8 +693,8 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
         (`license = "GPL-2.0-or-later"` plus `license-files`; the SPDX form replaces the license classifier, which PEP 639 deprecates next to it) and in the README.
         The extension `metadata.json` has no license field, so it is not declared there. `make test-packaging` passes.
   - [x] (b, file part) The author in `pyproject.toml` is now Richard Romero, `richard.romero@hotmail.cl`.
-  - [ ] (b, history) Rewrite the previous work email out of the whole git history (every commit author and committer, main and all branches). This needs a
-        force-push of `main` and the branches: the owner confirms right before it, nothing is pushed without that go. Not done here.
+  - [x] (b, history) Not rewritten, by owner decision 2026-10-12: GitHub keeps `refs/pull/*` pointing at the original commits, so a
+        force-push could not hide the previous work email. Future commits use `richard.romero@hotmail.cl` (repository `user.email`).
   - [x] (c) The references to the two private repositories were rephrased neutrally in this document, the spec section 11 and `docs/_templates/README.md`;
         a case-insensitive search for the two repository names finds none. Commit `chore: license the project under gpl-2.0-or-later and drop private references`.
 
