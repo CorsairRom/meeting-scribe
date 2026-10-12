@@ -35,7 +35,7 @@ def test_bundle_contains_exactly_the_extension_files(bundle: zipfile.ZipFile) ->
     }
     packed = {name for name in bundle.namelist() if not name.endswith("/")}
     assert packed == expected
-    top_level = {"metadata.json", "extension.js", "stylesheet.css"}
+    top_level = {"metadata.json", "extension.js", "stylesheet.css", "prefs.js"}
     assert top_level <= packed
     assert all(name.startswith("lib/") for name in packed - top_level)
 
@@ -48,3 +48,10 @@ def test_bundle_has_no_tests_or_dev_files(bundle: zipfile.ZipFile) -> None:
 
 def test_bundled_metadata_matches_the_source(bundle: zipfile.ZipFile) -> None:
     assert bundle.read("metadata.json") == (EXTENSION_DIR / "metadata.json").read_bytes()
+
+
+def test_bundle_carries_prefs_js_and_its_launcher_helper(bundle: zipfile.ZipFile) -> None:
+    """The Extensions app gear needs ``prefs.js``; the tool packs it without an extra source."""
+    names = set(bundle.namelist())
+    assert {"prefs.js", "lib/preferencesLauncher.js"} <= names
+    assert bundle.read("prefs.js") == (EXTENSION_DIR / "prefs.js").read_bytes()

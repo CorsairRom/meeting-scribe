@@ -250,8 +250,9 @@ function withMeetings(processing = idleProcessing, {reprocessResult = 'QUEUED'} 
     return f;
 }
 
+// The Preferences item always ends the menu; these tests are about the lines above it.
 const lastTexts = f => f.rendered.at(-1).menuItems.filter(i => i.kind !== 'separator')
-    .map(i => i.text);
+    .map(i => i.text).slice(0, -1);
 
 test('controller renders the processing line when the pipeline changes', () => {
     const f = withMeetings();
@@ -448,4 +449,50 @@ test('opening the menu asks the client to refresh the last summary', () => {
     f.controller.onMenuOpened();
     assertEqual(f.meetings.refreshes, 1);
     withMeetings().controller.onMenuOpened(); // a client without the method: no error
+});
+
+// -- Preferences... (F5.10, AC-12) --------------------------------------------------------------
+
+function withPreferencesLauncher(launchPreferences, snapshot = snap()) {
+    const f = fixture(snapshot);
+    const launches = [];
+    const controller = new IndicatorController({
+        client: f.client, view: f.view, scheduler: f.scheduler,
+        notify: (title, body) => f.notes.push([title, body]), _: s => s,
+        launchPreferences: (...args) => {
+            launches.push(args);
+            return launchPreferences();
+        },
+    });
+    return {...f, controller, launches};
+}
+
+test('the preferences action launches the app once, with no argument and never touches the client', async () => {
+    const f = withPreferencesLauncher(() => true, snap({state: 'RECORDING'}));
+    await f.controller.onMenuAction('preferences');
+    assertDeepEqual(f.launches, [[]]);
+    assertDeepEqual(f.notes, []);
+    assertDeepEqual(f.client.calls, []);
+});
+
+test('a preferences launch that reports false or throws shows one fixed notification', async () => {
+    for (const launch of [() => false, () => {
+        throw new Error('GDBus.Error: private text');
+    }, () => Promise.reject(new Error('private text'))]) {
+        const f = withPreferencesLauncher(launch);
+        await f.controller.onMenuAction('preferences');
+        assertEqual(f.notes.length, 1);
+        assertEqual(f.notes[0][1].includes('make install'), true);
+        assertEqual(f.notes[0][1].includes('private text'), false);
+    }
+});
+
+test('the preferences action does nothing after destroy or without a launcher', async () => {
+    const f = withPreferencesLauncher(() => true);
+    f.controller.destroy();
+    await f.controller.onMenuAction('preferences');
+    assertDeepEqual(f.launches, []);
+    const plain = fixture();
+    await plain.controller.onMenuAction('preferences');
+    assertDeepEqual(plain.notes, []);
 });

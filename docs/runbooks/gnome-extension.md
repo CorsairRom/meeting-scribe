@@ -67,6 +67,13 @@ entry (`dev.meetingscribe.Review.desktop`, installed by `make install`), with no
 picks the newest `DONE` meeting itself, and shows an empty state when there is none. If the launch fails, one
 notification says to run `make install`. Steps and troubleshooting: [`review-app.md`](review-app.md).
 
+**Preferences...** (F5.10) ends every menu that can open (also with the service unavailable, where the dialog explains).
+It asks the review app to open its Preferences dialog through the `preferences` action of the same desktop entry
+(`Exec=<launcher> --preferences`, written by `make install`; an install older than this feature has no action, so the
+same notification says to run `make install`). The gear in the Extensions app runs `prefs.js`, which does the same and
+then closes its own window; it holds no setting, no D-Bus client and no key. Everything configurable lives in the
+review app and the service ([`../specs/preferences.md`](../specs/preferences.md)).
+
 **Open last summary (date)** (F5.7) follows the same visibility as the review item. It shows the start of the most
 recent summarized meeting as a readable date and time in your locale (no title, no path) and opens its `summary.md`
 with the default app for Markdown files (Sublime Text on the owner's machine). It is hidden when there is no summary

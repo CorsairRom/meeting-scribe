@@ -34,7 +34,7 @@ class PanelIndicator extends PanelMenu.Button {
      * @param {object} options
      * @param {string} options.name - accessible name of the button
      * @param {Function} options.onPrimaryClick - takes {menuOpen}; returns 'start', 'open-menu', 'close-menu' or 'none'
-     * @param {Function} options.onMenuAction - called with 'start', 'stop', 'reprocess', 'review' or 'summary'
+     * @param {Function} options.onMenuAction - called with 'start', 'stop', 'reprocess', 'review', 'summary' or 'preferences'
      * @param {Function} [options.onMenuOpen] - called each time the menu opens
      */
     _init({name, onPrimaryClick, onMenuAction, onMenuOpen = () => {}}) {

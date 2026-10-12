@@ -18,18 +18,22 @@ export class IndicatorController {
      * @param {Function} options.notify - `notify(title, body)` shows an error to the user
      * @param {Function} [options.launchReview] - opens the review app (no argument, no meeting
      *     data); returns false or throws when it cannot. Omit it and the action does nothing
+     * @param {Function} [options.launchPreferences] - opens the review app's Preferences dialog
+     *     (no argument, no data); returns false or throws when it cannot. Omit it and the action
+     *     does nothing
      * @param {Function} [options.openSummary] - opens the summary file at the given path with the
      *     default handler; returns false or throws when it cannot. Omit it and the action does nothing
      * @param {Function} [options._] - translation function (identity by default)
      */
-    constructor({client, meetings = null, view, scheduler, notify, launchReview = null, openSummary = null,
-        _ = s => s}) {
+    constructor({client, meetings = null, view, scheduler, notify, launchReview = null, launchPreferences = null,
+        openSummary = null, _ = s => s}) {
         this._client = client;
         this._meetings = meetings;
         this._view = view;
         this._scheduler = scheduler;
         this._notify = notify;
         this._launchReview = launchReview;
+        this._launchPreferences = launchPreferences;
         this._openSummary = openSummary;
         this._ = _;
         this._tick = null;
@@ -82,7 +86,8 @@ export class IndicatorController {
     /**
      * Handle a menu action item.
      *
-     * @param {string} id - `start`, `stop`, `reprocess` (the failed meeting shown last), `review` or `summary`
+     * @param {string} id - `start`, `stop`, `reprocess` (the failed meeting shown last), `review`,
+     *     `summary` or `preferences`
      * @returns {Promise<void>} settles once the call (and any notification) is done
      */
     onMenuAction(id) {
@@ -98,6 +103,8 @@ export class IndicatorController {
             return this._review();
         if (id === 'summary')
             return this._summary();
+        if (id === 'preferences')
+            return this._preferences();
         return Promise.resolve();
     }
 
@@ -136,6 +143,20 @@ export class IndicatorController {
         let launched = false;
         try {
             launched = await this._launchReview() !== false;
+        } catch (_e) {
+            launched = false;
+        }
+        if (!launched && !this._destroyed)
+            this._notify(this._('Meeting Scribe'), launchFailureMessage(this._));
+    }
+
+    // Same fixed failure text as the review item: both mean the desktop entry needs `make install`.
+    async _preferences() {
+        if (this._launchPreferences === null)
+            return;
+        let launched = false;
+        try {
+            launched = await this._launchPreferences() !== false;
         } catch (_e) {
             launched = false;
         }

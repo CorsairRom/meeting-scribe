@@ -1,4 +1,4 @@
-# Template rendered by `make install` (F4.6): the Exec placeholder becomes the stable path of the launcher
+# Template rendered by `make install` (F4.6): each Exec placeholder becomes the stable path of the launcher
 # (<data home>/meeting-scribe/current/bin/meeting-scribe-review). The file name is the application
 # id of the review app, which GNOME Shell matches to the window for the icon and the dock grouping.
 [Desktop Entry]
@@ -12,3 +12,10 @@ Categories=GNOME;GTK;Utility;
 StartupNotify=true
 StartupWMClass=dev.meetingscribe.Review
 DBusActivatable=false
+Actions=preferences;
+
+# The extension menu and its gear (prefs.js) launch this action (F5.10); it needs the single-instance
+# app to forward the option to the running window.
+[Desktop Action preferences]
+Name=Preferences
+Exec=@EXEC@ --preferences
