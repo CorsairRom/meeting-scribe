@@ -61,7 +61,10 @@ from meeting_scribe.preferences.domain.ports import (
 )
 from meeting_scribe.preferences.infrastructure.dbus.settings_interface import SettingsInterface
 from meeting_scribe.preferences.infrastructure.json_settings_store import JsonSettingsStore
-from meeting_scribe.preferences.infrastructure.meetings_folder import check_meetings_folder
+from meeting_scribe.preferences.infrastructure.meetings_folder import (
+    check_meetings_folder,
+    create_meetings_folder,
+)
 from meeting_scribe.preferences.infrastructure.systemd_restarter import SystemdRestarter
 from meeting_scribe.recording.application.recording_controller import RecordingController
 from meeting_scribe.recording.domain.ports import (
@@ -327,6 +330,7 @@ def build_preferences(
         Settings.with_overrides,
         apply,
         checks={"storage.meetings_dir": lambda raw: check_meetings_folder(raw).map(str)},
+        prepare={"storage.meetings_dir": lambda raw: create_meetings_folder(raw).map(str)},
     )
 
 
@@ -358,10 +362,11 @@ def create_app(
     summary_adapters: SummaryAdapters | None = None,
     preferences_adapters: PreferencesAdapters | None = None,
 ) -> Application:
-    injected = settings is not None and not settings.loaded
+    # Hand-built settings (tests) never ran the sources: say so instead of naming an env file.
+    hand_built = settings is not None and not settings.loaded
     settings = settings or get_settings()
     configure_logging(settings.log_level)
-    if injected:
+    if hand_built:
         logger.info("config source: settings injected by caller")
     elif settings.env_files:
         logger.info("config source: env file %s plus process environment", settings.env_files[0])

@@ -54,6 +54,7 @@ def outcome_details(outcome: SetOutcome) -> dict[str, Variant]:
     return {
         "applied": Variant("as", list(outcome.applied)),
         "restart_required": Variant("as", list(outcome.restart_required)),
+        "apply_failed": Variant("b", outcome.apply_failed),
         "errors": Variant("a(sss)", [[e.key, str(e.code), e.message] for e in outcome.errors]),
     }
 

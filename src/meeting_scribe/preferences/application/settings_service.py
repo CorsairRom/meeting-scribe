@@ -49,6 +49,7 @@ class SetOutcome:
     applied: tuple[str, ...]
     restart_required: tuple[str, ...]
     errors: tuple[FieldProblem, ...]
+    apply_failed: bool = False  # saved, but the live apply raised: a restart will pick it up
 
 
 class PreferencesService:
@@ -60,12 +61,14 @@ class PreferencesService:
         apply: Callable[[EffectiveSettings], None],
         *,
         checks: Mapping[str, FieldCheck] | None = None,
+        prepare: Mapping[str, FieldCheck] | None = None,
         events: SettingsEvents | None = None,
     ) -> None:
         self._store = store
         self._validate = validate
         self._apply = apply
         self._checks = dict(checks or {})
+        self._prepare = dict(prepare or {})  # side effects, run only when the whole Set will apply
         self._events: SettingsEvents = events or NullSettingsEvents()
         self._lock = threading.Lock()  # one Set at a time; the second waits
         self._effective = state.effective
@@ -114,21 +117,38 @@ class PreferencesService:
     # -- the transaction (lock held) --
 
     def _set(self, values: dict[str, str]) -> Result[SetOutcome, SettingsStorageFailedError]:
-        problems, candidate = self._candidate(values)
+        if not values:
+            return Success(SetOutcome((), self._pending, ()))
+        problems, candidate, normalized = self._candidate(values)
         if not problems:
             validated = self._validate(candidate)
             if isinstance(validated, Failure):
                 problems = list(validated.failure())
             else:
-                return self._save(values, candidate, validated.unwrap())
+                problems = self._prepared(normalized)
+                if not problems:
+                    return self._save(values, candidate, validated.unwrap())
         keys = [problem.key for problem in problems]
         logger.warning("Settings rejected: %d problem(s) on keys %s", len(problems), keys)
         return Success(SetOutcome((), self._pending, tuple(problems)))
 
-    def _candidate(self, values: dict[str, str]) -> tuple[list[FieldProblem], dict[str, str]]:
+    def _prepared(self, normalized: dict[str, str]) -> list[FieldProblem]:
+        """Run the side effects (create the folder) now that nothing else can reject the Set."""
+        problems: list[FieldProblem] = []
+        for key, value in normalized.items():
+            prepare = self._prepare.get(key)
+            done = prepare(value) if prepare is not None else Success(value)
+            if isinstance(done, Failure):
+                problems.append(done.failure())
+        return problems
+
+    def _candidate(
+        self, values: dict[str, str]
+    ) -> tuple[list[FieldProblem], dict[str, str], dict[str, str]]:
         """The merged saved values, plus a problem per unknown, locked or unusable field."""
         problems: list[FieldProblem] = []
         candidate = dict(self._saved)
+        normalized: dict[str, str] = {}
         for key, raw in values.items():
             if field_spec(key) is None:
                 problems.append(
@@ -149,8 +169,9 @@ class PreferencesService:
             if isinstance(checked, Failure):
                 problems.append(checked.failure())
                 continue
+            normalized[key] = checked.unwrap()
             self._merge(candidate, key, checked.unwrap())
-        return problems, candidate
+        return problems, candidate, normalized
 
     def _merge(self, candidate: dict[str, str], key: str, value: str) -> None:
         """Sparse file: a value equal to the default is removed, so new defaults still reach you."""
@@ -170,7 +191,12 @@ class PreferencesService:
         self._file_problem = ""
         keys = tuple(values)
         logger.info("Settings saved: keys %s", list(keys))
-        self._apply(effective)
+        apply_failed = False
+        try:
+            self._apply(effective)
+        except Exception as error:  # saved is saved: report it, never undo it, never log a value
+            apply_failed = True
+            logger.error("Live apply failed after saving: %s", type(error).__name__)
         pending = tuple(
             key for key, running in self._running.items() if effective.exposed_value(key) != running
         )
@@ -179,4 +205,4 @@ class PreferencesService:
         self._events.changed(keys)
         if pending_changed:
             self._events.restart_required_changed(pending)
-        return Success(SetOutcome(keys, pending, ()))
+        return Success(SetOutcome(keys, pending, (), apply_failed))

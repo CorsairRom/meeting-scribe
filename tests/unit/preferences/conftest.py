@@ -4,13 +4,11 @@ from pathlib import Path
 
 import pytest
 
+from meeting_scribe.preferences.domain.fields import FIELD_REGISTRY
+
 _VARS = (
-    "SUMMARIES_PROVIDER",
-    "SUMMARIES_LOCAL_MODEL",
-    "SUMMARIES_LANGUAGE",
-    "SUMMARIES_CLOUD_MODEL",
+    *(f"{spec.section}_{spec.name}".upper() for spec in FIELD_REGISTRY),
     "SUMMARIES_CLOUD_ENABLED",
-    "STORAGE_MEETINGS_DIR",
 )
 
 

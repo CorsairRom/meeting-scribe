@@ -6,16 +6,11 @@ from pathlib import Path
 import pytest
 from returns.result import Failure, Success
 
+from meeting_scribe.preferences.domain.fields import FIELD_REGISTRY
 from meeting_scribe.settings import Settings
 from meeting_scribe.summaries.infrastructure.summaries_settings import SummariesSettings
 
-_ENV = (
-    "SUMMARIES_CLOUD_ENABLED",
-    "SUMMARIES_LOCAL_MODEL",
-    "SUMMARIES_PROVIDER",
-    "SUMMARIES_LANGUAGE",
-    "STORAGE_MEETINGS_DIR",
-)
+_ENV = (*(f"{s.section}_{s.name}".upper() for s in FIELD_REGISTRY), "SUMMARIES_CLOUD_ENABLED")
 
 
 @pytest.fixture(autouse=True)

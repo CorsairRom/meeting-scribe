@@ -33,7 +33,12 @@ class RestartService:
                     "A recording, a processing job or a summary is active. Try again when it ends."
                 )
             )
-        if not await self._restarter.is_reachable():
+        try:
+            reachable = await self._restarter.is_reachable()
+        except Exception as error:  # the probe must never leak an exception to the client
+            logger.warning("Restart probe failed: %s", type(error).__name__)
+            reachable = False
+        if not reachable:
             return Failure(
                 SettingsRestartUnavailableError(
                     f"The service manager could not be reached. Run `{MANUAL_COMMAND}`."
@@ -45,6 +50,10 @@ class RestartService:
         if self._activity.busy():
             logger.warning("Restart skipped: something became active after the reply.")
             return
-        restarted = await self._restarter.restart()
+        try:
+            restarted = await self._restarter.restart()
+        except Exception as error:  # a background task: nobody would see the exception
+            logger.error("Restart failed: %s", type(error).__name__)
+            return
         if isinstance(restarted, Failure):
             logger.error("Restart failed: %s", restarted.failure().error_code)

@@ -17,7 +17,10 @@ from meeting_scribe.preferences.domain.errors import (
 )
 from meeting_scribe.preferences.domain.fields import FieldProblem
 from meeting_scribe.preferences.domain.ports import EffectiveSettings
-from meeting_scribe.preferences.infrastructure.meetings_folder import check_meetings_folder
+from meeting_scribe.preferences.infrastructure.meetings_folder import (
+    check_meetings_folder,
+    create_meetings_folder,
+)
 from meeting_scribe.settings import Settings
 
 
@@ -30,12 +33,24 @@ class MemoryStore:
         self.fail = False
         self.gate: threading.Event | None = None
         self.entered = threading.Event()
+        self.write_calls: list[str] = []  # the language of each write, at entry
+        self._inside = 0
+        self.max_concurrent = 0
 
     def read(self) -> Result[dict[str, str], SettingsFileInvalidError]:
         return Success(dict(self.values))
 
     def write(self, values: Mapping[str, str]) -> Result[None, SettingsStorageFailedError]:
+        self.write_calls.append(values.get("summaries.language", ""))
+        self._inside += 1
+        self.max_concurrent = max(self.max_concurrent, self._inside)
         self.entered.set()
+        try:
+            return self._write(values)
+        finally:
+            self._inside -= 1
+
+    def _write(self, values: Mapping[str, str]) -> Result[None, SettingsStorageFailedError]:
         if self.gate is not None:
             self.gate.wait(5)
         if self.fail:
@@ -65,12 +80,17 @@ class FakeRestarter:
         self.reachable = reachable
         self.restarts = 0
         self.fail = False
+        self.explode = False
 
     async def is_reachable(self) -> bool:
+        if self.explode:
+            raise RuntimeError("bus exploded")
         return self.reachable
 
     async def restart(self) -> Result[None, SettingsRestartUnavailableError]:
         self.restarts += 1
+        if self.explode:
+            raise RuntimeError("bus exploded")
         if self.fail:
             return Failure(SettingsRestartUnavailableError("down"))
         return Success(None)
@@ -89,6 +109,7 @@ class Service:
         self.store = MemoryStore(saved)
         self.events = RecordingEvents(self.store)
         self.applied: list[Settings] = []
+        self.fail_apply = False
         self.settings = Settings.load(file_values=saved)
         self.tmp_path = tmp_path
         self.service = PreferencesService(
@@ -97,13 +118,20 @@ class Service:
             Settings.with_overrides,
             self._apply,
             checks={"storage.meetings_dir": _folder_check},
+            prepare={"storage.meetings_dir": _folder_create},
             events=self.events,
         )
 
     def _apply(self, effective: EffectiveSettings) -> None:
         assert isinstance(effective, Settings)
+        if self.fail_apply:
+            raise RuntimeError("boom private-value")
         self.applied.append(effective)
 
 
 def _folder_check(raw: str) -> Result[str, FieldProblem]:
     return check_meetings_folder(raw).map(str)
+
+
+def _folder_create(raw: str) -> Result[str, FieldProblem]:
+    return create_meetings_folder(raw).map(str)

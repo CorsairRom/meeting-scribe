@@ -1,17 +1,20 @@
 """The check on the meetings folder itself (spec section 6, AC-7).
 
-The service never lists or reads the folder: it only creates it when missing and proves it can write
-with one temporary file of a fixed neutral name. Messages never hold the path.
+``check_meetings_folder`` has no side effect on a missing folder, so a rejected ``Set`` creates
+nothing; ``create_meetings_folder`` runs only when the whole ``Set`` will be applied. The service
+never lists or reads the folder: it proves it can write with one temporary file of a fixed
+neutral name. Messages never hold the path.
 """
 
 import contextlib
+import os
 from pathlib import Path
 
 from returns.result import Failure, Result, Success
 
-from meeting_scribe.preferences.domain.fields import FieldCode, FieldProblem
+from meeting_scribe.preferences.domain.fields import FIELD_REGISTRY, FieldCode, FieldProblem
 
-KEY = "storage.meetings_dir"
+KEY = next(spec.key for spec in FIELD_REGISTRY if spec.kind == "path")
 PROBE_NAME = ".meeting-scribe-write-test"
 
 
@@ -26,21 +29,46 @@ def _not_writable() -> Failure[FieldProblem]:
 
 
 def check_meetings_folder(raw: str) -> Result[Path, FieldProblem]:
-    path = Path(raw).expanduser()
-    if not raw.strip() or not path.is_absolute() or ".." in path.parts:
-        return _invalid("The meetings folder must be an absolute path without '..'.")
-    if path.exists() and not path.is_dir():
-        return _invalid("The meetings folder is not a folder.")
+    """Absolute, no ``..``, not a file, and writable (or creatable under a writable parent)."""
+    if "\x00" in raw:
+        return _invalid("The meetings folder is not a valid path.")
     try:
-        if not path.exists():
-            if not path.parent.is_dir():
-                return _not_writable()
+        path = Path(raw).expanduser()
+        if not raw.strip() or not path.is_absolute() or ".." in path.parts:
+            return _invalid("The meetings folder must be an absolute path without '..'.")
+        if path.exists():
+            return (
+                _probe(path) if path.is_dir() else _invalid("The meetings folder is not a folder.")
+            )
+        parent_ok = path.parent.is_dir() and os.access(path.parent, os.W_OK | os.X_OK)
+        return Success(path) if parent_ok else _not_writable()
+    except (RuntimeError, ValueError):  # an unknown ``~user``; a NUL byte
+        return _invalid("The meetings folder is not a valid path.")
+    except OSError:
+        return _not_writable()
+
+
+def create_meetings_folder(raw: str) -> Result[Path, FieldProblem]:
+    """Check, then create the folder (mode 0700) when it is missing, then prove it is writable."""
+    checked = check_meetings_folder(raw)
+    if isinstance(checked, Failure):
+        return checked
+    path = checked.unwrap()
+    if not path.exists():
+        try:
             path.mkdir(mode=0o700)
-        probe = path / PROBE_NAME
+        except OSError:
+            return _not_writable()
+    return _probe(path)
+
+
+def _probe(path: Path) -> Result[Path, FieldProblem]:
+    probe = path / PROBE_NAME
+    try:
         probe.write_bytes(b"")
         probe.unlink()
     except OSError:
         with contextlib.suppress(OSError):
-            (path / PROBE_NAME).unlink(missing_ok=True)
+            probe.unlink(missing_ok=True)
         return _not_writable()
     return Success(path)

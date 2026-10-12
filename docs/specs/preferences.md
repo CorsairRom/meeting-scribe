@@ -551,5 +551,5 @@ verified.
 - **File problem in `GetAll`**: the spec says a damaged file is "reported through GetAll" without a member for it, so every row carries `file_problem` (empty or `SETTINGS_FILE_INVALID`).
 - **`applied` and `SettingsChanged`** list the keys submitted in the successful `Set` (restart fields included); `restart_required` tells which of them are pending.
 - **`Restart` is two steps** (`check`, reply, `perform` 0.3 s later) because a reply cannot follow a restart. Reachability is probed before the reply with `Manager.LoadUnit`; a failure after the reply is only logged. Verified in `man org.freedesktop.systemd1` (systemd 259).
-- **Folder check side effect**: a missing meetings folder is created (mode 0700) during validation even when another field of the same `Set` is invalid.
+- **Folder creation**: validation never creates the meetings folder; it is created (mode 0700) only after every field passed, just before the file is written. If applying a live change raises after the save, the `Set` reply carries `apply_failed` (saved, restart picks it up); an empty `Set` is a no-op.
 - **Startup**: `run()` loads the file with `load_saved_settings` (damaged file or invalid key falls back, logged by key and code); `create_app()` without arguments still reads the environment only.

@@ -74,3 +74,23 @@ def test_a_failed_restart_after_the_reply_is_logged_not_raised(caplog) -> None:
     asyncio.run(_service(Activity(), restarter).perform())
 
     assert "SETTINGS_RESTART_UNAVAILABLE" in caplog.text
+
+
+def test_a_probe_that_raises_is_unavailable_not_an_exception() -> None:
+    restarter = FakeRestarter()
+    restarter.explode = True
+
+    result = asyncio.run(_service(Activity(), restarter).check())
+
+    assert isinstance(result, Failure)
+    assert result.failure().error_code == "SETTINGS_RESTART_UNAVAILABLE"
+
+
+def test_a_restart_that_raises_after_the_reply_is_logged(caplog) -> None:
+    restarter = FakeRestarter()
+    restarter.explode = True
+
+    asyncio.run(_service(Activity(), restarter).perform())
+
+    assert "RuntimeError" in caplog.text
+    assert "exploded" not in caplog.text

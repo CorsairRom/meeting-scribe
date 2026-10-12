@@ -148,13 +148,65 @@ def test_two_sets_never_overlap(tmp_path: Path) -> None:
     first.start()
     assert fx.store.entered.wait(5)
     second.start()
-    second.join(0.2)
-    assert second.is_alive()  # waits for the first one
+    second.join(0.3)
 
+    assert second.is_alive()  # waits for the first one
+    assert fx.store.write_calls == ["es"]  # the second never entered write while the first held it
     fx.store.gate.set()
     first.join(5)
     second.join(5)
-    assert [w["summaries.language"] for w in fx.store.writes] == ["es", "fr"]
+    assert fx.store.write_calls == ["es", "fr"]
+    assert fx.store.max_concurrent == 1
+
+
+def test_an_empty_set_is_a_no_op_that_does_not_rewrite_the_file(tmp_path: Path) -> None:
+    fx = Service(tmp_path, {"summaries.language": "es"})
+
+    outcome = fx.service.set({}).unwrap()
+
+    assert (outcome.applied, outcome.errors, outcome.apply_failed) == ((), (), False)
+    assert fx.store.writes == []
+    assert fx.events.log == []
+    assert fx.applied == []
+
+
+def test_the_folder_is_not_created_when_another_field_is_invalid(tmp_path: Path) -> None:
+    fx = Service(tmp_path)
+    new = tmp_path / "never-created"
+
+    outcome = fx.service.set(
+        {"storage.meetings_dir": str(new), "summaries.language": "Not Valid"}
+    ).unwrap()
+
+    assert [e.key for e in outcome.errors] == ["summaries.language"]
+    assert not new.exists()
+    assert fx.store.writes == []
+
+
+def test_a_failing_live_apply_still_saves_signals_and_tells_the_client(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    fx = Service(tmp_path)
+    fx.fail_apply = True
+    new = tmp_path / "other-meetings"
+
+    with caplog.at_level(logging.DEBUG):
+        outcome = fx.service.set(
+            {"summaries.local_model": "model-private", "storage.meetings_dir": str(new)}
+        ).unwrap()
+
+    assert outcome.apply_failed is True
+    assert outcome.errors == ()
+    assert outcome.applied == ("summaries.local_model", "storage.meetings_dir")
+    assert outcome.restart_required == ("storage.meetings_dir",)
+    assert fx.store.values["summaries.local_model"] == "model-private"  # saved
+    assert fx.service.restart_required == ("storage.meetings_dir",)
+    assert fx.events.log[0] == ("changed", ("summaries.local_model", "storage.meetings_dir"))
+    assert ("restart_required", ("storage.meetings_dir",)) in fx.events.log
+    assert fx.service.get_all()[1].value == "model-private"
+    assert "RuntimeError" in caplog.text
+    assert "boom" not in caplog.text
+    assert "model-private" not in caplog.text
 
 
 def test_logs_keys_not_values(caplog: pytest.LogCaptureFixture, tmp_path: Path) -> None:

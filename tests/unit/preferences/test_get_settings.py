@@ -4,15 +4,10 @@ from pathlib import Path
 
 import pytest
 
+from meeting_scribe.preferences.domain.fields import FIELD_REGISTRY
 from tests.unit.preferences.fakes import Service
 
-KEYS = [
-    "summaries.provider",
-    "summaries.local_model",
-    "summaries.language",
-    "summaries.cloud_model",
-    "storage.meetings_dir",
-]
+KEYS = [spec.key for spec in FIELD_REGISTRY]
 
 
 def _rows(service: Service) -> dict:

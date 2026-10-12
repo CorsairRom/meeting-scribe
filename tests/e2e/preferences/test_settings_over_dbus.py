@@ -6,6 +6,7 @@ the real config folder, session bus or user systemd.
 
 import asyncio
 import json
+import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import NamedTuple
@@ -14,6 +15,7 @@ import pytest
 from dbus_fast import DBusError
 from dbus_fast.aio import MessageBus
 
+from meeting_scribe.preferences.domain.fields import FIELD_REGISTRY
 from tests.e2e.preferences.fake_systemd import FakeManager, start_fake_systemd
 from tests.e2e.rig import Proxy, ServiceRig, connect, eventually, interface, running
 
@@ -21,13 +23,7 @@ pytestmark = pytest.mark.dbus
 
 IFACE = "dev.meetingscribe.Settings1"
 ERROR = "dev.meetingscribe.Error"
-KEYS = [
-    "summaries.provider",
-    "summaries.local_model",
-    "summaries.language",
-    "summaries.cloud_model",
-    "storage.meetings_dir",
-]
+KEYS = [spec.key for spec in FIELD_REGISTRY]
 
 
 class Session(NamedTuple):
@@ -174,6 +170,9 @@ def test_set_all_or_nothing(tmp_path: Path, bus_address: str) -> None:
             [],
             [],
         )
+        assert good["apply_failed"] is False
+        noop = _plain(await session.settings.call_set({}))
+        assert (noop["applied"], noop["errors"], noop["apply_failed"]) == ([], [], False)
         await eventually(lambda: bool(signals), "SettingsChanged")
         keys, saved_at_signal = signals[0]
         assert keys == ["summaries.local_model", "summaries.language"]
@@ -234,6 +233,7 @@ def test_the_meetings_folder_is_saved_and_needs_a_restart(tmp_path: Path, bus_ad
     assert _file(rig)["storage.meetings_dir"] == str(new)
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
 def test_a_storage_failure_is_a_dbus_error_and_changes_nothing(
     tmp_path: Path, bus_address: str
 ) -> None:

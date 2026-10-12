@@ -11,7 +11,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
-from dbus_fast import BusType, DBusError, Message, MessageType
+from dbus_fast import BusType, Message, MessageType
 from dbus_fast.aio import MessageBus
 from returns.result import Failure, Result, Success
 
@@ -48,8 +48,10 @@ class SystemdRestarter:
         """True when the manager answered with a method return (any other outcome is False)."""
         try:
             bus = await asyncio.wait_for(self._connect(), CALL_TIMEOUT_SECONDS)
-        except (OSError, DBusError, TimeoutError, ValueError):
-            logger.warning("The service manager could not be reached for %s.", member)
+        except Exception as error:  # any failure to connect means "unavailable"
+            logger.warning(
+                "The service manager could not be reached for %s: %s", member, type(error).__name__
+            )
             return False
         try:
             reply = await asyncio.wait_for(
@@ -65,7 +67,8 @@ class SystemdRestarter:
                 ),
                 CALL_TIMEOUT_SECONDS,
             )
-        except (OSError, DBusError, TimeoutError):
+        except Exception as error:
+            logger.warning("The service manager call %s failed: %s", member, type(error).__name__)
             return False
         finally:
             bus.disconnect()
