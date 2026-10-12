@@ -13,8 +13,8 @@ usage() {
   cat <<'USAGE'
 Usage: ./uninstall.sh [--help]   (alias: make uninstall)
 
-Removes what ./install.sh created. It keeps your meetings, settings.json, .env, the keyring entries
-and the downloaded models. FORCE=1 ./uninstall.sh stops it even while a recording runs.
+Removes what ./install.sh created. It keeps your meetings, settings.json, .env, the keyring items
+(cloud API key and Hugging Face token) and the downloaded models in ~/.cache/huggingface. FORCE=1 ./uninstall.sh stops it even while a recording runs.
 USAGE
 }
 for arg in "$@"; do
@@ -48,5 +48,9 @@ rmdir "$INSTALL_ROOT" 2>/dev/null || true
 uv tool uninstall meeting-scribe || true
 
 echo
-echo "meeting-scribe uninstalled. Your meetings, $CONFIG_HOME/meeting-scribe/settings.json and .env were left untouched."
-echo "(The cloud API key, if you stored one, stays in the GNOME Keyring: remove it in Seahorse.)"
+echo "meeting-scribe uninstalled."
+echo "Kept (not removed):"
+echo "  - your meetings (the meetings folder is never touched)"
+echo "  - settings.json and .env in $CONFIG_HOME/meeting-scribe"
+echo "  - the keyring items: the cloud API key and the Hugging Face token (remove them in Seahorse)"
+echo "  - the downloaded models in ~/.cache/huggingface (shared with other tools)"

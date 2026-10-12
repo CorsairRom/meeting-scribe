@@ -1012,3 +1012,93 @@ def test_uninstall_never_touches_ollama(sandbox: Env) -> None:
     sandbox.run(UNINSTALL, **IDLE)
     assert _ollama_calls(sandbox) == []
     assert not any(line.startswith("curl") for line in sandbox.calls())
+
+
+# --- F6.8: update and uninstall (AC-21, AC-22) ---
+
+USER_FILES = {
+    "Documents/meetings/2026-01-01-demo/meeting.json": "synthetic meeting\n",
+    ".config/meeting-scribe/settings.json": '{"logging.level": "DEBUG"}\n',
+    ".config/meeting-scribe/.env": "LOG_LEVEL=DEBUG\n",
+    ".local/share/keyrings/login.keyring": "fake keyring marker\n",
+    ".cache/huggingface/hub/models--fake--model/snapshots/abc/config.json": "{}\n",
+}
+ACTIVE = {"FAKE_UNIT_ACTIVE": "1", "FAKE_GDBUS_MODE": "idle"}
+
+
+def _seed_user_files(sandbox: Env) -> dict[Path, str]:
+    seeded = {sandbox.home / name: text for name, text in USER_FILES.items()}
+    for path, text in seeded.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    return seeded
+
+
+def _user_tree(sandbox: Env) -> dict[str, str]:
+    """Every file outside the install root, the unit, the activation file and the desktop entry."""
+    owned = {sandbox.unit_path, sandbox.activation_path, sandbox.desktop_entry}
+    return {
+        str(path.relative_to(sandbox.home)): path.read_text()
+        for path in sorted(sandbox.home.rglob("*"))
+        if path.is_file()
+        and path not in owned
+        and sandbox.root not in path.parents
+        and path.suffix != ".desktop"
+    }
+
+
+def _extension_calls(sandbox: Env) -> list[str]:
+    """The extension calls without the temporary pack directory, which differs per run."""
+    return [
+        re.sub(r"/\S*\.zip", "<zip>", re.sub(r"-o \S+", "-o <dir>", line))
+        for line in sandbox.calls()
+        if line.startswith("gnome-extensions")
+    ]
+
+
+def test_update_keeps_user_data_and_is_idempotent(sandbox: Env) -> None:
+    seeded = _seed_user_files(sandbox)
+    snapshots = []
+    extension_calls = []
+    for _ in range(3):
+        sandbox.log.write_text("")
+        result = sandbox.run(INSTALL, **ACTIVE)
+        assert result.returncode == 0, result.stdout + result.stderr
+        snapshots.append(
+            (
+                sandbox.unit_path.read_bytes(),
+                sandbox.activation_path.read_bytes(),
+                sandbox.desktop_entry.read_bytes(),
+                _user_tree(sandbox),
+                [v.name for v in sandbox.versions],
+            )
+        )
+        extension_calls.append(_extension_calls(sandbox))
+    second, third = snapshots[1], snapshots[2]
+    assert second[:4] == third[:4] == snapshots[0][:4]  # unit, activation, entry, user files
+    assert _user_tree(sandbox) == {str(p.relative_to(sandbox.home)): t for p, t in seeded.items()}
+    assert extension_calls[0] == extension_calls[1] == extension_calls[2] != []
+    for _, _, _, _, versions in snapshots[1:]:
+        assert len(versions) == 1  # the previous version is pruned once the new one runs
+    assert (sandbox.root / "current").resolve() == sandbox.versions[0].resolve()
+    assert f"systemctl --user restart {UNIT}" in sandbox.calls()
+
+
+def test_uninstall_lists_what_it_keeps(sandbox: Env) -> None:
+    seeded = _seed_user_files(sandbox)
+    _installed(sandbox)
+    result = sandbox.run(UNINSTALL, **ACTIVE)
+    assert result.returncode == 0, result.stderr
+    assert _user_tree(sandbox) == {str(p.relative_to(sandbox.home)): t for p, t in seeded.items()}
+    kept = result.stdout.split("Kept (not removed):", 1)[1]
+    for fragment in (
+        "meetings",
+        "settings.json",
+        ".env",
+        "cloud API key",
+        "Hugging Face token",
+        "Seahorse",
+        "~/.cache/huggingface",
+        "shared with other tools",
+    ):
+        assert fragment in kept, fragment
