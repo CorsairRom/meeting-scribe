@@ -398,7 +398,7 @@ pf_trim() {
 pf_check_gpu() {
   local timeout_s out="" rc=0 line name mem driver rows=0 max_mem=0 free=""
   local first_name="" first_mem=0 first_driver="" others=""
-  local why_driver="transcription and diarization run on the local NVIDIA GPU; there is no CPU or cloud mode"
+  local why_driver="transcription and diarization run on the local NVIDIA GPU; there is no automatic CPU fallback"
   local why_vram="the models and the summary model have to fit in 8 GB (the summary model peaks near 5 GB; Whisper and pyannote never share the GPU)"
   local driver_step="Install the NVIDIA driver (for example from RPM Fusion), reboot, then check that nvidia-smi lists your GPU (nobody can do this for you)"
   timeout_s="$(pf_seconds "${MEETING_SCRIBE_NVIDIA_SMI_TIMEOUT:-}" "$PF_NVIDIA_SMI_TIMEOUT_DEFAULT")"

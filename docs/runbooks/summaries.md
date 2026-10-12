@@ -47,7 +47,7 @@ command to fix it (exit 10). Run the command, then `./install.sh --check` again.
    ```
 
 3. Check that the service sees it: `ollama list` shows `qwen3:4b-instruct-2507-q4_K_M`. The install summary
-   then reads `ollama:    reachable; model qwen3:4b-instruct-2507-q4_K_M present`.
+   then reads `ollama:    reachable at preflight; model qwen3:4b-instruct-2507-q4_K_M present`.
 4. Open a processed meeting in the review app, go to the Summary tab and press **Generate summary**. A local summary
    sends the transcript to the local model only; nothing leaves the machine.
 

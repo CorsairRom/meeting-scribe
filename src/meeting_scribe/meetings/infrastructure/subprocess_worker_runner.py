@@ -49,7 +49,8 @@ _STDERR_TAIL_CHARS = 1000
 _CHILD_ENV = {
     "HF_HUB_DISABLE_TELEMETRY": "1",
     "PYANNOTE_METRICS_ENABLED": "false",
-    # Models are downloaded by ``make install`` (OQ-7); processing never touches the network.
+    # Models come from Preferences > Speech models > Download models (``Models1``);
+    # processing never touches the network.
     "HF_HUB_OFFLINE": "1",
     # Processing is token-free (ADR-011): ``token=None`` must not fall back to HF_TOKEN or the
     # stored login file.

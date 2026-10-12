@@ -1,7 +1,7 @@
 ---
 type: prd
 status: approved
-last_updated: 2026-10-09
+last_updated: 2026-10-12
 ai_instructions:
   - "This PRD describes the full product vision. What is built NOW is defined by docs/project/mvp-scope.md; if they conflict, mvp-scope.md wins."
   - "Safety requirements (section 6) are non-negotiable and override any convenience."
@@ -77,7 +77,7 @@ GPU (8 GB). No accounts, no multi-user, no remote access.
 | FR-4 | Extract a voice sample per speaker; send a desktop notification on completion | F3 |
 | FR-5 | Review app (GTK4, opened from the extension menu): listen per speaker, rename, merge speakers, view transcript | F4 |
 | FR-6 | Summary through a `SummaryProvider` (Ollama local default, OpenCode Go cloud opt-in), export `.md` | F5 |
-| FR-7 | Installable as a `systemd --user` service plus GNOME extension | F2.5 (runbook in F6) |
+| FR-7 | Installable as a `systemd --user` service plus GNOME extension | F2.5, F6 |
 
 ### 5.2 Non-functional
 
