@@ -4,7 +4,7 @@ Nothing here touches D-Bus, GTK or an audio device (BR-001).
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -13,11 +13,15 @@ from meeting_scribe_review.core.gateway import (
     Callback,
     GatewayListener,
     PlayerListener,
+    SettingsListener,
     SummaryListener,
 )
 from meeting_scribe_review.core.models import (
+    KeyStatus,
     MeetingSummary,
     ProviderRow,
+    SetOutcome,
+    SettingsField,
     Speaker,
     SummaryDocument,
     SummaryInfo,
@@ -302,7 +306,102 @@ class FakeApiKeyStore:
 
     result: Any = None
     stored: list[str] = field(default_factory=list)
+    status: Any = (
+        None  # a scripted ``Ok(KeyStatus)`` or ``Err``; default: the key follows ``stored``
+    )
+    removed: int = 0
+    remove_result: Any = None
 
     def store(self, secret: str, done: Callback[None]) -> None:
         self.stored.append(secret)
         done(self.result if self.result is not None else Ok(None))
+
+    def is_stored(self, done: Callback[KeyStatus]) -> None:
+        if self.status is not None:
+            done(self.status)
+        else:
+            done(Ok(KeyStatus.STORED if self.stored else KeyStatus.MISSING))
+
+    def remove(self, done: Callback[None]) -> None:
+        self.removed += 1
+        result = self.remove_result if self.remove_result is not None else Ok(None)
+        if isinstance(result, Ok):
+            self.stored.clear()
+        done(result)
+
+
+def setting(  # noqa: PLR0913
+    key: str,
+    value: str,
+    *,
+    kind: str = "text",
+    default: str = "",
+    source: str = "default",
+    locked: bool = False,
+    lock_reason: str = "",
+    apply: str = "live",
+    choices: tuple[str, ...] = (),
+    file_problem: str = "",
+    apply_problem: str = "",
+) -> SettingsField:
+    return SettingsField(
+        key, kind, value, default or value, source, locked, lock_reason, apply, choices,
+        file_problem, apply_problem,
+    )  # fmt: skip
+
+
+def default_settings() -> list[SettingsField]:
+    """The registry as the service answers it with nothing saved (the local provider)."""
+    return [
+        setting("summaries.provider", "local", kind="choice", choices=("local", "cloud")),
+        setting("summaries.local_model", "fake-local-model"),
+        setting("summaries.language", "auto", kind="choice", choices=("auto",)),
+        setting("summaries.cloud_model", "fake-cloud-model"),
+        setting("storage.meetings_dir", "/fake/meetings", kind="path", apply="restart"),
+    ]
+
+
+@dataclass
+class FakeSettingsGateway:
+    """Scripted ``Settings1``: ``fields`` is the saved state; ``set_values`` applies it for real."""
+
+    fields: list[SettingsField] = field(default_factory=default_settings)
+    calls: list[tuple[str, tuple[Any, ...]]] = field(default_factory=list)
+    replies: dict[str, Any] = field(default_factory=dict)  # method -> a scripted Ok or Err
+    pending: tuple[str, ...] = ()
+    errors: tuple[Any, ...] = ()  # FieldIssue rows the next set_values returns
+    listeners: list[SettingsListener] = field(default_factory=list)
+
+    def get_all(self, done: Callback[list[SettingsField]]) -> None:
+        self.calls.append(("get_all", ()))
+        done(self.replies.get("get_all", Ok(list(self.fields))))
+
+    def set_values(self, values: dict[str, str], done: Callback[SetOutcome]) -> None:
+        self.calls.append(("set_values", (dict(values),)))
+        if "set_values" in self.replies:
+            done(self.replies["set_values"])
+            return
+        if self.errors:
+            done(Ok(SetOutcome((), self.pending, False, self.errors)))
+            return
+        self.fields = [
+            replace(
+                f, value=values.get(f.key, f.value), source="file" if f.key in values else f.source
+            )
+            for f in self.fields
+        ]
+        done(Ok(SetOutcome(tuple(values), self.pending, False, ())))
+
+    def restart_required(self, done: Callback[tuple[str, ...]]) -> None:
+        self.calls.append(("restart_required", ()))
+        done(self.replies.get("restart_required", Ok(self.pending)))
+
+    def restart(self, done: Callback[str]) -> None:
+        self.calls.append(("restart", ()))
+        done(self.replies.get("restart", Ok("RESTARTING")))
+
+    def watch_settings(self, listener: SettingsListener) -> None:
+        self.listeners.append(listener)
+
+    def args_of(self, method: str) -> list[tuple[Any, ...]]:
+        return [args for name, args in self.calls if name == method]

@@ -47,6 +47,7 @@ def field_row(row: FieldRow) -> dict[str, Variant]:
         "apply": Variant("s", row.apply),
         "choices": Variant("as", list(row.choices)),
         "file_problem": Variant("s", row.file_problem),
+        "apply_problem": Variant("s", row.apply_problem),
     }
 
 

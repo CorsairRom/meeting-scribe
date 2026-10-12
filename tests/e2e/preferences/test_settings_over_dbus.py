@@ -86,6 +86,7 @@ def test_get_all(tmp_path: Path, bus_address: str) -> None:
                 "apply",
                 "choices",
                 "file_problem",
+                "apply_problem",
             }
             for r in rows
         )

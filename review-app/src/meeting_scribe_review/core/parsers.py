@@ -10,8 +10,11 @@ from typing import Any
 
 from meeting_scribe_review.core.errors import INVALID_REPLY, ServiceError
 from meeting_scribe_review.core.models import (
+    FieldIssue,
     MeetingSummary,
     ProviderRow,
+    SetOutcome,
+    SettingsField,
     Speaker,
     SummaryDocument,
     SummaryInfo,
@@ -22,6 +25,7 @@ from meeting_scribe_review.core.result import Err, Ok, Result
 _INVALID = Err(ServiceError(INVALID_REPLY))
 _SUMMARY_FIELDS = 5
 _UTTERANCE_FIELDS = 4
+_ISSUE_FIELDS = 3
 
 
 class _InvalidReplyError(Exception):
@@ -208,3 +212,64 @@ def parse_started(value: Any) -> Result[str, ServiceError]:
 def parse_cancelled(value: Any) -> Result[bool, ServiceError]:
     """``CancelSummary``: ``b``."""
     return _parse_one(value, _flag)
+
+
+def _texts(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str) or not isinstance(value, Sequence):
+        raise _InvalidReplyError
+    return tuple(_text(item) for item in value)
+
+
+def _setting(row: Any) -> SettingsField:
+    fields = _mapping(row)
+    return SettingsField(
+        key=_text(_key(fields, "key")),
+        kind=_text(_key(fields, "kind")),
+        value=_text(_key(fields, "value")),
+        default=_text(_key(fields, "default")),
+        source=_text(_key(fields, "source")),
+        locked=_flag(_key(fields, "locked")),
+        lock_reason=_text(_key(fields, "lock_reason")),
+        apply=_text(_key(fields, "apply")),
+        choices=_texts(_key(fields, "choices")),
+        file_problem=_text(_key(fields, "file_problem")),
+        apply_problem=_text(_key(fields, "apply_problem")),
+    )
+
+
+def _issue(row: Any) -> FieldIssue:
+    key, code, message = _tuple(row, _ISSUE_FIELDS)
+    return FieldIssue(_text(key), _text(code), _text(message))
+
+
+def _outcome(row: Any) -> SetOutcome:
+    fields = _mapping(row)
+    errors = _key(fields, "errors")
+    if isinstance(errors, str) or not isinstance(errors, Sequence):
+        raise _InvalidReplyError
+    return SetOutcome(
+        applied=_texts(_key(fields, "applied")),
+        restart_required=_texts(_key(fields, "restart_required")),
+        apply_failed=_flag(_key(fields, "apply_failed")),
+        errors=tuple(_issue(error) for error in errors),
+    )
+
+
+def parse_settings_fields(rows: Any) -> Result[list[SettingsField], ServiceError]:
+    """``Settings1.GetAll``: ``aa{sv}``."""
+    return _parse_all(rows, _setting)
+
+
+def parse_set_outcome(row: Any) -> Result[SetOutcome, ServiceError]:
+    """``Settings1.Set``: ``a{sv}``."""
+    return _parse_one(row, _outcome)
+
+
+def parse_keys(value: Any) -> Result[tuple[str, ...], ServiceError]:
+    """``Settings1.RestartRequired`` (read through ``Properties.Get``): ``as``."""
+    return _parse_one(value, _texts)
+
+
+def parse_restarting(value: Any) -> Result[str, ServiceError]:
+    """``Settings1.Restart``: ``s`` (``RESTARTING``)."""
+    return _parse_one(value, _text)

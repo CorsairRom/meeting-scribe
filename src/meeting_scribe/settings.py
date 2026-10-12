@@ -285,7 +285,14 @@ def _migrate_legacy_cloud_switch(
         explicit_off = enabled is False
         if explicit_off or provider_layer in {"env", "dotenv"}:
             settings.summaries = settings.summaries.model_copy(update={"provider": "local"})
-            if log:
+            if log and provider_layer == "file":
+                logger.warning(
+                    "%s is obsolete: set to false it overrides the cloud provider saved in "
+                    "Preferences, so the provider stays local. Delete the legacy lines to use "
+                    "the saved provider.",
+                    LEGACY_CLOUD_ENABLED,
+                )
+            elif log:
                 logger.warning(
                     "%s is obsolete: a cloud provider set in the environment needs it set to true, "
                     "so the provider stays local. Choose Cloud in Preferences, then delete the "

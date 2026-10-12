@@ -262,3 +262,16 @@ def test_file_values_outside_the_registry_never_break_a_load(
     assert settings.summaries.local_model == "m-ok"
     assert "summaries.bogus" in caplog.text
     assert "bogus" in caplog.text and "=y" not in caplog.text
+
+
+def test_legacy_false_over_a_saved_cloud_names_that_cause(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _dotenv(tmp_path, "SUMMARIES_CLOUD_ENABLED=false\n")
+
+    with caplog.at_level(logging.WARNING):
+        Settings.load(file_values={"summaries.provider": "cloud"})
+
+    (warning,) = _legacy_warnings(caplog)
+    assert "saved" in warning
+    assert "set in the environment" not in warning

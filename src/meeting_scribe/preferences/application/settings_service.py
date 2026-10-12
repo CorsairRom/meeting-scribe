@@ -30,6 +30,8 @@ from meeting_scribe.preferences.domain.ports import (
 
 logger = logging.getLogger(__name__)
 
+APPLY_FAILED = "SETTINGS_APPLY_FAILED"
+
 type Validator = Callable[[Mapping[str, str]], Result[EffectiveSettings, list[FieldProblem]]]
 type FieldCheck = Callable[[str], Result[str, FieldProblem]]
 """Checks one raw value of one field against the world (a folder) and returns what to store."""
@@ -62,6 +64,7 @@ class PreferencesService:
         *,
         checks: Mapping[str, FieldCheck] | None = None,
         prepare: Mapping[str, FieldCheck] | None = None,
+        rollback: Mapping[str, Callable[[], None]] | None = None,
         events: SettingsEvents | None = None,
     ) -> None:
         self._store = store
@@ -69,6 +72,8 @@ class PreferencesService:
         self._apply = apply
         self._checks = dict(checks or {})
         self._prepare = dict(prepare or {})  # side effects, run only when the whole Set will apply
+        self._rollback = dict(rollback or {})  # undo a prepare when the file cannot be written
+        self._apply_problem = ""
         self._events: SettingsEvents = events or NullSettingsEvents()
         self._lock = threading.Lock()  # one Set at a time; the second waits
         self._effective = state.effective
@@ -106,6 +111,7 @@ class PreferencesService:
                     apply=spec.apply,
                     choices=spec.choices,
                     file_problem=self._file_problem,
+                    apply_problem=self._apply_problem,
                 )
             )
         return rows
@@ -127,7 +133,7 @@ class PreferencesService:
             else:
                 problems = self._prepared(normalized)
                 if not problems:
-                    return self._save(values, candidate, validated.unwrap())
+                    return self._save(values, candidate, validated.unwrap(), tuple(normalized))
         keys = [problem.key for problem in problems]
         logger.warning("Settings rejected: %d problem(s) on keys %s", len(problems), keys)
         return Success(SetOutcome((), self._pending, tuple(problems)))
@@ -181,10 +187,17 @@ class PreferencesService:
             candidate[key] = value
 
     def _save(
-        self, values: dict[str, str], candidate: dict[str, str], effective: EffectiveSettings
+        self,
+        values: dict[str, str],
+        candidate: dict[str, str],
+        effective: EffectiveSettings,
+        prepared: tuple[str, ...] = (),
     ) -> Result[SetOutcome, SettingsStorageFailedError]:
         written = self._store.write(candidate)
         if isinstance(written, Failure):
+            for key in prepared:
+                if (undo := self._rollback.get(key)) is not None:
+                    undo()
             return written
         self._saved = candidate
         self._effective = effective
@@ -197,6 +210,7 @@ class PreferencesService:
         except Exception as error:  # saved is saved: report it, never undo it, never log a value
             apply_failed = True
             logger.error("Live apply failed after saving: %s", type(error).__name__)
+        self._apply_problem = APPLY_FAILED if apply_failed else ""
         pending = tuple(
             key for key, running in self._running.items() if effective.exposed_value(key) != running
         )

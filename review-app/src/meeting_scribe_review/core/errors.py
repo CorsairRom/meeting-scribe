@@ -10,6 +10,7 @@ INVALID_REPLY = "INVALID_REPLY"
 UNKNOWN_ERROR = "UNKNOWN_ERROR"
 KEYRING_UNAVAILABLE = "KEYRING_UNAVAILABLE"
 KEYRING_STORE_FAILED = "KEYRING_STORE_FAILED"
+KEYRING_REMOVE_FAILED = "KEYRING_REMOVE_FAILED"
 
 _DBUS_PREFIX = "org.freedesktop.DBus.Error."
 _NOT_RUNNING_NAMES = frozenset({"ServiceUnknown", "NameHasNoOwner", "NoServer"})
@@ -55,6 +56,9 @@ _MESSAGES: dict[str, UserMessage] = {
     ),
     KEYRING_STORE_FAILED: UserMessage(
         "The key could not be stored in the keyring. Unlock the login keyring and try again."
+    ),
+    KEYRING_REMOVE_FAILED: UserMessage(
+        "The key could not be removed from the keyring. Unlock the login keyring and try again."
     ),
     "ENTITY_NOT_FOUND_MEETING": UserMessage("This meeting no longer exists."),
     "ENTITY_NOT_FOUND_SPEAKER": UserMessage(
@@ -106,6 +110,29 @@ _MESSAGES: dict[str, UserMessage] = {
     "SUMMARY_GPU_BUSY": UserMessage(
         "A recording or processing job is using the GPU. Try again when it ends."
     ),
+    "SETTINGS_STORAGE_FAILED": UserMessage(
+        "The settings could not be saved. Check disk space and the permissions of the "
+        "config folder."
+    ),
+    "SETTINGS_FILE_INVALID": UserMessage(
+        "The saved settings file could not be read, so it is ignored. Save again to replace it."
+    ),
+    "SETTINGS_RESTART_BUSY": UserMessage(
+        "A recording, a processing job or a summary is running. Restart when it ends."
+    ),
+    "SETTINGS_RESTART_UNAVAILABLE": UserMessage(
+        "The service could not be restarted from here.",
+        "systemctl --user restart meeting-scribe.service",
+    ),
+    "SETTINGS_APPLY_FAILED": UserMessage(
+        "Your settings were saved, but a change could not be applied. Restart the service."
+    ),
+    "FIELD_UNKNOWN": UserMessage("This setting cannot be changed here."),
+    "FIELD_LOCKED": UserMessage(
+        "The environment sets this field. Remove that override to change it here."
+    ),
+    "FIELD_INVALID": UserMessage("This value is not valid."),
+    "FIELD_FOLDER_NOT_WRITABLE": UserMessage("The meetings folder is not writable."),
     "SUMMARY_STORAGE_FAILED": UserMessage(
         "The summary could not be saved. Check disk space and permissions."
     ),

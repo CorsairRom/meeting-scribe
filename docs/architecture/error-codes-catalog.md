@@ -124,6 +124,7 @@ These are rows inside a `Set` reply, not D-Bus errors and not `MeetingScribeErro
 | `FIELD_LOCKED` | The environment or `.env` sets the field; remove that override to unlock it |
 | `FIELD_INVALID` | The value failed the settings validators (or the folder is relative, a file, or contains `..`) |
 | `FIELD_FOLDER_NOT_WRITABLE` | The meetings folder cannot be created or written |
+| `SETTINGS_APPLY_FAILED` | Not an error: the `apply_problem` of every `GetAll` row while the last save was kept but applying a live change raised; cleared by the next successful apply |
 
 ---
 

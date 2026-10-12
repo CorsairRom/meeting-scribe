@@ -88,3 +88,4 @@ class FieldRow:
     apply: ApplyMode
     choices: tuple[str, ...]
     file_problem: str  # empty, or a code such as SETTINGS_FILE_INVALID (the same on every row)
+    apply_problem: str = ""  # empty, or SETTINGS_APPLY_FAILED until a later apply succeeds

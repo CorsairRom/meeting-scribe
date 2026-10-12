@@ -123,3 +123,22 @@ def test_a_damaged_meeting_says_to_reprocess_it() -> None:
 
 def test_invalid_reply_has_a_message() -> None:
     assert INVALID_REPLY not in message_for(ServiceError(INVALID_REPLY)).text
+
+
+def _settings_codes() -> set[str]:
+    codes = {c for c in _catalog_codes() if c.startswith("SETTINGS_")}
+    fields = re.findall(r"^\| `(FIELD_[A-Z_]+)` \|", CATALOG.read_text(encoding="utf-8"), re.M)
+    return codes | set(fields) | {"SETTINGS_APPLY_FAILED"}
+
+
+def test_every_settings_and_field_code_has_a_message() -> None:
+    codes = _settings_codes()
+    assert {"SETTINGS_RESTART_BUSY", "FIELD_LOCKED", "FIELD_FOLDER_NOT_WRITABLE"} <= codes
+    for code in sorted(codes):
+        assert code not in message_for(ServiceError(code)).text, code
+
+
+def test_a_busy_restart_says_to_wait_and_an_unreachable_one_gives_the_command() -> None:
+    assert "ends" in message_for(ServiceError("SETTINGS_RESTART_BUSY")).text
+    unavailable = message_for(ServiceError("SETTINGS_RESTART_UNAVAILABLE"))
+    assert unavailable.hint == "systemctl --user restart meeting-scribe.service"
