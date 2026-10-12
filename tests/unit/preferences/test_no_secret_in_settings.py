@@ -20,6 +20,7 @@ def test_the_exposed_keys_are_an_allow_list_without_anything_secret_like() -> No
         "summaries.local_model",
         "summaries.language",
         "summaries.cloud_model",
+        "summaries.cloud_provider",
         "storage.meetings_dir",
     ]
     forbidden = ("key", "token", "secret", "password", "url", "credential")

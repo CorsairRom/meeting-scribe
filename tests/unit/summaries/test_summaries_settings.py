@@ -13,6 +13,7 @@ _VARS = (
     "SUMMARIES_LOCAL_CONTEXT_TOKENS",
     "SUMMARIES_UNLOAD_LOCAL_MODEL",
     "SUMMARIES_CLOUD_ENABLED",
+    "SUMMARIES_CLOUD_PROVIDER",
     "SUMMARIES_CLOUD_PROVIDER_NAME",
     "SUMMARIES_CLOUD_BASE_URL",
     "SUMMARIES_CLOUD_MODEL",
@@ -171,3 +172,17 @@ def test_the_loopback_error_names_the_variable_and_the_accepted_hosts() -> None:
     assert "SUMMARIES_LOCAL_BASE_URL" in message
     assert "http or https" in message
     assert "127.0.0.1" in message
+
+
+def test_cloud_provider_choice(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = SummariesSettings()
+
+    assert settings.cloud_provider == "opencode-go"
+    assert settings.cloud_provider_name == "OpenCode Go"
+    assert settings.cloud_base_url == "https://opencode.ai/zen/go/v1"
+    with pytest.raises(ValidationError):
+        SummariesSettings(cloud_provider="other")  # type: ignore[arg-type]
+    monkeypatch.setenv("SUMMARIES_CLOUD_BASE_URL", "https://gateway.example.test/v1")
+    overridden = SummariesSettings()
+    assert overridden.cloud_base_url == "https://gateway.example.test/v1"
+    assert overridden.cloud_provider_name == "OpenCode Go"

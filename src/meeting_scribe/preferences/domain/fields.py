@@ -45,6 +45,7 @@ FIELD_REGISTRY: tuple[FieldSpec, ...] = (
     # "auto" or any lowercase ISO code: the validator is the settings rule, the list is a hint.
     FieldSpec("summaries.language", "choice", "live", ("auto",)),
     FieldSpec("summaries.cloud_model", "text", "live"),
+    FieldSpec("summaries.cloud_provider", "choice", "live", ("opencode-go",)),
     FieldSpec("storage.meetings_dir", "path", "restart"),
 )
 

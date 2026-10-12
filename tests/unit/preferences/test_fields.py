@@ -13,6 +13,7 @@ from meeting_scribe.preferences.domain.fields import (
 EXPECTED = {
     "summaries.provider": ("choice", "live", ("local", "cloud")),
     "summaries.local_model": ("text", "live", ()),
+    "summaries.cloud_provider": ("choice", "live", ("opencode-go",)),
     "summaries.language": ("choice", "live", ("auto",)),
     "summaries.cloud_model": ("text", "live", ()),
     "storage.meetings_dir": ("path", "restart", ()),
