@@ -898,33 +898,42 @@ def test_the_summary_says_the_review_app_is_ready(sandbox: Env) -> None:
     assert "review app: ready" in summary
 
 
+def _remove_tool(sandbox: Env, name: str) -> None:
+    (Path(sandbox.env["PATH"]) / name).unlink()
+
+
 @pytest.mark.parametrize(
-    ("missing", "packages"),
+    ("setup", "code", "tag"),
     [
-        ("gi", ["python3-gobject", "gtk4", "libadwaita"]),
-        ("Gtk", ["gtk4"]),
-        ("Adw", ["libadwaita"]),
+        ({"remove": "ffmpeg"}, 10, "[ FIX ] tool.ffmpeg"),
+        ({"env": {"FAKE_GI_MISSING": "Adw"}}, 10, "[ FIX ] gtk.libadwaita"),
+        ({"env": {"XDG_SESSION_TYPE": "x11"}}, 11, "[HUMAN] session.wayland"),
+        ({"remove": "uv"}, 10, "[ FIX ] tool.uv"),
+        ({"env": {"FAKE_GDBUS_MODE": "recording"}, "remove": "pactl"}, 10, "[ FIX ] tool.pactl"),
+        ({"env": {"FORCE": "1"}, "remove": "curl"}, 10, "[ FIX ] tool.curl"),
     ],
 )
-def test_a_missing_system_package_only_warns_and_names_the_packages(
-    sandbox: Env, missing: str, packages: list[str]
+def test_install_stops_with_zero_changes_when_a_prerequisite_is_missing(
+    sandbox: Env, setup: dict, code: int, tag: str
 ) -> None:
-    result = sandbox.run(INSTALL, FAKE_GI_MISSING=missing, **IDLE)
-    assert result.returncode == 0, result.stderr
-    summary = result.stdout.split("meeting-scribe installed")[1]
-    line = next(x for x in summary.splitlines() if "review app:" in x)
-    assert "NOT usable" in line
-    for package in packages:
-        assert package in line
-    assert "gstreamer1-plugins-good" in summary
-    assert sandbox.desktop_entry.exists()  # still installed, only the toolkit is missing
+    if "remove" in setup:
+        _remove_tool(sandbox, setup["remove"])
+    result = sandbox.run(INSTALL, **setup.get("env", {}))
+    assert result.returncode == code, result.stderr
+    assert tag in result.stdout  # the preflight report is printed
+    assert "fix:" in result.stdout or "steps:" in result.stdout
+    assert sandbox.tree() == []  # the sandbox HOME is unchanged
+    calls = sandbox.calls()
+    for prefix in ("uv", "systemctl", "gnome-extensions", "gdbus", "sudo", "meeting-scribe"):
+        assert not any(line.startswith(prefix) for line in calls), (prefix, calls)
+    assert "meeting-scribe installed" not in result.stdout
 
 
-def test_an_absent_system_python_is_reported_the_same_way(sandbox: Env) -> None:
-    result = sandbox.run(INSTALL, REVIEW_APP_PYTHON="/nonexistent/python3", **IDLE)
-    assert result.returncode == 0, result.stderr
-    summary = result.stdout.split("meeting-scribe installed")[1]
-    assert "review app: NOT usable (missing: python3-gobject" in summary
+def test_a_package_gap_no_longer_installs_with_a_warning(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, FAKE_GI_MISSING="gi", **IDLE)
+    assert result.returncode == 10
+    assert "sudo dnf install python3-gobject" in result.stdout
+    assert not sandbox.desktop_entry.exists()
 
 
 def test_the_review_app_never_runs_a_window_during_install(sandbox: Env) -> None:

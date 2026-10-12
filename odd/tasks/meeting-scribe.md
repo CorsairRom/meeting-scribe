@@ -626,10 +626,13 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
       option parsing (`--check`, `--json`, `--help`), exit-code contract and report formatter, with fakes-based tests.
       Evidence: RED = 36 failed in `tests/unit/test_preflight.py` (no wrappers, no `scripts/preflight.sh`); GREEN =
       `make check` 1945 python passed, packaging 1 passed, gjs 163 passed. Sandbox moved to `tests/unit/install_sandbox.py`
-      (shared with the preflight tests, stdin closed, fake `sudo` that fails loudly). Commit: see F6.2 evidence.
-- [ ] F6.2 Preflight, system checks: GNOME Wayland session, GNOME Shell version from the extension metadata, `uv`,
+      (shared with the preflight tests, stdin closed, fake `sudo` that fails loudly). Commit `7ed0cbf` `feat(install): add the single entry point and the preflight report`.
+- [x] F6.2 Preflight, system checks: GNOME Wayland session, GNOME Shell version from the extension metadata, `uv`,
       `ffmpeg`, `pactl`, `systemctl`, `gdbus`, `gnome-extensions`, GTK4, libadwaita, PyGObject, libsecret; the README
       prerequisites list and the drift test that keeps it equal to the check ids.
+      Evidence: RED = 29 failed in `tests/unit/test_preflight.py` plus 2 errors in `test_readme_prerequisites.py` (no checks,
+      no README table); GREEN = `make check` 1986 python passed, packaging 1 passed, gjs 163 passed. The old "review app: NOT
+      usable" warning tests became the zero-change stop (AC-2). Commit: see F6.3 evidence.
 - [ ] F6.3 Preflight, hardware and services: NVIDIA driver, VRAM, free disk by filesystem, Ollama installed, reachable,
       default model present; the install stops with zero changes; summary line "models: pending" replaces the model download step.
 - [ ] F6.4 Token-free processing: the pyannote loader uses no token, the fetcher takes one on stdin, `prefetch-models`

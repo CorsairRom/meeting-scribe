@@ -97,10 +97,11 @@ case "$1" in
 esac
 """,
     # The review app's interpreter probe. Each probe fails when its own name is listed in
-    # FAKE_GI_MISSING (comma separated: gi, Gtk, Adw). Any other call just succeeds.
+    # FAKE_GI_MISSING (comma separated: gi, Gtk, Adw, Secret). Any other call just succeeds.
     "python3": """
 missing=",${FAKE_GI_MISSING:-},"
 case "$*" in
+  *Secret*) [[ "$missing" == *,Secret,* ]] && exit 1 ;;
   *Adw*) [[ "$missing" == *,Adw,* ]] && exit 1 ;;
   *Gtk*) [[ "$missing" == *,Gtk,* ]] && exit 1 ;;
   *"import gi"*) [[ "$missing" == *,gi,* ]] && exit 1 ;;
@@ -129,6 +130,14 @@ esac
 """,
     # Records the call: the installer must never run it (it only prints sudo commands).
     "sudo": "echo 'sudo was called by the installer' >&2; exit 99",
+    # Present and working by default; a test removes the file to make the tool "missing".
+    "ffmpeg": "",
+    "pactl": "",
+    "curl": "",
+    "secret-tool": "",
+    "gnome-shell": 'echo "GNOME Shell ${FAKE_SHELL_VERSION:-50.4}"',
+    # `rpm -q <package>`: the voice sample plugin is installed unless FAKE_GSTREAMER=0.
+    "rpm": '[ "${FAKE_GSTREAMER:-1}" = 1 ]',
     "update-desktop-database": "",
     "gdbus": """
 mode="${FAKE_GDBUS_MODE:-noowner}"
@@ -245,6 +254,8 @@ def sandbox_fixture(tmp_path: Path) -> Env:
         path = fakes / name
         path.write_text(f'#!/usr/bin/env bash\necho "{name} $*" >> "$FAKE_LOG"\n{body}')
         path.chmod(0o755)
+    os_release = tmp_path / "os-release"
+    os_release.write_text('ID=fedora\nVERSION_ID="44"\n')
     env = {
         "HOME": str(home),
         "XDG_CONFIG_HOME": str(home / ".config"),
@@ -253,5 +264,8 @@ def sandbox_fixture(tmp_path: Path) -> Env:
         "FAKE_LOG": str(log),
         "BASH": str(shutil.which("bash")),
         "REVIEW_APP_PYTHON": str(fakes / "python3"),
+        "OS_RELEASE_FILE": str(os_release),
+        "XDG_SESSION_TYPE": "wayland",
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/nonexistent/bus",
     }
     return Env(home=home, log=log, env=env)

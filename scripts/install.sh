@@ -301,17 +301,6 @@ elif ! gnome-extensions enable "$EXTENSION_UUID" 2>/dev/null \
   fi
 fi
 
-# Read-only check of the system toolkit; a gap only warns (like the extension and the models).
-review_missing=()
-if ! "$REVIEW_APP_PYTHON" -c 'import gi' >/dev/null 2>&1; then
-  review_missing=(python3-gobject gtk4 libadwaita)
-else
-  "$REVIEW_APP_PYTHON" -c 'import gi; gi.require_version("Gtk", "4.0")' >/dev/null 2>&1 \
-    || review_missing+=(gtk4)
-  "$REVIEW_APP_PYTHON" -c 'import gi; gi.require_version("Adw", "1")' >/dev/null 2>&1 \
-    || review_missing+=(libadwaita)
-fi
-
 # The value of a `KEY=value` line: CR removed, surrounding spaces trimmed; a quoted value ends at its
 # closing quote (so a trailing comment is dropped); an unquoted one ends at a ` #` comment.
 parse_env_value() {
@@ -397,12 +386,7 @@ if [[ -n "$extension_failed" ]]; then
 else
   echo "  extension: $extension_state ($EXTENSION_UUID)"
 fi
-if ((${#review_missing[@]})); then
-  echo "  review app: NOT usable (missing: ${review_missing[*]}); install with: sudo dnf install ${review_missing[*]}"
-  echo "             Sample playback also needs gstreamer1-plugins-good. The extension menu item stays; re-run ./install.sh to re-check."
-else
-  echo "  review app: ready ($DESKTOP_ENTRY_NAME)"
-fi
+echo "  review app: ready ($DESKTOP_ENTRY_NAME)"
 case "$models_status" in
   skipped_rollback)
     echo "  models:    NOT downloaded, the install rolled back (the start failure is the real problem)."
