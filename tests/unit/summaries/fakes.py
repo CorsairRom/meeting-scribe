@@ -2,11 +2,16 @@
 
 from collections.abc import Callable
 
+from pydantic import SecretStr
 from returns.result import Failure, Result, Success
 
-from meeting_scribe.summaries.domain.errors import SummaryCancelledError, SummaryError
+from meeting_scribe.summaries.domain.errors import (
+    SummaryCancelledError,
+    SummaryError,
+    SummaryModelsUnavailableError,
+)
 from meeting_scribe.summaries.domain.headings import ENGLISH, Headings
-from meeting_scribe.summaries.domain.ports import CancelSignal, Completion, Message
+from meeting_scribe.summaries.domain.ports import CancelSignal, Completion, Message, ModelEntry
 from meeting_scribe.summaries.domain.request import CompletionLimits
 
 VALID_OUTPUT = """# Synthetic title
@@ -144,3 +149,32 @@ class FakeClock:
 
     def __call__(self) -> float:
         return self.now
+
+
+class FakeLocalModels:
+    """A ``LocalModelSource`` answering a preset result (unavailable by default)."""
+
+    def __init__(self, result: Result[list[ModelEntry], SummaryError] | None = None) -> None:
+        self.result: Result[list[ModelEntry], SummaryError] = result or Failure(
+            SummaryModelsUnavailableError("no list in this test")
+        )
+        self.asks = 0
+
+    def list_models(self) -> Result[list[ModelEntry], SummaryError]:
+        self.asks += 1
+        return self.result
+
+
+class FakeCloudModels:
+    """A ``CloudModelSource`` answering a preset result; remembers that it got a key, not which."""
+
+    def __init__(self, result: Result[list[ModelEntry], SummaryError] | None = None) -> None:
+        self.result: Result[list[ModelEntry], SummaryError] = result or Failure(
+            SummaryModelsUnavailableError("no list in this test")
+        )
+        self.asks = 0
+
+    def list_models(self, key: SecretStr) -> Result[list[ModelEntry], SummaryError]:
+        assert key.get_secret_value()
+        self.asks += 1
+        return self.result

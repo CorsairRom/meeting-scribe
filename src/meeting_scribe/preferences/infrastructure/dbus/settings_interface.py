@@ -21,7 +21,8 @@ from meeting_scribe.preferences.application.settings_service import (
     SetOutcome,
 )
 from meeting_scribe.preferences.domain.fields import FieldRow
-from meeting_scribe.preferences.domain.ports import NullSettingsEvents
+from meeting_scribe.preferences.domain.models import ModelListing
+from meeting_scribe.preferences.domain.ports import ModelCatalog, NullSettingsEvents
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,13 @@ def field_row(row: FieldRow) -> dict[str, Variant]:
     }
 
 
+def model_listing(listing: ModelListing) -> dict[str, Variant]:
+    return {
+        "status": Variant("s", listing.status),
+        "models": Variant("a(sbs)", [[m.id, m.supported, m.reason] for m in listing.models]),
+    }
+
+
 def outcome_details(outcome: SetOutcome) -> dict[str, Variant]:
     return {
         "applied": Variant("as", list(outcome.applied)),
@@ -58,6 +66,12 @@ def outcome_details(outcome: SetOutcome) -> dict[str, Variant]:
         "apply_failed": Variant("b", outcome.apply_failed),
         "errors": Variant("a(sss)", [[e.key, str(e.code), e.message] for e in outcome.errors]),
     }
+
+
+class _NoModels:
+    def list_models(self, scope: str) -> ModelListing:
+        del scope
+        return ModelListing("SUMMARY_MODELS_UNAVAILABLE")
 
 
 class SettingsInterface(ServiceInterface, NullSettingsEvents):
@@ -72,11 +86,13 @@ class SettingsInterface(ServiceInterface, NullSettingsEvents):
         preferences: PreferencesService,
         restart: RestartService,
         restart_delay: float = RESTART_DELAY_SECONDS,
+        models: ModelCatalog | None = None,
     ) -> None:
         ServiceInterface.__init__(self, INTERFACE_NAME)
         self._preferences = preferences
         self._restart = restart
         self._restart_delay = restart_delay
+        self._models = models or _NoModels()
         self._loop = asyncio.get_running_loop()
         self._tasks: set[asyncio.Task[None]] = set()
 
@@ -94,6 +110,10 @@ class SettingsInterface(ServiceInterface, NullSettingsEvents):
     async def Restart(self) -> DBusStr:
         return await self.restart()
 
+    @dbus_method()
+    async def ListModels(self, scope: DBusStr) -> DBusDetails:
+        return await self.list_models(scope)
+
     async def get_all(self) -> list[dict[str, Variant]]:
         rows = await asyncio.to_thread(self._preferences.get_all)
         return [field_row(row) for row in rows]
@@ -103,6 +123,11 @@ class SettingsInterface(ServiceInterface, NullSettingsEvents):
         if isinstance(saved, Failure):
             raise to_dbus_error(saved.failure())
         return outcome_details(saved.unwrap())
+
+    async def list_models(self, scope: str) -> dict[str, Variant]:
+        """Bounded network calls, off the loop. Never a D-Bus error: the status says why."""
+        listing = await asyncio.to_thread(self._models.list_models, scope)
+        return model_listing(listing)
 
     async def restart(self) -> str:
         checked = await self._restart.check()

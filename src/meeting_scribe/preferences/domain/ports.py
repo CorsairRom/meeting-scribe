@@ -11,6 +11,7 @@ from meeting_scribe.preferences.domain.errors import (
     SettingsStorageFailedError,
 )
 from meeting_scribe.preferences.domain.fields import FieldSource
+from meeting_scribe.preferences.domain.models import ModelListing
 
 
 class SettingsFileStore(Protocol):
@@ -63,3 +64,9 @@ class NullSettingsEvents:
 
     def restart_required_changed(self, keys: Sequence[str]) -> None:
         pass
+
+
+class ModelCatalog(Protocol):
+    """The models a scope (``local`` or ``cloud``) offers; blocking, bounded, never raises."""
+
+    def list_models(self, scope: str) -> ModelListing: ...
