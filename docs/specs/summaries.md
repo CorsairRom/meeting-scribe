@@ -302,7 +302,7 @@ GIVEN no meeting has a summary
 THEN GetSummary and LastSummary fail with ENTITY_NOT_FOUND_SUMMARY
 ```
 
-**Test**: `tests/e2e/meetings/test_summaries_over_dbus.py::test_a_local_summary_runs_announces_and_is_readable`, `tests/unit/meetings/test_summary_controller.py::test_get_summary_returns_the_text_and_facts_without_a_path`, `::test_last_summary_is_the_newest_with_its_file_and_an_absolute_path`
+**Test**: `tests/e2e/meetings/test_summaries_over_dbus.py::test_a_local_summary_runs_announces_and_is_readable`, `tests/unit/meetings/test_summary_controller.py::test_get_summary_returns_the_text_and_facts_without_a_path`, `::test_last_summary_is_the_newest_with_its_file_and_an_absolute_path`, `::test_last_summary_without_any_summary_is_entity_not_found`
 
 ### AC-17: The review app generates and shows the summary
 

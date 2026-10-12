@@ -89,7 +89,7 @@ AND the call returns the refreshed speaker rows
 AND SpeakersChanged(meeting) is emitted
 ```
 
-**Test**: `tests/unit/meetings/test_review_controller.py::test_rename_saves_the_name_and_returns_the_refreshed_rows`
+**Test**: `tests/unit/meetings/test_review_controller.py::test_rename_saves_the_name_and_returns_the_refreshed_rows`, `tests/unit/meetings/test_meetings_review_interface.py::test_edits_emit_the_signal_once_and_a_noop_emits_nothing`
 
 ### AC-3: Name validation
 
