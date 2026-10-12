@@ -25,6 +25,7 @@ def test_one_row_per_exposed_field_with_the_default_source(tmp_path: Path) -> No
         ("text", "live"),
         ("choice", "live"),
         ("text", "live"),
+        ("choice", "live"),
         ("path", "restart"),
     ]
     assert rows[0].choices == ("local", "cloud")

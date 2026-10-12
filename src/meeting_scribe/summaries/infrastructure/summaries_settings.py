@@ -4,7 +4,8 @@ The cloud API key is deliberately not a setting: it lives in the GNOME Keyring (
 """
 
 import re
-from typing import Literal, Self
+from dataclasses import dataclass
+from typing import Any, Literal, Self
 from urllib.parse import urlparse
 
 from pydantic import Field, field_validator, model_validator
@@ -19,6 +20,19 @@ _LANGUAGE = re.compile(r"auto|[a-z]{2,3}")
 MAX_MODEL_NAME = 200
 
 
+@dataclass(frozen=True)
+class CloudProvider:
+    name: str
+    base_url: str
+
+
+# The cloud providers the user can choose in Preferences; the choice decides the display name and
+# the base URL unless a developer override sets ``SUMMARIES_CLOUD_PROVIDER_NAME``/``_BASE_URL``.
+CLOUD_PROVIDERS: dict[str, CloudProvider] = {
+    "opencode-go": CloudProvider("OpenCode Go", "https://opencode.ai/zen/go/v1"),
+}
+
+
 class SummariesSettings(MeetingScribeSettings):
     model_config = SettingsConfigDict(env_prefix="SUMMARIES_")
 
@@ -27,6 +41,7 @@ class SummariesSettings(MeetingScribeSettings):
     local_model: str = Field(default="qwen3.5:9b", min_length=1, max_length=MAX_MODEL_NAME)
     local_context_tokens: int = Field(default=4096, gt=0)
     unload_local_model: bool = True
+    cloud_provider: Literal["opencode-go"] = "opencode-go"
     cloud_provider_name: str = Field(default="OpenCode Go", min_length=1)
     cloud_base_url: str = "https://opencode.ai/zen/go/v1"
     cloud_model: str = Field(default="deepseek-v4-pro", min_length=1, max_length=MAX_MODEL_NAME)
@@ -37,6 +52,17 @@ class SummariesSettings(MeetingScribeSettings):
     timeout_seconds: float = Field(default=300, gt=0)
     total_timeout_seconds: float = Field(default=3600, gt=0)
     max_retries: int = Field(default=2, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _cloud_provider_fills_its_defaults(cls, data: Any) -> Any:
+        """The chosen cloud provider supplies the name and URL a developer override did not set."""
+        if not isinstance(data, dict):
+            return data
+        provider = CLOUD_PROVIDERS.get(str(data.get("cloud_provider", "opencode-go")))
+        if provider is None:
+            return data  # the Literal rejects the unknown choice with its own message
+        return {"cloud_provider_name": provider.name, "cloud_base_url": provider.base_url, **data}
 
     @field_validator("local_base_url")
     @classmethod

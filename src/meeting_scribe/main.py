@@ -49,11 +49,13 @@ from meeting_scribe.meetings.infrastructure.filesystem_summary_files import File
 from meeting_scribe.meetings.infrastructure.freedesktop_notifier import FreedesktopNotifier
 from meeting_scribe.meetings.infrastructure.subprocess_worker_runner import SubprocessWorkerRunner
 from meeting_scribe.meetings.infrastructure.wav_chunk_inspector import WavChunkInspector
+from meeting_scribe.preferences.application.model_check import ModelCheck
 from meeting_scribe.preferences.application.restart_service import RestartService
 from meeting_scribe.preferences.application.settings_service import (
     PreferencesService,
     PreferencesState,
 )
+from meeting_scribe.preferences.domain.models import MODELS_OK, ModelListing, ModelRow
 from meeting_scribe.preferences.domain.ports import (
     EffectiveSettings,
     ServiceRestarter,
@@ -93,6 +95,7 @@ from meeting_scribe.speakers.application.render_transcript import RenderTranscri
 from meeting_scribe.speakers.application.review_speakers import ReviewSpeakers
 from meeting_scribe.speakers.infrastructure.json_utterances_store import JsonUtterancesStore
 from meeting_scribe.summaries.application.generate_summary import GenerateSummary
+from meeting_scribe.summaries.application.list_models import ListModels
 from meeting_scribe.summaries.domain.headings import HeadingCatalog
 from meeting_scribe.summaries.domain.ports import (
     CloudKeyStore,
@@ -101,11 +104,17 @@ from meeting_scribe.summaries.domain.ports import (
     SummaryProvider,
 )
 from meeting_scribe.summaries.infrastructure.gettext_headings import GettextHeadingCatalog
+from meeting_scribe.summaries.infrastructure.model_listing import (
+    OllamaModelLister,
+    OpenAiCompatibleModelLister,
+)
 from meeting_scribe.summaries.infrastructure.ollama_releaser import OllamaModelReleaser
 from meeting_scribe.summaries.infrastructure.openai_provider import OpenAiCompatibleProvider
 from meeting_scribe.summaries.infrastructure.secret_service_store import SecretServiceKeyStore
 
 logger = logging.getLogger(__name__)
+
+UNAVAILABLE = "SUMMARY_MODELS_UNAVAILABLE"
 
 EXIT_OK = 0
 EXIT_NAME_TAKEN = 1
@@ -149,6 +158,7 @@ class SummaryAdapters:
     local_releaser: ModelReleaser
     cloud_releaser: ModelReleaser
     headings: HeadingCatalog
+    models: ListModels | None = None  # the Preferences model lists; None where a test has none
 
 
 @dataclass(frozen=True)
@@ -235,6 +245,11 @@ def _real_summary_adapters(settings: Settings) -> SummaryAdapters:
         ),
         cloud_releaser=NullModelReleaser(),
         headings=GettextHeadingCatalog(),
+        models=ListModels(
+            OllamaModelLister(summaries.local_base_url),
+            OpenAiCompatibleModelLister(summaries.cloud_base_url),
+            keys,
+        ),
     )
 
 
@@ -281,13 +296,27 @@ class LiveSummaryConfig:
         initial_ports: SummaryAdapters,
     ) -> None:
         self._ports_for = ports_for
+        self._ports = initial_ports
         self._config = build_summary_config(settings, initial_ports)
 
     def __call__(self) -> SummaryConfig:
         return self._config
 
     def apply(self, settings: Settings) -> None:
-        self._config = build_summary_config(settings, self._ports_for(settings))
+        ports = self._ports_for(settings)
+        self._config = build_summary_config(settings, ports)
+        self._ports = ports
+
+    def list_models(self, scope: str) -> ModelListing:
+        """The models of a scope from the adapters in effect (a ``ModelCatalog`` for Settings1)."""
+        use_case = self._ports.models
+        if use_case is None:
+            return ModelListing(UNAVAILABLE)
+        listed = use_case.execute(scope)
+        if isinstance(listed, Failure):
+            return ModelListing(listed.failure().error_code)
+        rows = tuple(ModelRow(m.id, m.supported, m.reason) for m in listed.unwrap())
+        return ModelListing(MODELS_OK, rows)
 
 
 class _Activity:
@@ -325,12 +354,22 @@ def build_preferences(
             summary_config.apply(effective)
 
     folder = MeetingsFolderPreparer()
+    model_checks = {
+        key: ModelCheck(summary_config, scope, key)
+        for key, scope in (
+            ("summaries.local_model", "local"),
+            ("summaries.cloud_model", "cloud"),
+        )
+    }
     return PreferencesService(
         ports.store,
         PreferencesState(settings, ports.saved, ports.file_problem),
         Settings.with_overrides,
         apply,
-        checks={"storage.meetings_dir": lambda raw: check_meetings_folder(raw).map(str)},
+        checks={
+            "storage.meetings_dir": lambda raw: check_meetings_folder(raw).map(str),
+            **model_checks,
+        },
         prepare={"storage.meetings_dir": lambda raw: folder(raw).map(str)},
         rollback={"storage.meetings_dir": folder.rollback},
         commit={"storage.meetings_dir": folder.commit},
@@ -552,7 +591,7 @@ async def serve(
         recording = RecordingInterface(app.recording, poll_interval=poll_interval)
         meetings = MeetingsInterface(app.processing, app.review)
         summaries = SummariesInterface(app.summaries)
-        settings = SettingsInterface(app.preferences, app.restart)
+        settings = SettingsInterface(app.preferences, app.restart, models=app.summary_config)
         for exported in (recording, meetings, summaries, settings):
             bus.export(OBJECT_PATH, exported)
         reply = await bus.request_name(BUS_NAME, NameFlag.DO_NOT_QUEUE)

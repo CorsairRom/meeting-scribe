@@ -662,6 +662,7 @@ setting**: it is read from the GNOME Keyring through the `CloudKeyStore` port (s
 | `SUMMARIES_CLOUD_BASE_URL` | `https://opencode.ai/zen/go/v1` | OpenAI-compatible cloud gateway (default OpenCode Go, ADR-009); must be https |
 | `SUMMARIES_CLOUD_MODEL` | `deepseek-v4-pro` | Any model the gateway serves on `/chat/completions`; not those on `/responses` or `/messages` (assumption A-1) |
 | `SUMMARIES_CLOUD_CONTEXT_TOKENS` | `100000` | Conservative budget (the published figures disagree, A-2) |
+| `SUMMARIES_CLOUD_PROVIDER` | `opencode-go` | The cloud provider choice shown in Preferences as "Provider" (one option, "OpenCode Go"); it decides the default of the two settings below |
 | `SUMMARIES_CLOUD_PROVIDER_NAME` | `OpenCode Go` | Name shown in the "cloud" label (`cloud: <name>, <model>`) |
 | `SUMMARIES_LANGUAGE` | `auto` | `auto` follows the meeting language (product decision 4), or an ISO code |
 | `SUMMARIES_MAX_OUTPUT_TOKENS` | `2048` | Output limit per request (>= 256) |
@@ -911,6 +912,11 @@ The owner answered all eight questions on 2026-10-11.
    removed as a separate concept (migration in [`preferences.md`](preferences.md) section 7). Safety requirement 3 is
    unchanged: the cloud is labelled "cloud" everywhere it can be triggered and every cloud request still asks for
    confirmation (`cloud_confirmed`). The cloud fields of the Preferences window appear only when Cloud is selected.
+10. **Decision 10 (2026-10-11, owner)** Labels and model pickers: the Preferences selector for `SUMMARIES_PROVIDER` reads
+   "Run summaries: On this computer / In the cloud" (the setting keeps its name); "Provider" in the Cloud group means the
+   cloud provider (`SUMMARIES_CLOUD_PROVIDER`, "OpenCode Go"); models are never typed but picked from lists the service
+   reads (Ollama `/api/tags`, the provider's `/models` behind the keyring key); models served on endpoints this version
+   does not call are listed as "not supported yet" ([`preferences.md`](preferences.md) AC-16 to AC-20, GO-062).
 
 ---
 

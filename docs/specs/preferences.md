@@ -16,6 +16,7 @@ verifiable_by:
   - tests/unit/test_settings_overrides.py
   - tests/e2e/preferences/test_settings_over_dbus.py
   - tests/unit/review_app/test_preferences_presenter.py
+  - tests/unit/summaries/test_model_listing.py
   - tests/unit/test_install_scripts.py
   - gnome-extension/tests/
 last_updated: 2026-10-12
@@ -32,8 +33,8 @@ ai_instructions:
 
 ## Goal (one sentence)
 
-The user changes the few settings that matter (summary provider and models, summary language, cloud model and API key,
-meetings folder) in a native Preferences window opened from the extension (the gear in the Extensions app and a
+The user changes the few settings that matter (where summaries run, the cloud provider and its API key, the summary
+model picked from a list, summary language, meetings folder) in a native Preferences window opened from the extension (the gear in the Extensions app and a
 "Preferences..." menu item), and never edits `.env` or opens a terminal.
 
 ---
@@ -264,12 +265,81 @@ AND the extension prefs.js imports no Shell module and contains no settings logi
 
 **Test**: import-linter contracts, `gnome-extension/tests/shellGlue.test.js`
 
+### AC-16: A local model is picked from the models Ollama has installed
+
+```gherkin
+GIVEN the Local group is shown
+WHEN the window loads or the user presses refresh
+THEN the service asks Ollama for its installed models (GET /api/tags on the configured loopback base, without any proxy) and the Model row is a dropdown of those names
+AND no field accepts a typed model name
+GIVEN Ollama is unreachable or answers badly
+THEN ListModels returns status SUMMARY_MODELS_UNAVAILABLE and no rows, the row says Ollama is not reachable, and the saved value is kept and shown
+AND saving the other fields still works
+```
+
+**Test**: `tests/unit/summaries/test_model_listing.py`, `tests/unit/review_app/test_preferences_presenter.py::test_local_models_dropdown`, `tests/e2e/preferences/test_settings_over_dbus.py::test_list_models`
+
+### AC-17: A cloud model is picked from the provider's list, behind the API key
+
+```gherkin
+GIVEN the Cloud group is shown with the provider "OpenCode Go"
+THEN the rows come in this order: Provider, API key (stored indicator, Set and Remove), Model
+GIVEN no key is stored
+THEN the Model dropdown is disabled with "Set the API key first" and the service reports SUMMARY_CLOUD_KEY_MISSING
+WHEN the user stores a key
+THEN the app asks for the list again and the dropdown fills
+AND the service reads the key from the keyring, sends it only to {cloud_base_url}/models over https as a bearer token, and never logs it, returns it or puts it in an error
+GIVEN the provider rejects the key
+THEN the status is SUMMARY_AUTH_FAILED and the row says so
+```
+
+**Test**: `tests/unit/summaries/test_model_listing.py`, `tests/unit/review_app/test_preferences_presenter.py::test_cloud_model_needs_a_key`
+
+### AC-18: Models this version cannot use are listed but not selectable
+
+```gherkin
+GIVEN the provider lists 38 models
+THEN every model is shown
+AND only the models whose id starts with a documented chat-completions family (deepseek-, glm-, kimi-, mimo-, longcat-) are selectable
+AND every other model is shown disabled with "not supported yet"
+GIVEN a widget that cannot disable single items
+THEN supported models fill the dropdown and unsupported ones are a greyed, non-selectable list under it
+```
+
+**Test**: `tests/unit/summaries/test_model_listing.py::test_the_cloud_allowlist`, `tests/unit/review_app/test_preferences_presenter.py::test_unsupported_models_are_not_selectable`
+
+### AC-19: A saved model that is not in the list is warned about, not replaced
+
+```gherkin
+GIVEN the saved model is absent from an available list
+THEN the dropdown keeps it as the current value and the row shows a warning ("not in the provider's list")
+AND nothing replaces it until the user picks another model
+GIVEN a Set that changes a model to one absent from an available list, or to an unsupported one
+THEN the row is FIELD_INVALID and nothing is saved
+GIVEN the list is unavailable
+THEN a Set that changes the model is accepted (the save never blocks on the network)
+```
+
+**Test**: `tests/unit/preferences/test_model_check.py`, `tests/unit/review_app/test_preferences_presenter.py::test_a_saved_model_missing_from_the_list`
+
+### AC-20: Top-level wording and the cloud provider
+
+```gherkin
+THEN the top-level selector reads "Run summaries" with "On this computer" and "In the cloud" (the setting key stays summaries.provider)
+AND "Provider" in the Cloud group means the cloud provider, one option today: "OpenCode Go"
+AND no base URL is editable in the window
+GIVEN summaries.cloud_provider is opencode-go
+THEN the display name is "OpenCode Go" and the base URL is https://opencode.ai/zen/go/v1 unless a developer override sets SUMMARIES_CLOUD_BASE_URL
+```
+
+**Test**: `tests/unit/summaries/test_summaries_settings.py::test_cloud_provider_choice`, `tests/unit/review_app/test_preferences_presenter.py::test_wording_and_cloud_provider_row`
+
 ---
 
 ## What this is NOT (out of scope for this spec)
 
 - Not a general editor for every setting: recording, processing, transcription and speakers tunables stay environment-only (the schema is extensible; section 3 lists what is exposed).
-- Not a way to edit the cloud base URL, the context budgets, timeouts or the local base URL (security-sensitive or expert values stay environment-only).
+- Not a way to type a model name or to edit the cloud base URL, the context budgets, timeouts or the local base URL (security-sensitive or expert values stay environment-only).
 - Not storing the API key anywhere but the GNOME Keyring; not reading it back to show it.
 - Not moving, merging or deleting existing meetings when the folder changes.
 - Not a per-extension GSettings schema: the service owns the configuration, so prefs.js needs no schema.
@@ -331,10 +401,11 @@ The registry (one `FieldSpec` per field; labels live in the app, not in the serv
 
 | Key | Kind | Backing setting | Apply | Notes |
 |---|---|---|---|---|
-| `summaries.provider` | choice `local`, `cloud` | `SUMMARIES_PROVIDER` | live | Cloud = opt-in (AC-4) |
-| `summaries.local_model` | text | `SUMMARIES_LOCAL_MODEL` | live | Not empty; optional picker from `LocalModels` (task P8) |
+| `summaries.provider` | choice `local`, `cloud` | `SUMMARIES_PROVIDER` | live | Cloud = opt-in (AC-4). Shown as "Run summaries: On this computer / In the cloud"; the key keeps its name (see "Decisions taken during implementation", D-3) |
+| `summaries.local_model` | text | `SUMMARIES_LOCAL_MODEL` | live | Not empty; picked from `ListModels("local")`, never typed (AC-16) |
+| `summaries.cloud_provider` | choice `opencode-go` | `SUMMARIES_CLOUD_PROVIDER` | live | The cloud provider; one option today, "OpenCode Go". It decides the display name and the base URL (`https://opencode.ai/zen/go/v1`); the free base URL is no longer user-facing (`SUMMARIES_CLOUD_BASE_URL` stays a developer override) |
 | `summaries.language` | choice `auto` or an ISO code | `SUMMARIES_LANGUAGE` | live | UI: "Meeting language" or a fixed language; curated list of common languages, validator stays the ISO rule |
-| `summaries.cloud_model` | text | `SUMMARIES_CLOUD_MODEL` | live | Shown only for Cloud; not empty |
+| `summaries.cloud_model` | text | `SUMMARIES_CLOUD_MODEL` | live | Shown only for Cloud; picked from `ListModels("cloud")`, never typed (AC-17); enabled only when a key is stored |
 | `storage.meetings_dir` | path | `STORAGE_MEETINGS_DIR` | restart | Absolute, creatable, writable (section 6) |
 
 The API key is not a field. Everything else stays in environment variables, as today. Adding a field later is one
@@ -364,7 +435,7 @@ commit as the code.
 | `GetAll` | method | `() -> aa{sv}` | One row per exposed field: `key` (s), `kind` (s: `choice`, `text`, `path`), `value` (s), `default` (s), `source` (s: `default`, `file`, `env`, `dotenv`), `locked` (b), `lock_reason` (s, empty or a code such as `LEGACY_SETTING`), `apply` (s: `live`, `restart`), `choices` (as, empty unless `choice`). Values are strings; the app parses by `kind`. No secrets exist to return | none |
 | `Set` | method | `(a{ss}) -> a{sv}` | Validate the whole candidate; on success write, apply and signal. Returns `applied` (as), `restart_required` (as, all keys pending restart, not only this call's), `errors` (a(sss): key, code, message). Atomic: any error means `applied` is empty | `SETTINGS_STORAGE_FAILED` |
 | `Restart` | method | `() -> s` | Restart the service through systemd when idle; returns `RESTARTING` | `SETTINGS_RESTART_BUSY`; `SETTINGS_RESTART_UNAVAILABLE` |
-| `LocalModels` | method | `() -> as` | Optional (task P8): model names installed in the local Ollama, read from its loopback `/api/tags`; no transcript data is involved | `SUMMARY_PROVIDER_UNAVAILABLE` |
+| `ListModels` | method | `(s) -> a{sv}` | `scope` is `local` or `cloud`. Returns `status` (s: `OK`, or the code why the list is unavailable: `SUMMARY_CLOUD_KEY_MISSING`, `SUMMARY_CLOUD_KEY_LOCKED`, `SUMMARY_CLOUD_KEY_UNAVAILABLE`, `SUMMARY_AUTH_FAILED`, `SUMMARY_MODELS_UNAVAILABLE`) and `models` (a(sbs): `id`, `supported`, `reason`; empty unless `OK`). Local: Ollama `GET /api/tags` on the configured loopback base, no proxy. Cloud: `GET {cloud_base_url}/models` with the key the service reads from the keyring (BR-005); the key never crosses D-Bus. An unavailable list is a normal reply, not a D-Bus error | none |
 | `RestartRequired` | property | `as` (read) | Keys saved but not yet in effect | n/a |
 | `SettingsChanged` | signal | `(as)` | Keys written, emitted after the file is saved; `PropertiesChanged` carries `RestartRequired` | n/a |
 
@@ -385,7 +456,7 @@ is too old; update it".
 - **Cross-field**: the context-versus-output rule of `SummariesSettings` still runs (it concerns env-only fields, so a UI change cannot break it, but the check stays automatic).
 - **`storage.meetings_dir`** (a check on the folder itself, so it lives beside the field in `preferences/infrastructure`): expand `~`, require an absolute path with no `..`, reject an existing non-directory, create the directory (mode `0700`) if its parent exists and is writable, then verify writability by creating and removing one temporary file with a fixed neutral name. The service never lists or reads the folder. Failure gives `FIELD_FOLDER_NOT_WRITABLE`.
 - **Language**: `auto` or a lowercase ISO code, via the existing `SummariesSettings` rule.
-- **Free-text models**: not empty, no whitespace-only values, a length bound; whether a model exists is learned when a request runs (as today).
+- **Models come from a list** (AC-16 to AC-19): the model fields keep the settings rule (not empty, a length bound), and a `Set` that changes a model also checks it against `ListModels` for its scope: a model missing from an available list is `FIELD_INVALID`, and an unsupported one is `FIELD_INVALID` ("not supported yet"). When the list is unavailable (Ollama stopped, no key, offline) the check passes and the save is allowed (the window never blocks on the network, and a saved model that is not in the list is kept and shown with a warning). The check calls the provider with a bounded timeout; it never logs a model name or a key.
 - **Cloud**: choosing `cloud` needs no extra field; the base URL and `https` rule stay in `SummariesSettings` and are env-only.
 
 ### 7. Removing `SUMMARIES_CLOUD_ENABLED` and migration
@@ -399,9 +470,10 @@ is too old; update it".
 ### 8. The Preferences window (review app)
 
 - **Widget**: `Adw.PreferencesDialog` (libadwaita 1.5 and later; 1.9.3 is installed here, `PreferencesWindow` is deprecated). One page, groups:
-  - **Summaries**: Provider (`Adw.ComboRow`: Local, Cloud); Summary language (`Adw.ComboRow`: "Meeting language" plus a fixed list).
-  - **Local** (visible for Local): Model (`Adw.EntryRow`).
-  - **Cloud: OpenCode Go** (visible for Cloud): Model (`Adw.EntryRow`); API key (`Adw.ActionRow` with a "Set API key..." button and a status suffix "Key stored" / "No key stored" / "Keyring locked", plus "Remove" when stored); a one-line note: "Your transcript is sent to the cloud only when you press Generate summary, and you are asked every time."
+  - **Summaries**: "Run summaries" (`Adw.ComboRow`: On this computer, In the cloud); Summary language (`Adw.ComboRow`: "Meeting language" plus a fixed list).
+  - **On this computer (Ollama)** (visible for Local): Model (`Adw.ComboRow` over the installed models; refresh; "Ollama is not reachable" keeps the saved value).
+  - **In the cloud** (visible for Cloud), in this order: Provider (`Adw.ComboRow`, "OpenCode Go"); API key (`Adw.ActionRow` with a "Set API key..." button and a status suffix "Key stored" / "No key stored" / "Keyring locked", plus "Remove" when stored); Model (`Adw.ComboRow`, insensitive until a key is stored); a one-line note: "Your transcript is sent to the cloud only when you press Generate summary, and you are asked every time.
+  - **Unsupported models**: `Adw.ComboRow` and `Gtk.DropDown` take a plain string model and expose no per-item sensitivity (the popup's selection model is internal), so the decided fallback applies: supported models fill the dropdown and an `Adw.ExpanderRow` "Not supported yet" under it lists the others as greyed, non-selectable rows."
   - **Recordings**: Meetings folder (`Adw.ActionRow` showing the path with a "Choose..." button using `Gtk.FileDialog.select_folder`); a subtitle line "Existing meetings stay where they are" and, after a save that needs it, a banner "Restart the service to use the new folder" with "Restart now".
 - **Save model**: edits are staged; an `Adw.Toast`/inline row error shows per-field problems from `Set`; the dialog applies on an explicit "Save" and closes on success. No auto-save per keystroke (cross-field validation and the file write are one transaction).
 - **Core**: `PreferencesPresenter` (no `gi`) holds the staged values, which groups are visible, field errors, the key indicator and the restart banner; `SettingsGateway` port (`get_all`, `set`, `restart`, `changed` signal); `ApiKeyStore` gains `is_stored()` and `remove()`; the existing `ApiKeyPresenter` and the key dialog are reused for "Set API key...".
@@ -478,7 +550,7 @@ and docs. Branch per phase from `main`, one commit per unit, no push without ask
 | P5 | App `ui`: `Adw.PreferencesDialog`, D-Bus gateway, `--preferences` option, primary-menu entry, folder chooser, key row and restart banner | ~400 |
 | P6 | Extension: `prefs.js` launcher with the failure page, "Preferences..." menu item, `gjs` and static tests, install test for the packed `prefs.js` | ~250 |
 | P7 | Runbook `docs/runbooks/preferences.md`, rules-registry entries, `mvp-scope.md` and backlog, README, validation with the user's consent (open from the menu and the gear, change the provider and folder, restart), docs gate | ~150 plus docs |
-| P8 (optional) | `LocalModels` (Ollama `/api/tags` on loopback) and a model picker in the Local group; ships only if the free-text row proves error-prone | ~250 |
+| P8 (mandatory since 2026-10-11, F5.10b) | Docs first; `ListModels` (Ollama tags, OpenAI-compatible models list with the keyring key, the cloud allowlist); the `summaries.cloud_provider` field; the model-list check in `Set`; app dropdowns, unsupported list, "Run summaries" wording and the cloud group order | ~1000 over several units |
 
 ---
 
@@ -546,6 +618,11 @@ verified.
 ## Decisions taken during implementation
 
 > If unresolved forks appear, record them here AND open an ADR if the decision is structural.
+
+- **D-1 (2026-10-11, owner) A model name is never typed.** Local models come from Ollama `/api/tags`; cloud models from `GET {cloud_base_url}/models` (OpenAI list format `{"object":"list","data":[{"id":...}]}`, verified against OpenCode Go on 2026-10-11: HTTP 200, 38 models, entries with only `id`, `object`, `created`, `owned_by`). The key is read from the keyring by the service (BR-005).
+- **D-2 Supported models are an allowlist of id prefixes.** The list does not say which endpoint serves a model, so supported means served on `/chat/completions` per <https://opencode.ai/docs/go>: `deepseek-`, `glm-`, `kimi-`, `mimo-`, `longcat-`. Everything else (grok, gpt, minimax, claude, qwen, muse, step, hy, omen, space-bunny and the like) is "not supported yet". The list lives in one place, `CLOUD_CHAT_COMPLETIONS_FAMILIES` in `summaries/infrastructure/model_listing.py`; rules-registry GO-062 records it.
+- **D-3 The setting key `summaries.provider` is not renamed.** Renaming it to `summaries.mode` would also rename the environment variable `SUMMARIES_PROVIDER`, the saved-file key and the legacy-cloud migration rule, and would need a settings-file migration, for a purely internal gain. Every user-facing label changes instead ("Run summaries"). `summaries.cloud_provider` is a new key, so no existing file or environment changes meaning.
+- **D-4 An unavailable list is a reply, not an error.** `ListModels` returns `status` plus rows, so the window shows why (no key, Ollama down, offline) and `Set` does not block on it (AC-19).
 
 - **Language field**: `summaries.language` is `kind` `choice` with `choices` `["auto"]` only; any lowercase ISO code is accepted by the validator, and the curated list lives in the app (P4/P5).
 - **File problem in `GetAll`**: the spec says a damaged file is "reported through GetAll" without a member for it, so every row carries `file_problem` (empty or `SETTINGS_FILE_INVALID`).

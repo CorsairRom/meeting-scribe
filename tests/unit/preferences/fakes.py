@@ -7,6 +7,7 @@ from pathlib import Path
 from returns.result import Failure, Result, Success
 
 from meeting_scribe.preferences.application.settings_service import (
+    FieldCheck,
     PreferencesService,
     PreferencesState,
 )
@@ -108,6 +109,7 @@ class Service:
         saved: Mapping[str, str] | None = None,
         *,
         file_problem: str = "",
+        checks: Mapping[str, FieldCheck] | None = None,
     ) -> None:
         self.store = MemoryStore(saved)
         self.events = RecordingEvents(self.store)
@@ -121,7 +123,7 @@ class Service:
             PreferencesState(self.settings, dict(saved or {}), file_problem),
             Settings.with_overrides,
             self._apply,
-            checks={"storage.meetings_dir": _folder_check},
+            checks={"storage.meetings_dir": _folder_check, **(checks or {})},
             prepare={"storage.meetings_dir": lambda raw: self.preparer(raw).map(str)},
             rollback={"storage.meetings_dir": self.preparer.rollback},
             commit={"storage.meetings_dir": self.preparer.commit},

@@ -95,6 +95,7 @@ All classes derive from `MeetingScribeError` in `src/meeting_scribe/base/domain/
 | `SummaryCloudKeyLockedError` | `SUMMARY_CLOUD_KEY_LOCKED` | `summaries`: the keyring holds the key but is locked; unlock it and retry (the service never prompts) | `dev.meetingscribe.Error.SUMMARY_CLOUD_KEY_LOCKED` |
 | `SummaryCloudKeyUnavailableError` | `SUMMARY_CLOUD_KEY_UNAVAILABLE` | `summaries`: the Secret Service could not be reached (no service on the session bus, a D-Bus error or a timeout); distinct from a missing or locked key; the message says the keyring service is not reachable | `dev.meetingscribe.Error.SUMMARY_CLOUD_KEY_UNAVAILABLE` |
 | `SummaryCloudDisabledError` | `SUMMARY_CLOUD_DISABLED` | `meetings`: the cloud provider was requested while the provider setting is not `cloud` (choosing Cloud is the opt-in; the code keeps its name); the message says to choose Cloud in Preferences | `dev.meetingscribe.Error.SUMMARY_CLOUD_DISABLED` |
+| `SummaryModelsUnavailableError` | `SUMMARY_MODELS_UNAVAILABLE` | `summaries`: the model list could not be read (Ollama stopped or unreachable, the provider offline, an unexpected answer, a timeout); the cause is logged by exception type or HTTP status only; returned as the `status` of `Settings1.ListModels`, never as a D-Bus error | not returned by a method |
 | `SettingsStorageFailedError` | `SETTINGS_STORAGE_FAILED` | `preferences`: the settings file could not be written; nothing changed; the message says to check disk space and the config folder permissions | `dev.meetingscribe.Error.SETTINGS_STORAGE_FAILED` |
 | `SettingsRestartBusyError` | `SETTINGS_RESTART_BUSY` | `preferences`: `Settings1.Restart` while a recording, a processing job or a summary is active; the service keeps running | `dev.meetingscribe.Error.SETTINGS_RESTART_BUSY` |
 | `SettingsRestartUnavailableError` | `SETTINGS_RESTART_UNAVAILABLE` | `preferences`: the user systemd manager could not be reached; the message carries the manual command `systemctl --user restart meeting-scribe.service` | `dev.meetingscribe.Error.SETTINGS_RESTART_UNAVAILABLE` |
@@ -122,7 +123,7 @@ These are rows inside a `Set` reply, not D-Bus errors and not `MeetingScribeErro
 |---|---|
 | `FIELD_UNKNOWN` | The key is not an exposed setting |
 | `FIELD_LOCKED` | The environment or `.env` sets the field; remove that override to unlock it |
-| `FIELD_INVALID` | The value failed the settings validators (or the folder is relative, a file, or contains `..`) |
+| `FIELD_INVALID` | The value failed the settings validators (or the folder is relative, a file, or contains `..`; or a model is not in the available model list, or is not supported yet) |
 | `FIELD_FOLDER_NOT_WRITABLE` | The meetings folder cannot be created or written |
 | `SETTINGS_APPLY_FAILED` | Not an error: the `apply_problem` of every `GetAll` row while the last save was kept but applying a live change raised; cleared by the next successful apply |
 

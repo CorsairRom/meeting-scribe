@@ -213,7 +213,7 @@ Names are proposed and renamable until F6. The contract lives in [`docs/architec
 | `dev.meetingscribe.Meetings1` (implemented, F3.4a) | `List`, `Get`, `Reprocess`; properties `ActiveMeetingId`, `ActiveState`, `QueuedCount`; signals `ProcessingStateChanged`, `ProcessingFinished` ([spec](docs/specs/processing.md) section 8) |
 | `dev.meetingscribe.Speakers1` | rename, merge, sample path |
 | `dev.meetingscribe.Summaries1` (implemented, F5.5) | `Providers`, `Summarize`, `CancelSummary`, `GetSummaryStatus`, `GetSummary`, `LastSummary`; property `ActiveSummaryMeetingId`; signals `SummaryProgress`, `SummaryFinished` ([spec](docs/specs/summaries.md) section 10) |
-| `dev.meetingscribe.Settings1` (implemented, F5.10) | `GetAll`, `Set` (all or nothing, per-field error rows), `Restart` (systemd, only when idle); property `RestartRequired`; signal `SettingsChanged` ([spec](docs/specs/preferences.md) section 4). The API key never crosses it |
+| `dev.meetingscribe.Settings1` (implemented, F5.10) | `GetAll`, `Set` (all or nothing, per-field error rows), `Restart` (systemd, only when idle), `ListModels` (installed Ollama models, or the cloud provider's models behind the keyring key; unsupported cloud models are listed but flagged); property `RestartRequired`; signal `SettingsChanged` ([spec](docs/specs/preferences.md) section 4). The API key never crosses it |
 | Errors | `dev.meetingscribe.Error.<ERROR_CODE>` (see [error codes](docs/architecture/error-codes-catalog.md)) |
 | Activation | `systemd --user` unit plus D-Bus session activation file, installed by `make install` |
 
@@ -287,6 +287,7 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | `SUMMARIES_LOCAL_MODEL` | `SummariesSettings.local_model` | `qwen3.5:9b` | Ollama model name |
 | `SUMMARIES_LOCAL_CONTEXT_TOKENS` | `SummariesSettings.local_context_tokens` | `4096` | Window the service plans against; raise it together with Ollama's context (must exceed output limit + 600) |
 | `SUMMARIES_UNLOAD_LOCAL_MODEL` | `SummariesSettings.unload_local_model` | `true` | Ask Ollama to unload the model after a local summary |
+| `SUMMARIES_CLOUD_PROVIDER` | `SummariesSettings.cloud_provider` | `opencode-go` | The cloud provider choice (one option today); decides the default name and base URL below |
 | `SUMMARIES_CLOUD_PROVIDER_NAME` | `SummariesSettings.cloud_provider_name` | `OpenCode Go` | Name shown in the "cloud" label (for example `cloud: OpenCode Go, deepseek-v4-pro`) |
 | `SUMMARIES_CLOUD_BASE_URL` | `SummariesSettings.cloud_base_url` | `https://opencode.ai/zen/go/v1` | OpenAI-compatible cloud gateway; must be https ([ADR-009](docs/decisions/009-cloud-summaries-through-opencode-go.md)) |
 | `SUMMARIES_CLOUD_MODEL` | `SummariesSettings.cloud_model` | `deepseek-v4-pro` | Any model the gateway serves on `/chat/completions`; models on `/responses` or `/messages` are not supported |

@@ -77,6 +77,9 @@ _MESSAGES: dict[str, UserMessage] = {
     "SPEAKER_NAME_TAKEN": UserMessage("That name is already used by another speaker."),
     "SPEAKER_MERGE_INVALID": UserMessage("These speakers cannot be merged."),
     "ENTITY_NOT_FOUND_SUMMARY": UserMessage("This meeting has no summary yet."),
+    "SUMMARY_MODELS_UNAVAILABLE": UserMessage(
+        "The list of models could not be read. Check that the provider is reachable."
+    ),
     "SUMMARY_FAILED": UserMessage("The summary could not be made. Try again."),
     "SUMMARY_NO_SPEECH": UserMessage("There is nothing to summarize: this meeting has no speech."),
     "SUMMARY_PROVIDER_UNAVAILABLE": UserMessage(

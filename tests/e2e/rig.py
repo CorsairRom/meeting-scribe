@@ -40,6 +40,7 @@ from meeting_scribe.meetings.infrastructure.processing_settings import Processin
 from meeting_scribe.preferences.infrastructure.json_settings_store import JsonSettingsStore
 from meeting_scribe.preferences.infrastructure.systemd_restarter import SystemdRestarter
 from meeting_scribe.settings import Settings
+from meeting_scribe.summaries.application.list_models import ListModels
 from meeting_scribe.summaries.domain.headings import EnglishHeadingCatalog
 from tests.unit.meetings.fakes import (
     T0,
@@ -56,7 +57,7 @@ from tests.unit.recording.fakes import (
     FakeDeviceResolver,
     FakeRecordingStorage,
 )
-from tests.unit.summaries.fakes import FakeProvider, FakeReleaser
+from tests.unit.summaries.fakes import FakeCloudModels, FakeLocalModels, FakeProvider, FakeReleaser
 
 type Proxy = Any  # dbus-fast builds proxy members at runtime
 
@@ -94,6 +95,8 @@ class ServiceRig:
         self.local_provider = FakeProvider()  # the summaries: no model, no network, no keyring
         self.cloud_provider = FakeProvider()
         self.keys = FakeKeyStore()
+        self.local_models = FakeLocalModels()  # the model lists: no Ollama, no network
+        self.cloud_models = FakeCloudModels()
         self.app: Application = create_app(
             settings,
             preferences_adapters=PreferencesAdapters(
@@ -126,6 +129,7 @@ class ServiceRig:
                 local_releaser=FakeReleaser(),
                 cloud_releaser=FakeReleaser(),
                 headings=EnglishHeadingCatalog(),
+                models=ListModels(self.local_models, self.cloud_models, self.keys),
             ),
         )
 

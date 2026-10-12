@@ -589,7 +589,12 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
         a read-but-invalid settings file is set aside. GREEN 1669 python / 145 gjs / 15 contracts. Follow-ups for
         P4: a folder created by prepare stays if the file write then fails; apply_failed only in that Set reply;
         legacy warning wording when an explicit false overrides a window-saved cloud provider.
-  - [ ] P4-P6 app core + Preferences window + prefs.js launcher and menu item.
+  - [x] P4-P6 app core (#119) + Preferences window, prefs.js gear launcher and menu item (#120). Reviews
+        review-9aa7c0239004abb7, review-333282dbe2b0f2d6, review-b5a17925047f41cb approved (4 lenses each).
+        TDD deviation recorded: the P4 models, parsers and gateway were written before their tests (tests were
+        then shown to fail with the sources stashed). GREEN 1759 python / 163 gjs. Follow-ups: restart wait state
+        survives closing the dialog (self-clears after the 20 s timer); failed-save test name overclaims; fake
+        unwatch diverges from the real gateway; timer truncates fractional seconds.
   - [ ] P7 runbook, docs, validation with consent.
 - [ ] F5.9 validation with consent (local run; cloud only on explicit go), docs gate.
       make install done 2026-10-11 (version 20261011195308-2317253; ollama reachable, qwen3.5:9b present);

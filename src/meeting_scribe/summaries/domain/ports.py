@@ -27,6 +27,20 @@ class Completion(BaseModel):
     completion_tokens: int | None = None
 
 
+NOT_SUPPORTED_YET = "NOT_SUPPORTED_YET"
+"""The ``reason`` of a listed model this version cannot use."""
+
+
+class ModelEntry(BaseModel):
+    """One model a provider offers; an unsupported one is listed but not selectable."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    supported: bool = True
+    reason: str = ""
+
+
 class CancelSignal(Protocol):
     """Set from another thread to abort a summary (``threading.Event`` fits)."""
 
@@ -72,4 +86,16 @@ class CloudKeyStore(Protocol):
         Never raises and never prompts: a missing key or an unreachable store is
         ``SUMMARY_CLOUD_KEY_MISSING``, a locked one ``SUMMARY_CLOUD_KEY_LOCKED``.
         """
+        ...
+
+
+class LocalModelSource(Protocol):
+    def list_models(self) -> Result[list[ModelEntry], SummaryError]:
+        """The models installed locally. Never raises; failure is ``SUMMARY_MODELS_UNAVAILABLE``."""
+        ...
+
+
+class CloudModelSource(Protocol):
+    def list_models(self, key: SecretStr) -> Result[list[ModelEntry], SummaryError]:
+        """The provider's models, asked with ``key`` for this call only. Never raises."""
         ...

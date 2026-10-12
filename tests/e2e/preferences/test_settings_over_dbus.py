@@ -14,10 +14,19 @@ from typing import NamedTuple
 import pytest
 from dbus_fast import DBusError
 from dbus_fast.aio import MessageBus
+from returns.result import Failure, Success
 
 from meeting_scribe.preferences.domain.fields import FIELD_REGISTRY
+from meeting_scribe.summaries.domain.errors import (
+    SummaryCloudKeyLockedError,
+    SummaryCloudKeyMissingError,
+    SummaryError,
+    SummaryModelsUnavailableError,
+)
+from meeting_scribe.summaries.domain.ports import ModelEntry
 from tests.e2e.preferences.fake_systemd import FakeManager, start_fake_systemd
 from tests.e2e.rig import Proxy, ServiceRig, connect, eventually, interface, running
+from tests.unit.meetings.fakes import FakeKeyStore
 
 pytestmark = pytest.mark.dbus
 
@@ -320,5 +329,107 @@ def test_restart_without_systemd_is_unavailable(tmp_path: Path, bus_address: str
         error = await _error(session.settings.call_restart())
         assert error.type == f"{ERROR}.SETTINGS_RESTART_UNAVAILABLE"
         assert "systemctl --user restart meeting-scribe.service" in error.text
+
+    _run(rig, bus_address, scenario)
+
+
+def _models(reply: dict) -> tuple[str, list[list]]:
+    plain = _plain(reply)
+    return plain["status"], [list(row) for row in plain["models"]]
+
+
+def test_list_models(tmp_path: Path, bus_address: str) -> None:
+    rig = ServiceRig(tmp_path, bus_address=bus_address)
+    rig.local_models.result = Success([ModelEntry(id="llama3:8b")])
+    rig.cloud_models.result = Success(
+        [
+            ModelEntry(id="glm-5"),
+            ModelEntry(id="gpt-5", supported=False, reason="NOT_SUPPORTED_YET"),
+        ]
+    )
+
+    async def scenario(session: Session) -> None:
+        local = await session.settings.call_list_models("local")
+        assert _models(local) == ("OK", [["llama3:8b", True, ""]])
+        cloud = await session.settings.call_list_models("cloud")
+        assert _models(cloud) == (
+            "OK",
+            [["glm-5", True, ""], ["gpt-5", False, "NOT_SUPPORTED_YET"]],
+        )
+        assert FakeKeyStore.FAKE_KEY not in repr(cloud)  # BR-005: the key never crosses D-Bus
+
+    _run(rig, bus_address, scenario)
+
+
+@pytest.mark.parametrize(
+    ("failure", "status"),
+    [
+        (SummaryCloudKeyMissingError("x"), "SUMMARY_CLOUD_KEY_MISSING"),
+        (SummaryCloudKeyLockedError("x"), "SUMMARY_CLOUD_KEY_LOCKED"),
+    ],
+)
+def test_the_cloud_list_without_a_usable_key_is_a_status(
+    tmp_path: Path, bus_address: str, failure: SummaryError, status: str
+) -> None:
+    rig = ServiceRig(tmp_path, bus_address=bus_address)
+    rig.keys.failure = failure
+
+    async def scenario(session: Session) -> None:
+        assert _models(await session.settings.call_list_models("cloud")) == (status, [])
+        assert rig.cloud_models.asks == 0
+
+    _run(rig, bus_address, scenario)
+
+
+def test_an_unavailable_or_unknown_list_is_a_status_not_an_error(
+    tmp_path: Path, bus_address: str
+) -> None:
+    rig = ServiceRig(tmp_path, bus_address=bus_address)
+    rig.local_models.result = Failure(SummaryModelsUnavailableError("down"))
+
+    async def scenario(session: Session) -> None:
+        local = await session.settings.call_list_models("local")
+        assert _models(local) == ("SUMMARY_MODELS_UNAVAILABLE", [])
+        other = await session.settings.call_list_models("elsewhere")
+        assert _models(other) == ("SUMMARY_MODELS_UNAVAILABLE", [])
+
+    _run(rig, bus_address, scenario)
+
+
+def test_set_checks_a_changed_model_against_the_available_list(
+    tmp_path: Path, bus_address: str
+) -> None:
+    rig = ServiceRig(tmp_path, bus_address=bus_address)
+    rig.cloud_models.result = Success(
+        [
+            ModelEntry(id="glm-5"),
+            ModelEntry(id="gpt-5", supported=False, reason="NOT_SUPPORTED_YET"),
+        ]
+    )
+    before = rig.settings_file.read_bytes()
+
+    async def scenario(session: Session) -> None:
+        rejected = _plain(await session.settings.call_set({"summaries.cloud_model": "gpt-5"}))
+        assert rejected["applied"] == []
+        assert [row[:2] for row in rejected["errors"]] == [
+            ("summaries.cloud_model", "FIELD_INVALID")
+        ]
+        assert rig.settings_file.read_bytes() == before
+        saved = _plain(await session.settings.call_set({"summaries.cloud_model": "glm-5"}))
+        assert saved["applied"] == ["summaries.cloud_model"]
+
+    _run(rig, bus_address, scenario)
+    assert _file(rig)["summaries.cloud_model"] == "glm-5"
+
+
+def test_set_accepts_a_model_while_the_list_is_unavailable(
+    tmp_path: Path, bus_address: str
+) -> None:
+    rig = ServiceRig(tmp_path, bus_address=bus_address)
+    rig.keys.failure = SummaryCloudKeyMissingError("x")
+
+    async def scenario(session: Session) -> None:
+        saved = _plain(await session.settings.call_set({"summaries.cloud_model": "anything-1"}))
+        assert saved["applied"] == ["summaries.cloud_model"]
 
     _run(rig, bus_address, scenario)
