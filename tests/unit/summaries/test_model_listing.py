@@ -113,6 +113,20 @@ def test_the_cloud_list_sends_the_key_as_a_bearer_token_to_the_models_url() -> N
     assert seen[0].headers["authorization"] == f"Bearer {KEY}"
 
 
+def test_the_cloud_list_identifies_the_client() -> None:
+    seen: list[httpx2.Request] = []
+    lister = OpenAiCompatibleModelLister(
+        CLOUD_BASE,
+        client(lambda _r: httpx2.Response(200, json=listing("glm-5")), seen),
+        user_agent="meeting-scribe/9.9",
+    )
+
+    lister.list_models(SecretStr(KEY))
+
+    assert seen[0].headers["user-agent"] == "meeting-scribe/9.9"
+    assert seen[0].headers["authorization"] == f"Bearer {KEY}"
+
+
 def test_the_cloud_allowlist() -> None:
     assert CLOUD_CHAT_COMPLETIONS_FAMILIES == ("deepseek-", "glm-", "kimi-", "mimo-", "longcat-")
     ids = [

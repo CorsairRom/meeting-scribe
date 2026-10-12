@@ -24,12 +24,16 @@ MAX_MODEL_NAME = 200
 class CloudProvider:
     name: str
     base_url: str
+    session_header: str | None = None
+    """Header that carries the opaque per-job session id, when the gateway requires one."""
 
 
 # The cloud providers the user can choose in Preferences; the choice decides the display name and
 # the base URL unless a developer override sets ``SUMMARIES_CLOUD_PROVIDER_NAME``/``_BASE_URL``.
 CLOUD_PROVIDERS: dict[str, CloudProvider] = {
-    "opencode-go": CloudProvider("OpenCode Go", "https://opencode.ai/zen/go/v1"),
+    "opencode-go": CloudProvider(
+        "OpenCode Go", "https://opencode.ai/zen/go/v1", session_header="x-opencode-session"
+    ),
 }
 DEFAULT_CLOUD_PROVIDER: Literal["opencode-go"] = "opencode-go"
 _DEFAULT_CLOUD = CLOUD_PROVIDERS[DEFAULT_CLOUD_PROVIDER]
@@ -128,6 +132,10 @@ class SummariesSettings(MeetingScribeSettings):
     def cloud_label(self) -> str:
         """The service-provided label every cloud entry point shows (safety requirement 3)."""
         return f"cloud: {self.cloud_provider_name}, {self.cloud_model}"
+
+    @property
+    def cloud_session_header(self) -> str | None:
+        return CLOUD_PROVIDERS[self.cloud_provider].session_header
 
     def limits_for(self, *, cloud: bool) -> CompletionLimits:
         return CompletionLimits(

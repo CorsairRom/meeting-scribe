@@ -577,6 +577,13 @@ It uses the official `openai` Python client (new dependency, assumption A-5):
 - **Error mapping** (section 9) uses the client's exception classes: connection error, timeout, rate limit, status
   error with `status_code`. Messages carry the HTTP status or the exception class, never request or response bodies.
 - **Reasoning output**: only `message.content` is used; a leading `<think>...</think>` block is stripped.
+- **Client and session identification** (provider-level option, cloud only): OpenCode Go answers HTTP 400
+  `MissingSessionID` without it (source: <https://opencode.ai/docs/go>, "Where can I use it"). Every cloud request,
+  including the `/models` listing, carries `User-Agent: meeting-scribe/<package version>`; every chat request carries
+  `x-opencode-session: <id>`, an opaque id (the first 32 hex characters of the SHA-256 of a random UUID) created once
+  per summary job and shared by its steps. It is never derived from the meeting id, names or content and never
+  logged. The header name is a field of the provider entry in `CLOUD_PROVIDERS` (`session_header`); the local
+  provider sends neither header.
 - **Reasoning effort** (provider-level option): the local provider sends `"reasoning_effort": "none"` (the `openai`
   client's `reasoning_effort` parameter) so a thinking model such as `qwen3.5:9b` does not spend the whole output
   budget on hidden reasoning and answer with nothing (verified on Ollama 0.18: 2048 reasoning tokens, empty content,

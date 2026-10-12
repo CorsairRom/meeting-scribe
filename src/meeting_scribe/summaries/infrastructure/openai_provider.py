@@ -39,6 +39,7 @@ from meeting_scribe.summaries.domain.ports import (
     Message,
 )
 from meeting_scribe.summaries.domain.request import CompletionLimits
+from meeting_scribe.summaries.domain.session import new_session_id
 
 LOCAL_PLACEHOLDER_KEY = "ollama"
 """Ollama requires an API key and ignores it."""
@@ -143,6 +144,8 @@ class OpenAiCompatibleProvider:
         read_timeout_seconds: float,
         key_store: CloudKeyStore | None = None,
         reasoning_effort: str | None = None,
+        user_agent: str | None = None,
+        session_header: str | None = None,
         http_client: httpx2.Client | None = None,
     ) -> None:
         self._base_url = base_url
@@ -153,6 +156,10 @@ class OpenAiCompatibleProvider:
         # Sent as ``reasoning_effort`` when set. Local thinking models (qwen3.5) otherwise spend
         # the whole output budget on hidden reasoning and answer with nothing.
         self._reasoning_effort = reasoning_effort
+        # Gateways such as OpenCode Go reject anonymous requests (HTTP 400 MissingSessionID): they
+        # want a client name and, per job, an opaque session id in ``session_header``.
+        self._user_agent = user_agent
+        self._session_header = session_header
         # Local transcripts must never go through HTTP_PROXY/ALL_PROXY, so the local client ignores
         # the proxy environment (trust_env=False). The cloud client keeps it: a user proxy to
         # reach the gateway may be legitimate, and the traffic is HTTPS anyway.
@@ -164,6 +171,7 @@ class OpenAiCompatibleProvider:
         limits: CompletionLimits,
         cancel: CancelSignal,
         timeout_seconds: float | None = None,
+        session_id: str | None = None,
     ) -> Result[Completion, SummaryError]:
         if cancel.is_set():
             return Failure(SummaryCancelledError("The summary was cancelled."))
@@ -177,14 +185,16 @@ class OpenAiCompatibleProvider:
             api_key=key.unwrap(),
             max_retries=0,
             http_client=self._http_client,
+            default_headers={"User-Agent": self._user_agent} if self._user_agent else None,
         )
+        options = self._extra_options(session_id or new_session_id())
         deadline = None if timeout_seconds is None else time.monotonic() + timeout_seconds
         # ``max_retries`` is a budget per kind: up to that many transient retries, plus at most one
         # mid-stream retry (none when it is 0), so a request can make 1 + max_retries + 1 attempts.
         transient_retries = 0
         midstream_retried = False
         while True:
-            outcome = self._attempt(client, messages, limits, cancel, deadline)
+            outcome = self._attempt(client, messages, limits, cancel, deadline, options)
             if outcome.kind == "transient" and transient_retries < self._max_retries:
                 delay = outcome.delay
                 if delay is None:
@@ -224,6 +234,7 @@ class OpenAiCompatibleProvider:
         limits: CompletionLimits,
         cancel: CancelSignal,
         deadline: float | None,
+        options: dict[str, Any],
     ) -> _Outcome:
         left = None if deadline is None else deadline - time.monotonic()
         if left is not None and left <= 0:
@@ -241,7 +252,7 @@ class OpenAiCompatibleProvider:
                     stream=True,
                     stream_options={"include_usage": True},
                     timeout=httpx2.Timeout(read, connect=connect),
-                    **self._extra_options(),
+                    **options,
                 )
                 started = True
                 watchdog.attach(stream)
@@ -259,10 +270,13 @@ class OpenAiCompatibleProvider:
             )
         return _Outcome(self._guard(completion, limits))
 
-    def _extra_options(self) -> dict[str, Any]:
-        if self._reasoning_effort is None:
-            return {}
-        return {"reasoning_effort": self._reasoning_effort}
+    def _extra_options(self, session_id: str) -> dict[str, Any]:
+        options: dict[str, Any] = {}
+        if self._reasoning_effort is not None:
+            options["reasoning_effort"] = self._reasoning_effort
+        if self._session_header is not None:
+            options["extra_headers"] = {self._session_header: session_id}
+        return options
 
     @staticmethod
     def _failed(error: Exception, failure: SummaryError, started: bool) -> _Outcome:
@@ -320,7 +334,8 @@ class OpenAiCompatibleProvider:
             return Failure(
                 SummaryOutputLimitReachedError(
                     "The model used its whole output limit before finishing the summary, often "
-                    "on hidden reasoning. Raise SUMMARIES_MAX_OUTPUT_TOKENS or choose another model."
+                    "on hidden reasoning. Raise SUMMARIES_MAX_OUTPUT_TOKENS or choose another "
+                    "model."
                 )
             )
         reported = completion.prompt_tokens

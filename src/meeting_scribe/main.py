@@ -105,6 +105,7 @@ from meeting_scribe.summaries.domain.ports import (
     NullModelReleaser,
     SummaryProvider,
 )
+from meeting_scribe.summaries.infrastructure.client_identity import user_agent
 from meeting_scribe.summaries.infrastructure.gettext_headings import GettextHeadingCatalog
 from meeting_scribe.summaries.infrastructure.model_listing import (
     OllamaModelLister,
@@ -245,6 +246,8 @@ def _real_summary_adapters(settings: Settings) -> SummaryAdapters:
             max_retries=summaries.max_retries,
             read_timeout_seconds=summaries.timeout_seconds,
             key_store=keys,
+            user_agent=user_agent(),
+            session_header=summaries.cloud_session_header,
         ),
         local_releaser=(
             OllamaModelReleaser(summaries.local_base_url, summaries.local_model)
@@ -255,7 +258,7 @@ def _real_summary_adapters(settings: Settings) -> SummaryAdapters:
         headings=GettextHeadingCatalog(),
         models=ListModels(
             OllamaModelLister(summaries.local_base_url),
-            OpenAiCompatibleModelLister(summaries.cloud_base_url),
+            OpenAiCompatibleModelLister(summaries.cloud_base_url, user_agent=user_agent()),
             keys,
         ),
     )

@@ -1,3 +1,4 @@
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -13,9 +14,9 @@ from meeting_scribe.summaries.domain.chunker import estimate_tokens, format_line
 from meeting_scribe.summaries.domain.errors import (
     SummaryCancelledError,
     SummaryContextTooLargeError,
-    SummaryOutputLimitReachedError,
     SummaryNoSpeechError,
     SummaryOutputInvalidError,
+    SummaryOutputLimitReachedError,
     SummaryProviderUnavailableError,
     SummaryTimeoutError,
 )
@@ -78,6 +79,20 @@ def test_single_pass_when_it_fits() -> None:
     assert generated.chunks == 1
     assert generated.prompt_version == PROMPT_VERSION
     assert generated.input_fingerprint == input_fingerprint(req.lines)
+
+
+def test_every_step_of_one_run_shares_one_opaque_session_id() -> None:
+    req = _long_request()
+    first, second = FakeProvider(), FakeProvider()
+
+    _use_case(first).run(req, FakeCancel()).unwrap()
+    _use_case(second).run(req, FakeCancel()).unwrap()
+
+    assert len(first.sessions) > 2
+    (session,) = set(first.sessions)
+    assert session is not None
+    assert re.fullmatch(r"[0-9a-f]{32}", session)
+    assert set(second.sessions) != {session}  # a new job, a new id
 
 
 def test_map_reduce_steps() -> None:

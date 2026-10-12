@@ -115,6 +115,7 @@ A finished summary appears in the Summary tab and as `summary.md` next to the me
 | `SUMMARY_MODEL_NOT_FOUND` | The model is not in `ollama list`: pull it or fix `SUMMARIES_LOCAL_MODEL`. |
 | `SUMMARY_CONTEXT_TOO_LARGE` | Raise the Ollama context and `SUMMARIES_LOCAL_CONTEXT_TOKENS` together (above). |
 | `SUMMARY_OUTPUT_LIMIT_REACHED` | The model used its whole output limit, often on hidden reasoning. Raise `SUMMARIES_MAX_OUTPUT_TOKENS` or choose another model. |
+| `SUMMARY_PROVIDER_REJECTED` (HTTP 400) from the cloud | OpenCode Go rejects requests without client and session identification (`MissingSessionID`). The service sends `User-Agent: meeting-scribe/<version>` and `x-opencode-session` itself; a `SUMMARIES_CLOUD_BASE_URL` override that points at another gateway does not change that (GO-063). |
 | `SUMMARY_TIMEOUT` | The provider sent no data in time; retry, or raise `SUMMARIES_TIMEOUT_SECONDS`. A model that spills to the CPU is slow. |
 | `SUMMARY_GPU_BUSY`, `SUMMARY_BUSY` | A recording, processing or another summary holds the GPU. Wait; processing resumes by itself. |
 | `SUMMARY_CLOUD_DISABLED` | The provider is not `cloud`: set `SUMMARIES_PROVIDER=cloud` (or choose Cloud in Preferences). |

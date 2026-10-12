@@ -429,11 +429,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 61 | 0 | 0 |
+| GO | 63 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-061 — 2026-10-12
-**Next available IDs**: BR-006, CR-014, GO-062, AP-005
+**Last rule added**: GO-063 — 2026-10-12
+**Next available IDs**: BR-006, CR-014, GO-064, AP-005
 
 ---
 
@@ -553,3 +553,10 @@ with `Supersedes: <ID>`. Never delete rules.
 - **Detail**: (1) `GET {cloud_base_url}/models` (OpenAI list format, verified against OpenCode Go on 2026-10-11: 38 entries with only `id`, `object`, `created`, `owned_by`) does not say which endpoint serves a model, so a model is supported when its id starts with a family served on `/chat/completions` per <https://opencode.ai/docs/go>: `deepseek-`, `glm-`, `kimi-`, `mimo-`, `longcat-` (`CLOUD_CHAT_COMPLETIONS_FAMILIES` in `summaries/infrastructure/model_listing.py`, the only place). Every other model is listed as `NOT_SUPPORTED_YET`; adding a family is one line plus the spec note. (2) The service reads the key from the keyring for each listing and sends it only as a bearer token to the configured https base; it is never logged, returned or put in an error (BR-005). The local list (`GET <origin>/api/tags`) uses a client with `trust_env=False`, like the releaser. (3) An unavailable list is a `ListModels` status. `Set` validates a model change against the last good list of its scope (cached 10 minutes in `LiveSummaryConfig`) and never fetches one, because it holds the settings lock; without a fresh list it accepts the save. Each listing has a total 5 s (local) or 10 s (cloud) deadline enforced by a helper thread, not by per-phase `httpx2` timeouts. (4) `Adw.ComboRow` has no per-item sensitivity, so unsupported models are a greyed list under the dropdown.
 - **Source**: [preferences spec](../specs/preferences.md) AC-16 to AC-20, D-1 to D-4; F5.10b
 - **Verifiable in**: `tests/unit/summaries/test_model_listing.py`, `tests/unit/preferences/test_model_check.py`, `tests/e2e/preferences/test_settings_over_dbus.py`
+
+### GO-063 — OpenCode Go needs a client name and a per-job session id on every request
+- **Date**: 2026-10-12
+- **Status**: active
+- **Detail**: (1) The gateway answers HTTP 400 `MissingSessionID` ("Request is missing x-opencode-session") to requests without session identification; with `User-Agent: meeting-scribe/<package version>` and `x-opencode-session: <opaque id>` it answers 200 (validated by the owner on 2026-10-11; source: <https://opencode.ai/docs/go>, "Where can I use it"). (2) The requirement is part of the provider entry: `CloudProvider.session_header` in `CLOUD_PROVIDERS` (`summaries/infrastructure/summaries_settings.py`). `OpenAiCompatibleProvider` sends the `User-Agent` on every cloud request and the session header on every chat request; `OpenAiCompatibleModelLister` sends the `User-Agent` on the `/models` listing. (3) The session id is `new_session_id()` (`summaries/domain/session.py`): the first 32 hex characters of the SHA-256 of a random UUID, created once per summary job and shared by all its steps through `SummaryProvider.complete(session_id=...)`. It is never derived from the meeting id, names or content and is never logged. (4) A local provider sends neither header. (5) `reasoning_effort: "none"` is sent only by the local provider (see the summaries spec, section 5).
+- **Source**: [summaries spec](../specs/summaries.md) section 5; [ADR-009](../decisions/009-cloud-summaries-through-opencode-go.md); F5.9 validation
+- **Verifiable in**: `tests/unit/summaries/test_openai_adapter.py`, `tests/unit/summaries/test_model_listing.py`, `tests/unit/summaries/test_generate_summary.py`, `tests/unit/summaries/test_client_identity.py`

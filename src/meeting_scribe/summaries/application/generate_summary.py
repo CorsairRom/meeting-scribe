@@ -41,6 +41,7 @@ from meeting_scribe.summaries.domain.ports import (
 from meeting_scribe.summaries.domain.prompts import PROMPT_VERSION, PromptBuilder
 from meeting_scribe.summaries.domain.renderer import SummaryText, parse_body, render_summary
 from meeting_scribe.summaries.domain.request import CompletionLimits, SummaryLine, SummaryRequest
+from meeting_scribe.summaries.domain.session import new_session_id
 
 __all__ = [
     "CloudKeyStore",
@@ -82,6 +83,7 @@ class _Run:
     on_progress: ProgressCallback | None
     deadline: float | None
     stop: threading.Event = field(default_factory=threading.Event)
+    session_id: str = field(default_factory=new_session_id)
     prompts: PromptBuilder = field(init=False)
     step: int = 0
     total: int = 1
@@ -229,7 +231,11 @@ class GenerateSummary:
                 return Failure(_timeout())
             remaining = max(remaining, MIN_CALL_SECONDS)
         completed = self._provider.complete(
-            messages, run.request.limits, _Either(run.cancel, run.stop), remaining
+            messages,
+            run.request.limits,
+            _Either(run.cancel, run.stop),
+            remaining,
+            session_id=run.session_id,
         )
         if (stopped := self._stopped(run)) is not None:
             return Failure(stopped)
