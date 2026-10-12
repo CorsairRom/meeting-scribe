@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from typing import Any
 
-from meeting_scribe_review.core.gateway import GatewayListener, SummaryListener
+from meeting_scribe_review.core.gateway import GatewayListener, SettingsListener, SummaryListener
 
 
 def _text(value: Any) -> bool:
@@ -12,6 +12,10 @@ def _text(value: Any) -> bool:
 
 def _count(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _texts(value: Any) -> bool:
+    return not isinstance(value, str) and isinstance(value, Sequence) and all(map(_text, value))
 
 
 def _shaped(args: Any, *checks: Any) -> bool:
@@ -45,3 +49,11 @@ def dispatch_summary_signal(listener: SummaryListener, name: str, args: Any) -> 
     else:
         return False
     return True
+
+
+def dispatch_settings_signal(listener: SettingsListener, name: str, args: Any) -> bool:
+    """Call the listener for ``SettingsChanged``; ``False`` when unknown or malformed."""
+    if name == "SettingsChanged" and _shaped(args, _texts):
+        listener.on_settings_changed(tuple(args[0]))
+        return True
+    return False
