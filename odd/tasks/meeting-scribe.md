@@ -639,7 +639,7 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
       GREEN = `make check` 2016 python passed, packaging 1 passed, gjs 163 passed, lint clean. The no-write proof
       (`test_check_changes_nothing`) passed before the smoke run `./install.sh --check` on the real machine: exit 0, all 22
       checks OK. `MEETING_SCRIBE_PREFETCH_TIMEOUT` removed everywhere; decisions recorded in `docs/specs/install.md`.
-      Note: `prefetch-models --check` arrives in F6.4, so the real summary says `models: PENDING` until then. Commit: see git log.
+      Note: `prefetch-models --check` arrives in F6.4, so the real summary says `models: PENDING` until then. Commit `c341e41` `feat(install): check the gpu, the disk and ollama and stop before any change`.
 - [ ] F6.4 Token-free processing: the pyannote loader uses no token, the fetcher takes one on stdin, `prefetch-models`
       gets `--check` and machine-readable progress, error texts point to Preferences; offline verification without a login.
 - [ ] F6.5 `model_setup` domain and `dev.meetingscribe.Models1` (status, download, cancel, progress, finished), keyring
