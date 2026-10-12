@@ -5,7 +5,7 @@ get a transcript with speakers told apart, name or merge speakers in a native GN
 with a local (Ollama) or opt-in cloud (OpenCode Go) LLM. Everything runs on your machine; nothing leaves it
 unless you explicitly ask for a cloud summary.
 
-**Status**: F0, F1, F2, F2.5, F3 and F4 are done: recording over the D-Bus session bus (`dev.meetingscribe.Recording1`), a GNOME panel extension to start and stop, and `make install`. F3 (processing): transcription, speaker assignment, the "Me" label and voice samples are built as worker stages, and the service queues processing after every recording (a desktop notification when it ends, `dev.meetingscribe.Meetings1` to list meetings and retry a failed one). The panel menu shows the processing state (stage, last result such as "N speakers", a "Processing failed — Reprocess" action, and the queued count). F4: a native GNOME review app, opened from the menu with "Review last meeting", lets you listen to each speaker's voice sample, name speakers, and merge or unmerge them. F5 (summaries) is in progress; the panel menu offers "Open last summary (date)". See the [scope](docs/project/mvp-scope.md).
+**Status**: F0, F1, F2, F2.5, F3 and F4 are done: recording over the D-Bus session bus (`dev.meetingscribe.Recording1`), a GNOME panel extension to start and stop, and `make install`. F3 (processing): transcription, speaker assignment, the "Me" label and voice samples are built as worker stages, and the service queues processing after every recording (a desktop notification when it ends, `dev.meetingscribe.Meetings1` to list meetings and retry a failed one). The panel menu shows the processing state (stage, last result such as "N speakers", a "Processing failed — Reprocess" action, and the queued count). F4: a native GNOME review app, opened from the menu with "Review last meeting", lets you listen to each speaker's voice sample, name speakers, and merge or unmerge them. F5 (summaries) is in progress: the review app has a Summary tab (generate, with the cloud labelled and confirmed on every request), a Preferences window (also a menu item) sets the provider, models, language and the cloud API key, and the panel menu offers "Open last summary (date)". See the [scope](docs/project/mvp-scope.md).
 
 What exists today: record from the top-bar menu or `gdbus`, audio saved in 2-channel chunks. Processing needs the `ml` extra (`make setup`) and an NVIDIA GPU; it starts by itself after Stop and resumes unfinished meetings when the service starts.
 
@@ -16,7 +16,7 @@ PulseAudio shim).
 
 ```bash
 make install     # everything: service, systemd user unit, D-Bus activation, GNOME extension
-make uninstall   # reverse it (keeps your meetings and your .env)
+make uninstall   # reverse it (keeps your meetings, your `.env`, your `settings.json` and the API key in the keyring)
 ```
 
 You never start the service by hand. `make install` does the following, and is safe to re-run to upgrade. It checks
@@ -91,6 +91,8 @@ stops the recording first.
 | [`docs/runbooks/processing.md`](docs/runbooks/processing.md) | Hugging Face login, models downloaded by `make install`, first run, troubleshooting by error code |
 | [`docs/runbooks/review-app.md`](docs/runbooks/review-app.md) | Install, open and troubleshoot the review app (system GTK 4 and libadwaita) |
 | [`docs/runbooks/summaries.md`](docs/runbooks/summaries.md) | Set up and troubleshoot summaries: Ollama, context size, model choice, the cloud and its key |
+| [`docs/runbooks/preferences.md`](docs/runbooks/preferences.md) | The Preferences window: settings precedence, locked fields, restarting the service, the settings file |
+| [`docs/runbooks/store-cloud-api-key.md`](docs/runbooks/store-cloud-api-key.md) | Store the cloud API key in the GNOME Keyring (Preferences or `secret-tool`) |
 | [`docs/runbooks/gnome-extension.md`](docs/runbooks/gnome-extension.md) | Try the panel indicator in a nested shell and install it in your session |
 | [`docs/`](docs/README.md) | Taxonomy: project scope and rules, architecture, ADRs, specs, runbooks, ideas |
 

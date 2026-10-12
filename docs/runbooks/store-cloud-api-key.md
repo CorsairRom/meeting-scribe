@@ -1,7 +1,7 @@
 ---
 type: runbook
 status: active
-last_updated: 2026-10-11
+last_updated: 2026-10-12
 ---
 
 # Store the cloud API key in the GNOME Keyring
@@ -16,6 +16,11 @@ Give the service the OpenCode Go API key without writing it to any file (ADR-009
 - You have the key from your OpenCode Go subscription.
 
 ## Steps
+
+**Recommended: the Preferences window.** Open Preferences from the extension menu, choose **In the cloud**, press
+**Set API key...** and paste the key. The window stores it in the GNOME Keyring and never shows it again. Picking the
+cloud provider there is the whole opt-in ([`preferences.md`](preferences.md)). The steps below are the developer
+override.
 
 1. Store the key. `secret-tool` reads the secret from standard input; never pass it as an argument:
 

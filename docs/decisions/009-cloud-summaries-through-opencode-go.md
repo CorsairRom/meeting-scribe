@@ -17,7 +17,7 @@ ai_instructions:
 ## Status
 
 `active` - decided by the owner on 2026-10-11. It supersedes in part [ADR-006](006-summary-provider-openai-compatible.md):
-only the "DeepSeek is a cloud preset" detail. ADR-006 is not edited.
+the "DeepSeek is a cloud preset" detail and, as implemented in F5, two more points: the API key lives in the GNOME Keyring (below) instead of env/`.env`, and the `cloud_enabled` flag no longer exists (`provider=cloud`, chosen in Preferences, is the opt-in; see [`../specs/preferences.md`](../specs/preferences.md) section 7). The local runs also moved to the native Ollama API (ADR-006 implementation notes). ADR-006 is not edited beyond its notes.
 
 ## Context
 

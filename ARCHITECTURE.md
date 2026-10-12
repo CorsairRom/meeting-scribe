@@ -52,7 +52,7 @@ flowchart LR
 | Transcription | faster-whisper `large-v3-turbo`, float16, CUDA, in a short-lived worker process | built (F3.2) and wired into the service (F3.4a); [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
 | Diarization | pyannote `speaker-diarization-community-1` on the system channel (the microphone in person), in a short-lived worker process; then "Me", assignment, `transcript.md` and per-speaker voice samples | worker stage implemented (F3.3b; the real model run is pending the user's consent) and wired into the service (F3.4a), [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
 | Review UI | Native GTK4 + libadwaita app on system python, thin D-Bus client | built (F4), [ADR-005](docs/decisions/005-review-ui-native-gtk-app.md) |
-| Summaries | `SummaryProvider` port, OpenAI-compatible adapter | planned (F5), [ADR-006](docs/decisions/006-summary-provider-openai-compatible.md) |
+| Summaries | `SummaryProvider` port; native Ollama adapter (`ollama_provider.py`, `/api/chat`, `num_ctx`, `think: false`) for local runs and an OpenAI-compatible adapter (`openai_provider.py`) for the cloud (OpenCode Go) | built (F5), [ADR-006](docs/decisions/006-summary-provider-openai-compatible.md), [ADR-009](docs/decisions/009-cloud-summaries-through-opencode-go.md), [spec](docs/specs/summaries.md) |
 | Storage | folder per meeting + versioned `meeting.json` | built (F3.1) and wired into the service (F3.4a), [ADR-004](docs/decisions/004-folder-per-meeting-json-storage.md) |
 
 ---
@@ -67,7 +67,7 @@ Source root: `src/meeting_scribe/`. Each package has `domain/`, `application/`, 
 | `recording/` | Start/stop capture, recording session state, PipeWire/ffmpeg adapter |
 | `transcription/` | Audio to words with timestamps (faster-whisper adapter) |
 | `speakers/` | Diarization (pyannote adapter), voice samples, rename, merge, "Me" labelling |
-| `summaries/` | `SummaryProvider` port and OpenAI-compatible adapter (Ollama / OpenCode Go) |
+| `summaries/` | `SummaryProvider` port, native Ollama adapter (local) and OpenAI-compatible adapter (OpenCode Go, cloud); see [ADR-006](docs/decisions/006-summary-provider-openai-compatible.md), [ADR-009](docs/decisions/009-cloud-summaries-through-opencode-go.md) and the [spec](docs/specs/summaries.md) |
 | `preferences/` | The few user-editable settings: the `FieldSpec` registry, the JSON settings file store, the meetings-folder check, the use cases (`PreferencesService`, `RestartService`), the systemd restarter and the `Settings1` adapter; validators are injected by the composition root ([spec](docs/specs/preferences.md)) |
 | `meetings/` | Meeting catalog, `MeetingRepository`, post-recording pipeline orchestration and job queue, worker protocol and subprocess runner, WAV readers |
 | `settings.py` | Root `Settings` composed of per-domain settings classes |

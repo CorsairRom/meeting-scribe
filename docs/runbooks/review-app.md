@@ -1,7 +1,7 @@
 ---
 type: runbook
 status: active
-last_updated: 2026-10-11
+last_updated: 2026-10-12
 phase: F4
 verifiable_by:
   - scripts/install.sh
@@ -84,5 +84,7 @@ A meeting in the `DONE` state has a **Summary** tab next to **Review** (spec [`.
 | The window opens but no sound | Install `gstreamer1-plugins-good`; check the default audio output |
 | The app does not start from the menu | Run the launcher from a terminal and read the traceback; never paste meeting text from it |
 
-Uninstall: `make uninstall` removes the desktop entry, the launcher and the app (they live in `versions/`). Meetings
-and your `.env` are left untouched.
+Uninstall: `make uninstall` removes the desktop entry, the launcher and the app (they live in `versions/`). Meetings,
+your `.env` and your `settings.json` are left untouched.
+
+**Preferences**: the same window opens the Preferences dialog from its menu, and `meeting-scribe-review --preferences` (the extension menu item) opens it directly; see [`preferences.md`](preferences.md).
