@@ -549,9 +549,10 @@ The real context window is the weak point of the local path, so the design assum
   only cuts the answer, it does not make it shorter.
 - **Token estimate**: characters divided by 2.25 (a measured ratio minus a safety margin; no tokenizer dependency; assumption A-7).
 - **Usable input per request** = context - the output budget of that kind of step - 600 (instructions and margin).
-  The final request (single pass and reduce) reserves 3072: 12712 tokens at the defaults, so a 2-hour meeting (about
-  10k estimated tokens) is a single pass. Map and merge steps reserve the notes budget (768): 15016 tokens, so long
-  meetings use fewer, larger chunks.
+  The final request (single pass and reduce) reserves 3072: 12712 tokens at the defaults. Map and merge steps reserve
+  the notes budget (768): 15016 tokens, so long meetings use fewer, larger chunks. Measured on 2026-10-12 with a
+  fictional 2-hour Spanish meeting (45,782 characters, about 18k real tokens, about 20k estimated at 2.25 characters
+  per token): three map requests of 8.8k-13.7k real tokens plus the reduce, 43 s, 100% GPU (A-7, GO-065).
 - **Single pass** when the whole transcript fits. Otherwise **map-reduce**:
   1. *Chunk* on utterance boundaries to the usable budget (an oversized utterance is split on sentences, then characters).
   2. *Map*: each chunk yields partial notes (topics, decisions, action items with owner, open questions) in compact Markdown.
@@ -564,8 +565,8 @@ The real context window is the weak point of the local path, so the design assum
   case, so a local step with `prompt_eval_count` within 16 of the window fails with `SUMMARY_CONTEXT_TOO_LARGE`
   instead of producing a summary of half a meeting. The check runs before the output-limit check, because a prompt
   that filled the window also ends with `done_reason: length`.
-- Quality note: at 16384 a 1-hour meeting (about 5k tokens) and a 2-hour meeting (about 10k) are one pass; longer
-  ones split into a few chunks. Before 2026-10-12 the window was 4096 and a 1-hour meeting took about 9 chunks.
+- Quality note: at 16384 a meeting of up to about 45 minutes is one pass; a 2-hour meeting (about 18k real tokens)
+  splits into about three chunks. Before 2026-10-12 the window was 4096 and a 1-hour meeting took about 9 chunks.
 
 ### 5. The provider adapters (Ollama native for local, OpenAI-compatible cloud gateway opt-in)
 

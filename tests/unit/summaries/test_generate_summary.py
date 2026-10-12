@@ -458,7 +458,7 @@ def test_each_kind_of_step_reserves_its_own_output_budget() -> None:
 
 
 def test_map_chunks_are_sized_with_the_notes_budget_and_not_the_final_one() -> None:
-    # About 1010 estimated tokens: too much for the final budget (800), fine for notes (1300).
+    # About 900 estimated tokens (2.25 chars/token): above the final budget (800), within notes.
     lines = tuple(line("Person A", float(n * 10), "word " * 96) for n in range(4))
     req = request(lines=lines, context_tokens=2000, max_output_tokens=600, notes_output_tokens=100)
     provider = FakeProvider()
