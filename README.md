@@ -158,3 +158,10 @@ stops the recording first.
 
 The service never starts a recording or plays audio on its own, and meeting data is private: it stays in the
 configured meetings directory and never enters this repository.
+
+## License
+
+meeting-scribe is free software under the GNU General Public License, version 2 or (at your option) any later version
+(SPDX: `GPL-2.0-or-later`). The text of version 2 is in [`LICENSE`](LICENSE); the "or later" choice is declared in
+`pyproject.toml`. The GNOME extension is part of the same work: GNOME Shell's `metadata.json` has no license field, so
+the license is stated here and in `LICENSE`.
