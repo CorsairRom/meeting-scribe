@@ -632,15 +632,22 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
       prerequisites list and the drift test that keeps it equal to the check ids.
       Evidence: RED = 29 failed in `tests/unit/test_preflight.py` plus 2 errors in `test_readme_prerequisites.py` (no checks,
       no README table); GREEN = `make check` 1986 python passed, packaging 1 passed, gjs 163 passed. The old "review app: NOT
-      usable" warning tests became the zero-change stop (AC-2). Commit: see F6.3 evidence.
-- [ ] F6.3 Preflight, hardware and services: NVIDIA driver, VRAM, free disk by filesystem, Ollama installed, reachable,
+      usable" warning tests became the zero-change stop (AC-2). Commit `664727f` `feat(install): check the session, the shell and the review app toolkit`.
+- [x] F6.3 Preflight, hardware and services: NVIDIA driver, VRAM, free disk by filesystem, Ollama installed, reachable,
       default model present; the install stops with zero changes; summary line "models: pending" replaces the model download step.
+      Evidence: RED = 60 failed across `test_preflight.py`, `test_install_scripts.py` (new fakes: `nvidia-smi`, `df`, `curl`);
+      GREEN = `make check` 2016 python passed, packaging 1 passed, gjs 163 passed, lint clean. The no-write proof
+      (`test_check_changes_nothing`) passed before the smoke run `./install.sh --check` on the real machine: exit 0, all 22
+      checks OK. `MEETING_SCRIBE_PREFETCH_TIMEOUT` removed everywhere; decisions recorded in `docs/specs/install.md`.
+      Note: `prefetch-models --check` arrives in F6.4, so the real summary says `models: PENDING` until then. Commit `c341e41` `feat(install): check the gpu, the disk and ollama and stop before any change`.
 - [ ] F6.4 Token-free processing: the pyannote loader uses no token, the fetcher takes one on stdin, `prefetch-models`
       gets `--check` and machine-readable progress, error texts point to Preferences; offline verification without a login.
 - [ ] F6.5 `model_setup` domain and `dev.meetingscribe.Models1` (status, download, cancel, progress, finished), keyring
       reader moved to the shared kernel, new error codes, api-contracts and catalog, e2e on a private bus.
 - [ ] F6.6 Review app core: Hugging Face token key store (libsecret), `Models1` gateway, presenter and tests.
 - [ ] F6.7 Review app UI: "Speech models" group in Preferences (token field, terms link, Download models with progress and cancel).
+      Also remove the interim line `(until then: meeting-scribe prefetch-models)` that `scripts/install.sh` prints after `models: PENDING`
+      (and its assertion in `tests/unit/test_install_scripts.py`).
 - [ ] F6.8 Update and uninstall: idempotent re-run proof, uninstall mirrors the entry point and lists what it keeps, existing `hf auth login` still works.
 - [ ] F6.9 Docs and validation: `docs/runbooks/install.md`, README section "Install (humans and AI agents)", the other runbooks,
       ADR-010 and ADR-011 active, docs gate, validation with consent on the real machine (no recording, no audio).

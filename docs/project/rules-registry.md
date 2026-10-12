@@ -429,11 +429,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 65 | 0 | 0 |
+| GO | 65 | 1 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-065 — 2026-10-12
-**Next available IDs**: BR-006, CR-014, GO-066, AP-005
+**Last rule added**: GO-066 — 2026-10-12
+**Next available IDs**: BR-006, CR-014, GO-067, AP-005
 
 ---
 
@@ -444,8 +444,9 @@ with `Supersedes: <ID>`. Never delete rules.
 
 ### GO-047 — Models are fetched at install time; the worker is always offline
 - **Date**: 2026-10-09
-- **Status**: active
-- **Detail**: `make install` runs `meeting-scribe prefetch-models` after the service is switched and started (recording never needs the models, so a missing network or Hugging Face login must not block installing it; a failure is only reported in the summary, never as an install failure). The command is `meeting_scribe.cli:run` (the console script), not `main`, because the import contract forbids `main` from reaching the ML backends. It fetches the gated pipeline first (a missing login fails in seconds, not after the 1.6 GB Whisper model), then Whisper, always attempts both, and maps failures with the same mappers as the worker (`DIARIZATION_MODEL_ACCESS_DENIED` with "accept the terms at <url> and run `hf auth login`"); a `MODEL_UNAVAILABLE` mapping is re-worded for install time (what failed, check network / model name setting / cache, retry `meeting-scribe prefetch-models`) because the mapper's own text describes the offline worker; anything shaped like a token (`hf_...`) is scrubbed from the output and the token is never read (`token=True` is the ambient login). The real fetchers are methods of the two backends: `FasterWhisperBackend.download_model` (`faster_whisper.utils.download_model`, which also fills the cache `WhisperModel` reads) and `RealPyannoteBackend.fetch_pipeline` (the worker's own `Pipeline.from_pretrained`, CPU only, so a successful fetch guarantees an offline load). The download is bounded by `timeout` (`MEETING_SCRIBE_PREFETCH_TIMEOUT` seconds, default 3600, an install knob read by `scripts/install.sh`, not a service setting; a value that is not a positive integer warns once and falls back to 3600). The script keeps an explicit `models_status` (`ok`, `failed`, `timed_out`, `skipped_rollback`) and the summary is a `case` on it; exit 124 and 137 (`--kill-after` SIGKILL) both mean timed out. On a timeout or a failure the extension step and the summary still run and the install exits 0, and after a rollback the download is skipped (the start failure is the real problem). The summary does not hard-code a pipeline URL: the prefetch output above names it. `SubprocessWorkerRunner` forces `HF_HUB_OFFLINE=1` in every worker environment (a user value cannot turn it off); a cache miss then surfaces as `LocalEntryNotFoundError` and becomes `MODEL_UNAVAILABLE` with "run `make install` again". `uv tool install` takes the extra through a PEP 508 direct reference (`meeting-scribe[ml] @ <repo>`); `<repo>[ml]` is a parse error in uv 0.10.9.
+- **Status**: superseded
+- **Superseded by**: GO-066 (2026-10-12): the installer no longer downloads the models (F6.3, [install spec](../specs/install.md)); the download moves to the service and Preferences. The worker stays offline.
+- **Detail**: `make install` ran `meeting-scribe prefetch-models` after the service was switched and started (recording never needs the models, so a missing network or Hugging Face login must not block installing it; a failure is only reported in the summary, never as an install failure). The command is `meeting_scribe.cli:run` (the console script), not `main`, because the import contract forbids `main` from reaching the ML backends. It fetches the gated pipeline first (a missing login fails in seconds, not after the 1.6 GB Whisper model), then Whisper, always attempts both, and maps failures with the same mappers as the worker (`DIARIZATION_MODEL_ACCESS_DENIED` with "accept the terms at <url> and run `hf auth login`"); a `MODEL_UNAVAILABLE` mapping is re-worded for install time (what failed, check network / model name setting / cache, retry `meeting-scribe prefetch-models`) because the mapper's own text describes the offline worker; anything shaped like a token (`hf_...`) is scrubbed from the output and the token is never read (`token=True` is the ambient login). The real fetchers are methods of the two backends: `FasterWhisperBackend.download_model` (`faster_whisper.utils.download_model`, which also fills the cache `WhisperModel` reads) and `RealPyannoteBackend.fetch_pipeline` (the worker's own `Pipeline.from_pretrained`, CPU only, so a successful fetch guarantees an offline load). The summary does not hard-code a pipeline URL: the prefetch output above names it. `SubprocessWorkerRunner` forces `HF_HUB_OFFLINE=1` in every worker environment (a user value cannot turn it off); a cache miss then surfaces as `LocalEntryNotFoundError` and becomes `MODEL_UNAVAILABLE` with "run `make install` again". `uv tool install` takes the extra through a PEP 508 direct reference (`meeting-scribe[ml] @ <repo>`); `<repo>[ml]` is a parse error in uv 0.10.9.
 - **Source**: [processing spec](../specs/processing.md) OQ-7, section 9, F3.5
 - **Verifiable in**: `tests/unit/test_prefetch.py`, `tests/unit/test_cli.py`, `tests/unit/test_install_scripts.py`, `tests/unit/meetings/test_subprocess_worker_runner.py`
 
@@ -574,3 +575,11 @@ with `Supersedes: <ID>`. Never delete rules.
 - **Detail**: The chunker has no tokenizer, so `CHARS_PER_TOKEN` (`summaries/domain/chunker.py`, the only place) must stay below the real ratio. Measured 2026-10-12 with the qwen3:4b-instruct tokenizer on a Spanish meeting dialogue (timestamps and speaker prefixes): 22,397 characters = 8,883 prompt tokens, 2.52 characters per token. The earlier value of 3 overcounted the characters per token (undercounted tokens) by about 16%: a 2-hour meeting of 45,782 characters went into one map request and Ollama truncated it. The value is 2.25, that ratio minus about 10%. Re-measure it when the default model changes; another language or tokenizer can be denser still, and the truncation guard (GO-064) is the backstop, not the plan.
 - **Source**: [summaries spec](../specs/summaries.md) section 4, A-7
 - **Verifiable in**: `tests/unit/summaries/test_chunker.py`, `tests/unit/summaries/test_generate_summary.py::test_a_two_hour_dialogue_sized_transcript_is_split_by_the_measured_ratio`
+
+### GO-066 — The installer never downloads the models; it reports `models: ready (cached)` or `PENDING`
+- **Date**: 2026-10-12
+- **Status**: active
+- **Supersedes**: GO-047 (the install-time download)
+- **Detail**: `./install.sh` (alias `make install`) does no network step: recording needs no model, so a missing network, login or terms acceptance can never block or fail the install. After the switch it runs `current/bin/meeting-scribe prefetch-models --check` (offline) and prints `models: ready (cached)` or `models: PENDING: add your Hugging Face token in Preferences and press Download models; recording works meanwhile`, followed until F6.7 by `(until then: meeting-scribe prefetch-models)`. A missing, failing or timed out check is reported as PENDING, never as a failure. The check is bounded by `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT` seconds (default 30; an invalid value falls back to 30). The `--check` option arrives in F6.4, so until then the real command rejects it and the line says PENDING. Unchanged from GO-047: the worker always runs with `HF_HUB_OFFLINE=1`, a cache miss becomes `MODEL_UNAVAILABLE`, and `uv tool install` takes the extra as `meeting-scribe[ml] @ <repo>`.
+- **Source**: [install spec](../specs/install.md) section 5 and OQ-2
+- **Verifiable in**: `tests/unit/test_install_scripts.py`

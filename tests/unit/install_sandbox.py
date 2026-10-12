@@ -58,15 +58,15 @@ case "$1 $2" in
     [ "${FAKE_UV_FAIL:-0}" = 1 ] && { mkdir -p "$UV_TOOL_DIR"; echo "uv: boom" >&2; exit 2; }
     mkdir -p "$UV_TOOL_BIN_DIR"
     [ "${FAKE_UV_NO_EXE:-0}" = 1 ] && exit 0
-    # the installed entry point: only `prefetch-models` is ever run by the scripts
+    # the installed entry point: only `prefetch-models --check` is ever run by the scripts
     cat > "$UV_TOOL_BIN_DIR/meeting-scribe" <<'EOS'
 #!/usr/bin/env bash
 echo "meeting-scribe $* (from $0)" >> "$FAKE_LOG"
 if [ "$1" = prefetch-models ]; then
-  echo "fake prefetch output"
-  [ -n "${FAKE_PREFETCH_SLEEP:-}" ] && exec sleep "$FAKE_PREFETCH_SLEEP"
-  [ "${FAKE_PREFETCH_FAIL:-0}" = 1 ] && { echo "FAILED [ACCESS_DENIED]" >&2; exit 1; }
-  [ -n "${FAKE_PREFETCH_EXIT:-}" ] && exit "$FAKE_PREFETCH_EXIT"
+  # The installer never downloads: only the offline cache check may run.
+  [ "$2" = --check ] || { echo "download attempted" >> "$FAKE_LOG.download"; exit 9; }
+  [ -n "${FAKE_MODELS_CHECK_SLEEP:-}" ] && exec sleep "$FAKE_MODELS_CHECK_SLEEP"
+  [ "${FAKE_MODELS_CACHED:-1}" = 1 ] && exit 0 || exit 1
 fi
 exit 0
 EOS
@@ -79,6 +79,7 @@ esac
 """,
     "systemctl": """
 case "$*" in
+  *"cat ollama.service"*) [ "${FAKE_OLLAMA_SYSTEMD:-1}" = 1 ] && exit 0 || exit 1 ;;
   *is-active*) [ ! -e "$FAKE_LOG.failed" ] && [ "${FAKE_UNIT_ACTIVE:-0}" = 1 ] \\
                && exit 0 || exit 3 ;;
   *enable*|*restart*|*daemon-reload*)
@@ -110,30 +111,53 @@ echo "python3-run PYTHONPATH=${PYTHONPATH:-} PYTHONDONTWRITEBYTECODE=${PYTHONDON
      "args=$*" >> "$FAKE_LOG"
 exit 0
 """,
-    # Read-only stand-in: only `list` is expected. FAKE_OLLAMA_MODE: ok (default), missing-model,
-    # down (server unreachable), hang. Anything else is logged and fails, so a pull, run or serve
-    # by the installer is visible in the log.
-    "ollama": """
-case "$1" in
-  list)
-    case "${FAKE_OLLAMA_MODE:-ok}" in
-      down) echo "Error: could not connect to ollama server" >&2; exit 1 ;;
-      hang) exec sleep 30 ;;
-    esac
-    echo "NAME                ID              SIZE      MODIFIED"
-    echo "llama3.2:latest     aaaaaaaaaaaa    2.0 GB    2 days ago"
-    [ "${FAKE_OLLAMA_MODE:-ok}" = missing-model ] || {
-      echo "${FAKE_OLLAMA_MODEL:-qwen3:4b-instruct-2507-q4_K_M}  bbbbbbbbbbbb  2.5 GB  1 day ago"
-    } ;;
-  *) echo "ollama: unexpected call" >&2; exit 9 ;;
-esac
-""",
+    # Presence only: the preflight reads the HTTP API through curl and never runs ollama.
+    # Any call is logged and fails, so a pull, run, list or serve by the installer is visible.
+    "ollama": 'echo "ollama: unexpected call" >&2; exit 9',
     # Records the call: the installer must never run it (it only prints sudo commands).
     "sudo": "echo 'sudo was called by the installer' >&2; exit 99",
     # Present and working by default; a test removes the file to make the tool "missing".
     "ffmpeg": "",
     "pactl": "",
-    "curl": "",
+    # The Ollama API. FAKE_OLLAMA_MODE: ok (default), missing-model (the configured model is not
+    # listed), down (connection refused), hang. FAKE_OLLAMA_MODEL names the configured model.
+    "curl": r"""
+case "${FAKE_OLLAMA_MODE:-ok}" in
+  down) echo "curl: (7) Failed to connect" >&2; exit 7 ;;
+  hang) exec sleep 30 ;;
+esac
+model="${FAKE_OLLAMA_MODEL:-qwen3:4b-instruct-2507-q4_K_M}"
+tags='{"models":[{"name":"llama3.2:latest","model":"llama3.2:latest"}'
+if [ "${FAKE_OLLAMA_MODE:-ok}" != missing-model ]; then
+  tags="$tags"',{"name":"'"$model"'","model":"'"$model"'"}'
+fi
+echo "$tags]}"
+""",
+    # name, memory.total and driver_version rows separated by `;` in FAKE_NVIDIA_ROWS.
+    "nvidia-smi": r"""
+case "${FAKE_NVIDIA_MODE:-ok}" in
+  fail) echo "NVIDIA-SMI has failed: no driver" >&2; exit 9 ;;
+  hang) exec sleep 30 ;;
+esac
+case "$*" in
+  *memory.free*) echo "${FAKE_NVIDIA_FREE:-7000}"; exit 0 ;;
+esac
+default="NVIDIA GeForce RTX 5060 Laptop GPU, 8151 MiB, 610.57.04"
+printf '%s\n' "${FAKE_NVIDIA_ROWS-$default}" | tr ';' '\n'
+""",
+    # `df -Pk <path>`: FAKE_DF holds `prefix|device|available KiB|mount` rows separated by `;`; the
+    # first row whose prefix starts the path answers. The default is 500 GiB free on one device.
+    "df": r"""
+[ -n "${FAKE_DF_FAIL:-}" ] && { echo "df: cannot read" >&2; exit 1; }
+path="${!#}"
+IFS=';' read -ra rows <<<"${FAKE_DF:-/|/dev/fake1|524288000|/}"
+echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+for row in "${rows[@]}"; do
+  IFS='|' read -r prefix device avail mount <<<"$row"
+  case "$path" in "$prefix"*) echo "$device 999999999 1 $avail 1% $mount"; exit 0 ;; esac
+done
+exit 1
+""",
     "secret-tool": "",
     "gnome-shell": 'echo "GNOME Shell ${FAKE_SHELL_VERSION:-50.4}"',
     # `rpm -q <package>`: the voice sample plugin is installed unless FAKE_GSTREAMER=0.

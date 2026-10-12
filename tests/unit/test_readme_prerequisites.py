@@ -31,5 +31,5 @@ def test_every_readme_row_says_what_is_needed_and_how_to_install_it() -> None:
     assert rows
     for row in rows:
         cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
-        assert len(cells) == 4, row  # id, needed for, kind, how to get it
+        assert len(cells) == 4, row  # check id, what, if missing, how to get it
         assert all(cells), row

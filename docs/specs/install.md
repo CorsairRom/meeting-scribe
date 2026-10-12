@@ -164,7 +164,7 @@ AND the detail line names the GPU, the memory and the driver version
 
 ```gherkin
 GIVEN a fake df that reports the free bytes of the data directory and of the Hugging Face cache directory
-THEN the required space is 8 GiB for the service on a first install, 16 GiB when a version already exists (two environments coexist during an upgrade), and 2 GiB for the models when they are not cached
+THEN the required space is 8 GiB for one new service environment (on a first install and on an upgrade alike: the old version is already on disk and is pruned after the new one runs) and 2 GiB for the models when they are not cached
 AND the requirements of directories on the same filesystem are added, the others are checked apart
 AND a shortage is a FIX item that names the filesystem, the free and the required space and a command to see what is large
 ```
@@ -414,7 +414,7 @@ Gotchas found while measuring (to carry into the runbook):
 - `~/.ollama` is 16 KiB here: this Ollama stores models elsewhere (it runs as a system service), so the preflight cannot measure the model store.
 - VRAM was measured only for the summary model in this task; Whisper and pyannote VRAM numbers come from the F3 spec, not from a new run.
 
-Derived requirements (single constants, in one place in the preflight, covered by a test): service 8 GiB (7.1 measured plus margin), 16 GiB during an upgrade (the previous environment stays until the new one runs), models 2 GiB (1.65 measured plus margin), minimum VRAM 8000 MiB (an "8 GB" card reports 8151 to 8192 MiB; the owner's card reports 8151).
+Derived requirements (single constants, in one place in the preflight, covered by a test): service 8 GiB for one new environment (7.1 measured plus margin; an upgrade needs no more, the previous environment is already on disk and is pruned after the new one runs), models 2 GiB (1.65 measured plus margin), minimum VRAM 8000 MiB (an "8 GB" card reports 8151 to 8192 MiB; the owner's card reports 8151).
 
 ### 3. One entry point
 
@@ -651,3 +651,16 @@ About 400 authored changed lines per task (advisory, counting additions plus del
 - 2026-10-12: the owner chose GPL-2.0-or-later for the public repository (the `LICENSE` file and metadata are added in F6.10, not before).
 - 2026-10-12: a missing default Ollama model stops the install with `ollama pull <model>` as the fix, consistent with "nothing missing".
 - 2026-10-12: spec approved under the owner's delegation (decide what follows from recorded decisions, ask only real forks); OQ-1 to OQ-3 answered with their recommendations.
+- 2026-10-12 (F6.1 to F6.3, implementation): `--json` is only valid together with `--check` (alone it is a usage error, exit 2), because an install prints a lot of prose and the one-document guarantee needs a read-only run; with `--json` the same text report goes to stderr.
+- 2026-10-12 (F6.1): `uninstall.sh` also answers `--help` and rejects an unknown option with exit 2, so `make uninstall ARGS=...` never ignores an argument silently.
+- 2026-10-12 (F6.1): every item in the JSON carries a `steps` array (empty unless the item has manual steps), so the shape is the same for all items; `detail` holds one informational line (printed as `note:` in the text report). A fix or a step is one line.
+- 2026-10-12 (F6.1): a passing install prints only the WARN items of the preflight and `==> Prerequisites: all present`; the full report is printed by `--check` and when the install is blocked.
+- 2026-10-12 (F6.2): when `gi` cannot be imported, `gtk.gtk4`, `gtk.libadwaita` and `gtk.libsecret` are SKIP (they cannot be probed), as the status table says for dependent checks; the FIX is `python3-gobject` alone.
+- 2026-10-12 (F6.2): `gtk.gstreamer` is checked with `rpm -q gstreamer1-plugins-good` only; when `rpm` is missing it stays a WARN. The ffmpeg item prints `sudo dnf install ffmpeg-free` and notes the RPM Fusion `ffmpeg` in `detail`.
+- 2026-10-12 (F6.3): Ollama is probed with `curl -fsS --max-time 3 <base>/api/tags` (the spec's request, plus `-f` so an HTTP error counts as unreachable), bounded by `MEETING_SCRIBE_OLLAMA_TIMEOUT` (default 3 s; it was 10 s for `ollama list`); the base is `SUMMARIES_LOCAL_BASE_URL` from the environment with a trailing `/` and `/v1` removed. The old `ollama list` call is gone: the installer never runs `ollama`. A "system service" is `systemctl cat ollama.service` succeeding.
+- 2026-10-12 (F6.3): `ollama.installed` prints `xdg-open https://ollama.com/download` as its fix (copy-pasteable) and the "its script asks for administrator rights" warning as `detail`, so the word sudo appears only inside fix lines.
+- 2026-10-12 (F6.3): "models cached" for the disk requirement means a snapshot folder exists in the Hugging Face hub cache for both default repos (`mobiuslabsgmbh/faster-whisper-large-v3-turbo`, `pyannote/speaker-diarization-community-1`); the installed `prefetch-models --check` cannot be used because it does not exist before the install and arrives in F6.4. A configured non-default model counts as not cached (a conservative estimate). The cache folder is `HF_HUB_CACHE`, else `$HF_HOME/hub`, else `${XDG_CACHE_HOME:-~/.cache}/huggingface/hub`.
+- 2026-10-12 (F6.3): free VRAM is read with a second `nvidia-smi --query-gpu=memory.free` call and printed as `detail` of `gpu.vram` (edge case "free VRAM is lower than total"); it never changes the verdict. `nvidia-smi` is bounded by `MEETING_SCRIBE_NVIDIA_SMI_TIMEOUT` (default 10 s). When `df` cannot read a directory, `disk.space` is a WARN (not a blocker), since the spec defines no status for it.
+- 2026-10-12 (F6.3): the summary line comes from `current/bin/meeting-scribe prefetch-models --check`, bounded by `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT` (default 30 s, the spec's bound made overridable so a test can prove it); any non-zero exit, timeout or missing executable reports `PENDING`. Until F6.4 adds `--check`, the real command rejects the option, so the line says `PENDING` on a real machine; F6.4 makes it truthful.
+- 2026-10-12 (F6 review): the Ollama address follows the service's precedence, environment then `.env` then the default; `settings.json` is not read because Preferences has no `summaries.local_base_url` field (`preferences/domain/fields.py` lists only `summaries.local_model` among the Ollama settings), so the earlier wording of the review that named it does not apply.
+- 2026-10-12 (F6 review): an upgrade needs room for one new environment (8 GiB) plus the models, the same as a first install; the earlier 16 GiB figure double counted the old version, which is already on disk. The install summary's `ollama:` line says `reachable at preflight` because it repeats the result taken at the start of the run, and the `models: PENDING` line is followed by `(until then: meeting-scribe prefetch-models)` until Download models lands in F6.7.
