@@ -614,14 +614,14 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
       `docs/specs/*.md` and `rules-registry.md`: 99 citations, 0 broken (22 repointed); Spanish scan only the known
       fixtures and `doc-sync-protocol.md`. Remaining: owner reviews and merges the integration PR.
 ### F6 Install — in progress (integration `feat/install`)
-Spec: `docs/specs/install.md` (draft, for owner approval). TDD: strict, runner `uv run pytest` / `make check`
+Spec: `docs/specs/install.md` (approved 2026-10-12 under the owner's delegation). TDD: strict, runner `uv run pytest` / `make check`
 (source: AGENTS.md). Route: delegated direct (one writer per task, 2+ non-trivial files each).
 Delivery: integration branch `feat/install` from `main` (F5 merged); the tracker PR to `main` is still to be
 created (it needs the owner's go to push); work-unit PRs of about 400 authored lines target `feat/install` and the
 owner merges the tracker. Docs gate before the tracker is ready (see `docs/project/doc-sync-protocol.md`).
 Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers are a separate phase after F6.
 - [x] F6.0a Phase start: F5 done, F6 in progress (mvp-scope, AGENTS, backlog, README, F5 spec statuses, this document).
-- [ ] F6.0b Design spec `docs/specs/install.md` and ADR-010 and ADR-011 drafts written 2026-10-12; waits for the owner's approval and answers to its open questions.
+- [x] F6.0b Design spec `docs/specs/install.md`, ADR-010 and ADR-011 written and approved 2026-10-12 under the owner's delegation; OQ-1 to OQ-3 answered with their recommendations.
 - [ ] F6.1 Root `install.sh` and `uninstall.sh` entry points (thin wrappers over `scripts/`), `make install` alias,
       option parsing (`--check`, `--json`, `--help`), exit-code contract and report formatter, with fakes-based tests.
 - [ ] F6.2 Preflight, system checks: GNOME Wayland session, GNOME Shell version from the extension metadata, `uv`,

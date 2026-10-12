@@ -197,7 +197,7 @@ AND the check runs only the system interpreter (REVIEW_APP_PYTHON), never the uv
 GIVEN ollama is not installed
 THEN ollama.installed is FIX with the download page, and ollama.reachable and ollama.model are SKIP
 GIVEN it is installed but GET http://127.0.0.1:11434/api/tags fails or times out
-THEN ollama.reachable is FIX with "systemctl start ollama" (or "ollama serve")
+THEN ollama.reachable is FIX with "sudo systemctl start ollama" when Ollama runs as a system service (printed, never run), else "ollama serve"
 GIVEN it answers but the configured local model is not in the list
 THEN ollama.model is FIX with "ollama pull <model>", the model being the one the service would use (environment, then .env, then settings.json, then the default)
 AND in every case the install stops with zero changes and the installer itself never pulls or starts anything
@@ -305,7 +305,7 @@ THEN the summary says "models: ready (cached)"
 GIVEN an installed system with meetings, settings.json, a keyring entry and cached models
 WHEN I run ./install.sh again (after git pull)
 THEN a new version directory becomes current, the service restarts when idle, and the meetings, settings.json, keyring entries and model cache are untouched
-AND running it a third time changes nothing that matters (same units, same files, old versions pruned)
+AND running it a third time leaves the same observable state: identical unit file bytes, identical activation and extension files, the same set of user files kept, and exactly one version directory under the install root
 ```
 
 **Test**: `tests/unit/test_install_scripts.py::test_update_keeps_user_data_and_is_idempotent` (planned)
@@ -620,7 +620,7 @@ About 400 authored changed lines per task (advisory, counting additions plus del
 | F6.6 | Review app core: Hugging Face token key store (libsecret, attributes above), `Models1` gateway and parsers, models presenter | `review-app/src/meeting_scribe_review/core/`, `review-app/src/meeting_scribe_review/ui/key_store.py`, `tests/unit/review_app/` | AC-19 (logic) |
 | F6.7 | Review app UI: "Speech models" group in Preferences (token field, terms link, status, Download models, progress, cancel) | `review-app/src/meeting_scribe_review/ui/preferences_dialog.py`, `ui/` | AC-19 (UI) |
 | F6.8 | Update and uninstall: idempotent re-run proof, uninstall keep-list, existing `hf auth login` still downloads | `scripts/install.sh`, `scripts/uninstall.sh`, `tests/unit/test_install_scripts.py` | AC-21, AC-22, AC-17 (login path) |
-| F6.9 | `docs/runbooks/install.md` (install, update, troubleshoot), README section "Install (humans and AI agents)", the other runbooks, `ARCHITECTURE.md`, ADR-010 and ADR-011 to `active`, docs gate, validation with consent on the real machine (no recording, no audio) | docs, README | docs gate, manual check of section 6 |
+| F6.9 | `docs/runbooks/install.md` (install, update, troubleshoot), README section "Install (humans and AI agents)", the other runbooks, `ARCHITECTURE.md`, docs gate, validation with consent on the real machine (no recording, no audio) | docs, README | docs gate, manual check of section 6 |
 | F6.10 | Prepare the repo to become public (section 11): license, author email and history rewrite, private repository references | `LICENSE`, `pyproject.toml`, `gnome-extension/.../metadata.json`, `odd/`, `docs/_templates/README.md` | owner review; the force-push needs the owner's confirmation |
 
 ---
@@ -633,7 +633,7 @@ About 400 authored changed lines per task (advisory, counting additions plus del
 - [ ] Lint, format, type check and import contracts clean
 - [ ] Traceability updated in `project/mvp-scope.md` (FR-7 row)
 - [ ] `docs/runbooks/install.md`, the README prerequisites and the "Install (humans and AI agents)" section written
-- [ ] ADR-010 and ADR-011 `active` after the owner approves them
+- [x] ADR-010 and ADR-011 `active` (approved with the spec on 2026-10-12)
 - [ ] New rules or gotchas added to `project/rules-registry.md` (GO-047 is superseded by this phase)
 - [ ] `.env.example` and `ARCHITECTURE.md` section 7 list `MODEL_SETUP_DOWNLOAD_TIMEOUT_SECONDS`
 - [ ] Docs gate for the tracker PR (audit, language scan)

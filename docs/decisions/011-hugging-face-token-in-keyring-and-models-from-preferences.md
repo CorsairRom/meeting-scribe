@@ -1,7 +1,7 @@
 ---
 type: decision
 adr_number: 011
-status: proposed  # proposed | active | superseded | deprecated
+status: active  # proposed | active | superseded | deprecated
 date: 2026-10-12
 deciders: [richard, ai-assistant]
 supersedes: null
