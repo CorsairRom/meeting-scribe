@@ -429,11 +429,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 58 | 0 | 0 |
+| GO | 59 | 0 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-058 — 2026-10-11
-**Next available IDs**: BR-005, CR-014, GO-059, AP-005
+**Last rule added**: GO-059 — 2026-10-12
+**Next available IDs**: BR-006, CR-014, GO-060, AP-005
 
 ---
 
@@ -525,3 +525,10 @@ with `Supersedes: <ID>`. Never delete rules.
 - **Detail**: (1) `MeetingsClient` also watches `Summaries1`: it calls `LastSummary` when the service appears, on `SummaryFinished` and when the menu opens, and keeps `{startedAt, path}` in its snapshot; `ENTITY_NOT_FOUND_SUMMARY`, an older service without the interface, a timeout or a path that is not absolute all clear it, which hides the item. A request counter drops a late answer. (2) The item is `Open last summary (<weekday, day, month, 24-hour time>)`, built from `started_at` in the user's locale (`formatStartedAt`); it carries no title and no path, and it follows the "Review last meeting" visibility (hidden while recording, busy, unknown state or unavailable service). (3) `openSummary(path)` is injected into the controller and implemented in `extension.js` as `Gio.AppInfo.launch_default_for_uri_async(Gio.File.new_for_path(path).get_uri(), null, null)`, so the Shell never blocks and the default app for `.md` handles it; a `false`, a throw or a rejection shows one fixed notification (`summaryOpenFailureMessage`), never the error, which can hold the path. (4) The extension never reads a summary and never writes the file name `summary.md`; a static test checks it. It needs a check in a real shell.
 - **Source**: [summaries spec](../specs/summaries.md) section 10, AC-19, OQ-7, A-8, A-9; F5.7
 - **Verifiable in**: `gnome-extension/tests/indicatorModel.test.js`, `gnome-extension/tests/indicatorController.test.js`, `gnome-extension/tests/meetingsClient.test.js`, `gnome-extension/tests/shellGlue.test.js`
+
+### GO-059 — The saved settings are a source below `.env`, entered through a context variable
+- **Date**: 2026-10-12
+- **Status**: active
+- **Detail**: pydantic-settings puts `init` above the environment, so passing the user's saved values as constructor arguments would let them beat `.env`. `file_layer(values)` (`base/infrastructure/settings.py`) instead sets a `ContextVar`; `MeetingScribeSettings.settings_customise_sources` adds an `InitSettingsSource` built from the values of its own section (the env prefix, lowercased) between the dotenv and the file-secret sources. Only `Settings.load(file_values=...)` and `Settings.with_overrides(values)` enter the layer, so every other constructor keeps `init > env > .env > default`. The source per exposed field is computed once at load from `os.environ`, the `.env` keys and the saved keys (`Settings.source_of`). `with_overrides` builds each exposed section alone first so a `ValidationError` maps to its field key (an env-only field or a cross-field rule maps to the section name), with the validators' own messages and never the value. The `preferences` file store keeps a damaged `settings.json` out of the way (`settings.json.invalid`) on the next successful write and logs keys only (BR-005, spec AC-11, AC-14).
+- **Source**: [preferences spec](../specs/preferences.md) sections 3 and 6, AC-3, AC-10, AC-11; F5.10 P1
+- **Verifiable in**: `tests/unit/test_settings_overrides.py`, `tests/unit/preferences/test_settings_file.py`

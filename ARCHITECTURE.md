@@ -68,6 +68,7 @@ Source root: `src/meeting_scribe/`. Each package has `domain/`, `application/`, 
 | `transcription/` | Audio to words with timestamps (faster-whisper adapter) |
 | `speakers/` | Diarization (pyannote adapter), voice samples, rename, merge, "Me" labelling |
 | `summaries/` | `SummaryProvider` port and OpenAI-compatible adapter (Ollama / OpenCode Go) |
+| `preferences/` | The few user-editable settings: the `FieldSpec` registry, the JSON settings file store, the meetings-folder check and (P3) the `Settings1` adapter and use cases; validators are injected by the composition root ([spec](docs/specs/preferences.md)) |
 | `meetings/` | Meeting catalog, `MeetingRepository`, post-recording pipeline orchestration and job queue, worker protocol and subprocess runner, WAV readers |
 | `settings.py` | Root `Settings` composed of per-domain settings classes |
 | `main.py` | Composition root: `create_app(settings)`, `run()` |
@@ -140,12 +141,12 @@ Defined in `pyproject.toml` under `[tool.importlinter]` (`root_packages = ["meet
 
 | # | Name | Type | Rule |
 |---|---|---|---|
-| 1 | Domains recording, transcription, speakers and summaries are independent | independence | `recording`, `transcription`, `speakers`, `summaries` do not import each other |
-| 2 | Layers per package: infrastructure > application > domain | layers | In `base`, `recording`, `transcription`, `speakers`, `summaries`, `meetings`: `infrastructure` may import `application` may import `domain`, never the reverse |
+| 1 | Domains recording, transcription, speakers and summaries are independent | independence | `recording`, `transcription`, `speakers`, `summaries` and `preferences` do not import each other |
+| 2 | Layers per package: infrastructure > application > domain | layers | In `base`, `recording`, `transcription`, `speakers`, `summaries`, `meetings`, `preferences`: `infrastructure` may import `application` may import `domain`, never the reverse |
 | 3 | meetings only depends on other domains through their application layer | forbidden | `meetings` may not import `<domain>.domain` or `<domain>.infrastructure` of `recording`, `transcription`, `speakers`, `summaries` (`allow_indirect_imports = true`) |
-| 4 | Shared kernel does not depend on the domains | forbidden | `base` may not import any domain or `meetings` (`settings`/`main` are covered by contract 6) |
-| 5 | Domain layers do not import frameworks | forbidden | every `<package>.domain` (including `base` and `meetings`) may not import `pydantic_settings`, `dbus_fast`, `gi` |
-| 6 | Domain packages do not import settings or the composition root | forbidden | `base` and all domain packages may not import `meeting_scribe.main` or `meeting_scribe.settings` |
+| 4 | Shared kernel does not depend on the domains | forbidden | `base` may not import any domain, `meetings` or `preferences` (`settings`/`main` are covered by contract 6) |
+| 5 | Domain layers do not import frameworks | forbidden | every `<package>.domain` (including `base`, `meetings` and `preferences`) may not import `pydantic_settings`, `dbus_fast`, `gi` |
+| 6 | Domain packages do not import settings or the composition root | forbidden | `base` and all domain packages (including `preferences`) may not import `meeting_scribe.main` or `meeting_scribe.settings` |
 | 7 | The service never imports ML libraries (only the two backends do, in the worker) | forbidden | no module of `meeting_scribe` may import `faster_whisper`, `ctranslate2`, `torch`, `torchaudio` or `pyannote`, except the faster-whisper backend (`faster_whisper`, `ctranslate2`) and the pyannote backend (`torch`, `pyannote`), both loaded only in the worker |
 | 8 | The service entry point never reaches the worker or its ML backends | forbidden | `meeting_scribe.main` may not import `meeting_scribe.worker` or the faster-whisper backend, directly or indirectly |
 | 9 | The app core never imports gi | forbidden | `meeting_scribe_review.core` may not import `gi` (only `ui` does, F4.5) |
@@ -154,6 +155,7 @@ Defined in `pyproject.toml` under `[tool.importlinter]` (`root_packages = ["meet
 | 12 | App layers: ui over core | layers | `meeting_scribe_review.ui` may import `core`, never the reverse |
 | 13 | Summaries domain and application stay free of HTTP and settings libraries | forbidden | `summaries.domain` and `summaries.application` may not import `httpx`, `httpx2`, `openai`, `pydantic_settings` or `dbus_fast`; `openai` and `httpx2` are confined to `summaries.infrastructure` by contract 14 |
 | 14 | The openai client and httpx2 are imported only by summaries.infrastructure | forbidden | No `meeting_scribe` module may import `openai` or `httpx2`, except the adapters `summaries.infrastructure.openai_provider` and `ollama_releaser` (allowed by `ignore_imports`) |
+| 15 | Preferences application stays free of D-Bus and settings libraries | forbidden | `preferences.application` may not import `dbus_fast`, `pydantic_settings` or `gi`; the `Settings1` adapter and the file store live in `preferences.infrastructure` |
 
 ---
 
@@ -232,6 +234,15 @@ its current poll before stopping, so controller calls never overlap.
 `MeetingScribeSettings` base (`extra="ignore"`, `case_sensitive=False`, utf-8) and only set their own
 `env_prefix`. The base class lives in `base/infrastructure/settings.py` (re-exported by `meeting_scribe.settings`) so
 domain infrastructure can inherit it without importing the root settings module (import contract 6). `get_settings()` is `lru_cache`d. Template: [`.env.example`](.env.example).
+
+Precedence, highest first: process environment, `.env`, `settings.json` (the user's saved values from the
+Preferences window, `$XDG_CONFIG_HOME/meeting-scribe/settings.json`, JSON `{"version": 1, "values": {...}}`, sparse,
+mode `0600` in a `0700` folder, written atomically), then defaults. The saved values enter as a settings source
+below the dotenv source (`file_layer` in `base/infrastructure/settings.py`), so only `Settings.load(file_values=...)`
+and `Settings.with_overrides(values)` read them; constructors with explicit arguments are unchanged. Only five fields are
+exposed in the file (`summaries.provider`, `summaries.local_model`, `summaries.language`, `summaries.cloud_model`,
+`storage.meetings_dir`); `Settings.source_of(key)` reports the winning layer (`default`, `file`, `env`, `dotenv`) and
+whether it locks the field. The API key is never a setting (BR-005).
 
 Env file resolution (once, in the base class): `$XDG_CONFIG_HOME/meeting-scribe/.env` (default
 `~/.config/meeting-scribe/.env`) if it exists, otherwise `./.env` in the CWD (development). Process environment

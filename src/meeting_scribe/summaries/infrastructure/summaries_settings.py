@@ -16,6 +16,7 @@ from meeting_scribe.summaries.domain.request import MARGIN_TOKENS, CompletionLim
 # The only hosts a local transcript may be sent to (AC-8); "localhost" is checked by name, not DNS.
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 _LANGUAGE = re.compile(r"auto|[a-z]{2,3}")
+MAX_MODEL_NAME = 200
 
 
 class SummariesSettings(MeetingScribeSettings):
@@ -23,13 +24,13 @@ class SummariesSettings(MeetingScribeSettings):
 
     provider: Literal["local", "cloud"] = "local"
     local_base_url: str = "http://127.0.0.1:11434/v1"
-    local_model: str = Field(default="qwen3.5:9b", min_length=1)
+    local_model: str = Field(default="qwen3.5:9b", min_length=1, max_length=MAX_MODEL_NAME)
     local_context_tokens: int = Field(default=4096, gt=0)
     unload_local_model: bool = True
     cloud_enabled: bool = False
     cloud_provider_name: str = Field(default="OpenCode Go", min_length=1)
     cloud_base_url: str = "https://opencode.ai/zen/go/v1"
-    cloud_model: str = Field(default="deepseek-v4-pro", min_length=1)
+    cloud_model: str = Field(default="deepseek-v4-pro", min_length=1, max_length=MAX_MODEL_NAME)
     cloud_context_tokens: int = Field(default=100000, gt=0)
     language: str = "auto"
     max_output_tokens: int = Field(default=2048, ge=256)
@@ -62,6 +63,13 @@ class SummariesSettings(MeetingScribeSettings):
         if parsed.scheme != "https" or not parsed.hostname:
             raise ValueError("SUMMARIES_CLOUD_BASE_URL must be an https URL")
         return value
+
+    @field_validator("local_model", "cloud_model")
+    @classmethod
+    def _model_is_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("The model name must not be blank")
+        return value.strip()
 
     @field_validator("language")
     @classmethod
