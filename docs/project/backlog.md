@@ -31,38 +31,34 @@ Raised after the first real recording (2026-10-09); recorded so nothing is lost,
 - [ ] Open the review app from the "Meeting processed" notification (F4 OQ-6: menu only for now); a `desktop-entry` hint needs a manual check in GNOME Shell
 - [ ] Import recordings made before F3 (no `meeting.json`) so they can be processed
 
-### [EPIC] F6 Hardening
+### [EPIC] Summary quality and Preferences polish (after F6)
 
-- [ ] Runbook: install, update, troubleshoot
-- [ ] Inputs from the owner's decisions of 2026-10-12 (to be discussed before F6 starts):
-  - No cloud-only install mode: transcription and diarization need the local NVIDIA GPU, so the cloud only replaces the summary step
-  - System prerequisites are listed in the main README
-  - The installer checks the prerequisites first and, when one is missing, stops without changing anything and prints the dependency list so the user installs them and runs it again
-  - Open topics: the sudo policy, the Ollama install path, and distribution through extensions.gnome.org versus an RPM/COPR package
-
----
-
-## In progress
-
-### [EPIC] F5 Summaries — ADR-006
-
-- [x] `summaries` domain: `SummaryProvider` port
-- [x] Provider adapters: native Ollama (`OllamaChatProvider`) for local runs, OpenAI-compatible (`OpenAiCompatibleProvider`) for OpenCode Go
-- [x] Cloud opt-in (`provider=cloud` chosen in Preferences), "cloud" label, per-request confirmation; the API key lives in the GNOME Keyring (ADR-009)
-- [x] Export `.md` in the reference structure (`summary.md`)
-- [x] Extension menu action "Open last summary" (date and time in a readable form)
-- [x] `dev.meetingscribe.Summaries1` (generate, status, providers, signals)
-- [x] `dev.meetingscribe.Settings1` and the Preferences window, with a menu item that opens it (`--preferences`) ([spec](../specs/preferences.md))
-- [x] Model pickers in Preferences (local and cloud lists through `ListModels`)
-- [ ] F5.9 validation and docs gate; the phase closes when the owner merges the integration PR
-
-### [EPIC] Follow-ups (post-F5)
+A separate phase after F6 (owner decision of 2026-10-12); the F5 leftovers, not part of F6.
 
 - [ ] Summary quality: duplicate task rows, generic team owners instead of names, topics lost in the reduce step
 - [ ] The model list cache is not invalidated when the provider or the key changes
 - [ ] Listing threads are abandoned (a listing that times out keeps its thread)
 - [ ] The restart wait state survives closing the Preferences dialog
 - [ ] A stale `api_key` success arrives after a newer attempt already failed and is shown as current
+
+---
+
+## In progress
+
+### [EPIC] F6 Install — spec `docs/specs/install.md` (written next, for owner approval)
+
+Owner decisions of 2026-10-12 (binding):
+
+- [ ] Scope: a robust install from the repo. Distribution through extensions.gnome.org is deferred to a later phase. There is no cloud-only install mode: transcription and diarization need the local NVIDIA GPU, so the cloud only replaces the summary step
+- [ ] One entry point: root-level `install.sh` (`make install` stays as an alias); uninstall mirrors it
+- [ ] Preflight first: checks every prerequisite before changing anything; when something is missing it stops with zero changes and prints what is missing, why it is needed and the exact fix command. `./install.sh --check` runs only the preflight. Stable exit codes; output readable by humans and parseable by AI agents
+- [ ] The installer never runs `sudo` and never prompts mid-way: it prints the commands. Human-only steps (NVIDIA driver and reboot, accepting the pyannote terms and creating the Hugging Face token) are labelled apart from fixable errors
+- [ ] Prerequisites listed in the README and checked by the preflight: NVIDIA GPU with a working driver, at least 8 GB VRAM, free disk space, GNOME on Wayland, `uv`, GTK4, libadwaita and PyGObject, Ollama installed and reachable (the install stops if it is missing)
+- [ ] The Hugging Face token moves to Preferences (GNOME Keyring, like the cloud API key) with a "Download models" action; processing loads the cached models with no token. The installer does not stop for a missing token: it reports "models pending"
+- [ ] Update is `git pull` then `./install.sh` (idempotent; keeps meetings, `settings.json`, keyring entries and models); uninstall keeps user data and says so
+- [ ] Runbook `docs/runbooks/install.md` (install, update, troubleshoot) and a README section "Install (humans and AI agents)"
+
+The task breakdown (F6.1 and on) lives in `odd/tasks/meeting-scribe.md`.
 
 ---
 
@@ -78,5 +74,6 @@ Raised after the first real recording (2026-10-09); recorded so nothing is lost,
 | 2026-10-09 | F1 Recording: `recording` domain, ffmpeg capture adapter, D-Bus `Recording1`, e2e on a private bus, systemd unit and activation file, runbook | PRs #16-#21 |
 | 2026-10-09 | F2 GNOME extension: panel indicator, D-Bus client, controller, packaging, runbook | PRs #33-#48 |
 | 2026-10-11 | F4 Review app: GTK4 + libadwaita app from the menu (listen per speaker, rename, merge, unmerge, transcript), Meetings1 review members, non-destructive review in meeting.json, install with the service | tracker #82 (PRs #81-#97) |
+| 2026-10-12 | F5 Summaries: `summaries` domain, local (native Ollama) and opt-in cloud (OpenCode Go) providers, `summary.md` export, `Summaries1`, Summary tab in the review app, "Open last summary" in the menu, `Settings1` and the Preferences window with model pickers, cloud API key in the GNOME Keyring (ADR-009) | tracker #99 |
 | 2026-10-09 | F3 Processing: queued transcription and diarization after Stop, "Me" label, voice samples, D-Bus `Meetings1`, menu processing state, ML install with model prefetch, real GPU validation | tracker #52 (PRs #50-#80) |
 | 2026-10-09 | F2.5 `make install` / `make uninstall`: versioned uv tool, systemd user unit, D-Bus activation, extension enabled, idempotent, no restart while recording | F2.5 |

@@ -1,7 +1,7 @@
 ---
 type: spec
 feature: preferences
-status: in-progress  # draft | approved | in-progress | done | blocked
+status: done  # draft | approved | in-progress | done | blocked
 mvp: true
 prd_ref: NFR-1, NFR-6, safety requirements 2-3
 depends_on:
