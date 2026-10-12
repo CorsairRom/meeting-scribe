@@ -15,7 +15,7 @@ from meeting_scribe_review.core.presenters.playback import PlaybackState
 from meeting_scribe_review.core.presenters.rename import RenameState
 from meeting_scribe_review.core.presenters.review import ReviewState, ReviewStatus
 from meeting_scribe_review.core.presenters.summary import SummaryState
-from meeting_scribe_review.core.session import ReviewSession
+from meeting_scribe_review.core.session import ReviewSession, SummarySettingsListener
 from meeting_scribe_review.ui.dbus_gateway import DBusGateway
 from meeting_scribe_review.ui.dialogs import SpeakerDialogs
 from meeting_scribe_review.ui.key_store import SecretKeyStore
@@ -81,7 +81,7 @@ class ReviewWindow(Adw.ApplicationWindow):
             SummaryActions(
                 generate=lambda: self._session.generate_summary(),
                 cancel=lambda: self._session.cancel_summary(),
-                set_key=lambda: self._session.set_api_key(),
+                open_preferences=lambda: self.open_preferences(),
                 copy=lambda: self._export.copy(self._summary_state),
                 save=lambda: self._export.save(self._summary_state),
             )
@@ -112,6 +112,8 @@ class ReviewWindow(Adw.ApplicationWindow):
         self.connect("close-request", self._on_close_request)
 
         self._session = ReviewSession(gateway, player, self, summaries=gateway, keys=keys)
+        self._settings_listener = SummarySettingsListener(self._session)
+        gateway.watch_settings(self._settings_listener)
         self._dialogs = SpeakerDialogs(self, self._session)
         self._summary_dialogs = SummaryDialogs(self, self._session)
         self._export = SummaryExport(self, self._toast)
@@ -234,6 +236,7 @@ class ReviewWindow(Adw.ApplicationWindow):
 
     def _on_close_request(self, _window: Adw.ApplicationWindow) -> bool:
         self._session.close()
+        self._gateway.unwatch_settings(self._settings_listener)
         self._preferences.shutdown()
         self._gateway.close()
         return False

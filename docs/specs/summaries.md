@@ -312,7 +312,7 @@ THEN the app shows a Summary view with the state: none, running (progress and Ca
 AND there is exactly one "Generate summary" button, which uses the provider chosen in the settings
     (SUMMARIES_PROVIDER, reported by Providers as the default row)
 GIVEN the configured provider is the cloud
-THEN the button label carries the service-provided "cloud" label, for example "Generate summary (cloud)"
+THEN the caption under the button names the cloud and the model, for example "Cloud · deepseek-v4.1-flash"
 WHEN the user presses it
 THEN a dialog states that the transcript will leave this computer and goes to <provider>, with Cancel as the
      default and "Send to cloud" as the explicit action; only that action calls Summarize(..., true)
@@ -917,7 +917,7 @@ The owner answered all eight questions on 2026-10-11.
    owner's machine, Sublime Text).
 8. **OQ-8** Choosing the provider: **one "Generate summary" button that uses the provider set in the settings**
    (option a, `SUMMARIES_PROVIDER`). Safety requirement 3 still applies: when the configured provider is the cloud, the
-   button label carries the service-provided "cloud" label (for example "Generate summary (cloud)") and every cloud
+   caption under the button carries "Cloud" and the model (F5.9) and every cloud
    request asks for confirmation before sending (`cloud_confirmed` stays). There is no separate per-request cloud entry.
 9. **Decision 9 (2026-10-11, owner)** Cloud opt-in: **there is no separate "Enable cloud" switch.** Choosing the cloud as the
    provider (`SUMMARIES_PROVIDER=cloud`, set from the Preferences window) IS the opt-in, and `SUMMARIES_CLOUD_ENABLED` is
@@ -969,6 +969,11 @@ The owner answered all eight questions on 2026-10-11.
   `SUMMARIES_MAX_OUTPUT_TOKENS` plus 600.
 - **F5.3**: a connect or first-byte wait cannot be interrupted by a cancel (no stream exists yet); it is bounded by
   the connect timeout (5 s) and the read timeout capped by the time left.
+- **F5.9 (2026-10-12)**: the button says just "Generate summary"; a small caption under it names where it runs and
+  the model ("Cloud · <model>" or "On this computer · <model>"). The Summary tab no longer has a "Set API key"
+  button: a missing key shows "Set the API key in Preferences" with a button that opens Preferences. A provider or
+  model change (`SettingsChanged`), or reopening the tab, clears the error of an earlier run; the service keeps the
+  last failure in `meeting.json`, and the app shows it only for a run that finished while the window was open.
 - **F5.6 (2026-10-11)**: the button label is `Generate summary: <provider label>` with the label exactly as `Providers`
   words it (the cloud label already says "cloud"); the colon avoids nested parentheses with `Local (<model>)`. The
   "Set API key" field of section 8a is built in the app (`ApiKeyPresenter` in `core`, `SecretKeyStore` on libsecret in

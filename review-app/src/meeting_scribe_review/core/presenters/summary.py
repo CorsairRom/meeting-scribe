@@ -1,6 +1,7 @@
 """The Summary view of the open meeting (AC-17, AC-18).
 
-One "Generate summary" button uses the provider the service marks as default; a cloud provider
+One "Generate summary" button uses the provider the service marks as default (a caption under it
+names where it runs and the model); a cloud provider
 asks for confirmation first (``on_confirm``) and is sent only through ``send``. The summary text,
 its title and the provider are private user data: they live in the state and are never logged.
 Replies are matched to the load that asked for them, so a late reply for a meeting already left is
@@ -19,10 +20,19 @@ from meeting_scribe_review.core.errors import (
 from meeting_scribe_review.core.gateway import SummariesGateway
 from meeting_scribe_review.core.models import ProviderRow, SummaryDocument, SummaryInfo
 from meeting_scribe_review.core.presenters.cloud_confirmation import ConfirmationRequest
+from meeting_scribe_review.core.presenters.preferences import (
+    CLOUD_MODEL,
+    CLOUD_PROVIDER,
+    LOCAL_MODEL,
+    PROVIDER,
+)
 from meeting_scribe_review.core.result import Err, Result
 from meeting_scribe_review.core.states import STATE_DONE
 
 BUTTON_TEXT = "Generate summary"
+KEY_HINT_TEXT = "Set the API key in Preferences"
+CLOUD_CAPTION = "Cloud"
+LOCAL_CAPTION = "On this computer"
 STALE_TEXT = (
     "This summary is out of date: the speakers or the transcript changed after it was made."
 )
@@ -32,6 +42,7 @@ SAVE_FAILED_TEXT = "The summary could not be saved."
 NOT_FOUND_CODE = "ENTITY_NOT_FOUND_SUMMARY"
 ALREADY_RUNNING_CODE = "SUMMARY_ALREADY_RUNNING"
 KEY_CODES = frozenset({"SUMMARY_CLOUD_KEY_MISSING", "SUMMARY_AUTH_FAILED"})
+PROVIDER_SETTINGS = frozenset({PROVIDER, LOCAL_MODEL, CLOUD_MODEL, CLOUD_PROVIDER})
 _RUNNING = "RUNNING"
 _FAILED = "FAILED"
 
@@ -51,6 +62,7 @@ class SummaryState:
     meeting_id: str = ""
     phase: SummaryPhase = SummaryPhase.IDLE
     button_label: str = BUTTON_TEXT
+    provider_caption: str = ""  # the small line under the button: where it runs and which model
     can_generate: bool = False
     can_cancel: bool = False
     progress_text: str = ""
@@ -63,7 +75,7 @@ class SummaryState:
     message: str = ""
     hint: str = ""
     needs_api_key: bool = False
-    can_set_key: bool = False  # the configured provider is the cloud and may be used
+    key_hint: str = ""  # shown with a button that opens Preferences while the key is missing
     can_copy: bool = False
     filename: str = ""
 
@@ -183,7 +195,14 @@ class SummaryPresenter:
 
     def on_summary_finished(self, meeting_id: str, state: str, error_code: str) -> None:  # noqa: ARG002
         if meeting_id == self._meeting_id and self._done:
+            self._show_failure = True  # a run of this session ended: its failure is current
             self._refresh(finished=True)
+
+    def on_settings_changed(self, keys: tuple[str, ...]) -> None:
+        """A provider or model changed: the error of the last run no longer applies."""
+        if self._meeting_id and self._done and PROVIDER_SETTINGS.intersection(keys):
+            self._generation += 1
+            self._load()
 
     # -- loading ---------------------------------------------------------------------------
 
@@ -196,6 +215,7 @@ class SummaryPresenter:
         self._document: SummaryDocument | None = None
         self._load_error: ServiceError | None = None
         self._error: ServiceError | None = None
+        self._show_failure = False  # the service keeps the last failure; show only a fresh one
         self._reset_run()
 
     def _reset_run(self) -> None:
@@ -215,6 +235,7 @@ class SummaryPresenter:
         self._reset_run()
         self._load_error = None
         self._error = None
+        self._show_failure = False
         self._document = None
         self._info = None
         self._publish()
@@ -321,7 +342,7 @@ class SummaryPresenter:
         if self._error is not None:
             return self._error
         info = self._info
-        if info is not None and info.state == _FAILED and info.failure_code:
+        if self._show_failure and info is not None and info.state == _FAILED and info.failure_code:
             return ServiceError(info.failure_code)
         return None
 
@@ -329,7 +350,7 @@ class SummaryPresenter:
         if not self._meeting_id or not self._done:
             return SummaryState(meeting_id=self._meeting_id)
         row = self._default
-        label = BUTTON_TEXT if row is None else f"{BUTTON_TEXT}: {row.label}"
+        label = BUTTON_TEXT
         if self._load_error is not None:
             message = message_for(self._load_error)
             return SummaryState(
@@ -358,6 +379,7 @@ class SummaryPresenter:
             message, hint = text.text, text.hint
         elif row is not None and not row.available:
             message = message_for(ServiceError(row.reason)).text
+        needs_key = failure is not None and failure.code in KEY_CODES and not running
         if running:
             phase = SummaryPhase.RUNNING
         elif failure is not None:
@@ -368,6 +390,7 @@ class SummaryPresenter:
             meeting_id=self._meeting_id,
             phase=phase,
             button_label=label,
+            provider_caption=_caption(row),
             can_generate=not running and row is not None and row.available,
             can_cancel=running and not self._cancelling,
             progress_text=_progress_text(step, total, cancelling=self._cancelling)
@@ -381,11 +404,17 @@ class SummaryPresenter:
             stale_text=STALE_TEXT if info is not None and info.stale and document else "",
             message=message if not running else "",
             hint=hint if not running else "",
-            needs_api_key=failure is not None and failure.code in KEY_CODES and not running,
-            can_set_key=row is not None and row.cloud and row.available,
+            needs_api_key=needs_key,
+            key_hint=KEY_HINT_TEXT if needs_key else "",
             can_copy=document is not None,
             filename=f"summary-{self._meeting_id}.md" if document else "",
         )
+
+
+def _caption(row: ProviderRow | None) -> str:
+    if row is None:
+        return ""
+    return f"{CLOUD_CAPTION if row.cloud else LOCAL_CAPTION} · {row.model}"
 
 
 def _progress_text(step: int, total: int, *, cancelling: bool) -> str:

@@ -193,6 +193,9 @@ class ReviewSession:
     def on_summary_finished(self, meeting_id: str, state: str, error_code: str) -> None:
         self._summary.on_summary_finished(meeting_id, state, error_code)
 
+    def on_settings_changed(self, keys: tuple[str, ...]) -> None:
+        self._summary.on_settings_changed(keys)
+
     def _cloud_confirmed(self, request: ConfirmationRequest) -> None:
         self._summary.send(request)
 
@@ -220,3 +223,16 @@ class ReviewSession:
             return
         self._review.open(row.id, row.state)
         self._summary.open(row.id, row.state)
+
+
+class SummarySettingsListener:
+    """Hands ``SettingsChanged`` to the session; the session already hears about availability."""
+
+    def __init__(self, session: ReviewSession) -> None:
+        self._session = session
+
+    def on_service_available(self, available: bool) -> None:  # noqa: ARG002
+        return None
+
+    def on_settings_changed(self, keys: tuple[str, ...]) -> None:
+        self._session.on_settings_changed(keys)

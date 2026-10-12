@@ -26,12 +26,15 @@ def _wire(
     return presenter, gateway, states, asked
 
 
-def test_a_meeting_without_a_summary_offers_the_button_named_after_the_local_model() -> None:
+def test_a_meeting_without_a_summary_offers_a_plain_button_with_the_local_model_as_caption() -> (
+    None
+):
     presenter, _gateway, _states, _asked = _wire()
     presenter.open("m1", "DONE")
     state = presenter.state
     assert state.phase is SummaryPhase.NONE
-    assert state.button_label == "Generate summary: Local (fake-model)"
+    assert state.button_label == "Generate summary"
+    assert state.provider_caption == "On this computer · fake-model"
     assert state.can_generate
     assert not state.can_cancel
 
@@ -61,7 +64,8 @@ def test_a_cloud_press_asks_and_sends_nothing_until_confirmed() -> None:
     )
     presenter, _, _states, asked = _wire(gateway)
     presenter.open("m1", "DONE")
-    assert "cloud" in presenter.state.button_label
+    assert presenter.state.button_label == "Generate summary"
+    assert presenter.state.provider_caption == "Cloud · fake-model"
     presenter.request()
     assert asked == [ConfirmationRequest("m1", "cloud", "cloud: Fake Gateway, fake-model")]
     assert gateway.args_of("summarize") == []
@@ -98,6 +102,7 @@ def test_no_default_provider_disables_the_button() -> None:
     presenter.open("m1", "DONE")
     assert not presenter.state.can_generate
     assert presenter.state.button_label == "Generate summary"
+    assert presenter.state.provider_caption == ""
 
 
 def test_a_saved_local_summary_is_shown_with_copy_and_save() -> None:
@@ -316,20 +321,23 @@ def test_service_unavailable_then_back_reloads() -> None:
     assert len(gateway.args_of("providers")) == 2
 
 
-def test_the_set_key_action_is_offered_only_for_an_available_cloud_provider() -> None:
+def test_the_summary_tab_has_no_set_key_action() -> None:
     presenter, _gateway, _states, _asked = _wire()
     presenter.open("m1", "DONE")
-    assert not presenter.state.can_set_key
+    assert not hasattr(presenter.state, "can_set_key")
+
+
+def test_a_missing_cloud_key_shows_a_hint_to_open_preferences() -> None:
     gateway = FakeSummariesGateway()
     gateway.replies["providers"] = Ok([provider("cloud", cloud=True)])
-    presenter, _, _states, _asked = _wire(gateway)
+    presenter, _, _states, asked = _wire(gateway)
     presenter.open("m1", "DONE")
-    assert presenter.state.can_set_key
-    gateway.replies["providers"] = Ok(
-        [provider("cloud", cloud=True, available=False, reason="SUMMARY_CLOUD_DISABLED")]
-    )
-    presenter.open("m1", "DONE")
-    assert not presenter.state.can_set_key
+    assert presenter.state.key_hint == ""
+    presenter.request()
+    gateway.fail("summarize", "SUMMARY_CLOUD_KEY_MISSING")
+    presenter.send(asked[0])
+    assert presenter.state.key_hint == "Set the API key in Preferences"
+    assert presenter.state.needs_api_key
 
 
 def test_a_service_restart_mid_run_does_not_leave_the_tab_running() -> None:
@@ -409,3 +417,60 @@ def test_a_re_confirmed_cloud_request_completes_with_the_new_provider() -> None:
     presenter.send(asked[0])  # stale: asks again
     presenter.send(asked[1])  # the re-confirmation
     assert gateway.args_of("summarize") == [("m1", "cloud2", True)]
+
+
+def _failed_start(gateway: FakeSummariesGateway, presenter: SummaryPresenter) -> None:
+    gateway.fail("summarize", "SUMMARY_GPU_BUSY")
+    presenter.request()
+    assert presenter.state.phase is SummaryPhase.FAILED
+
+
+def test_a_provider_or_model_change_clears_the_error_of_the_last_run() -> None:
+    for key in (
+        "summaries.provider",
+        "summaries.local_model",
+        "summaries.cloud_model",
+        "summaries.cloud_provider",
+    ):
+        presenter, gateway, _states, _asked = _wire()
+        presenter.open("m1", "DONE")
+        _failed_start(gateway, presenter)
+        presenter.on_settings_changed((key,))
+        assert presenter.state.phase is SummaryPhase.NONE, key
+        assert presenter.state.message == ""
+
+
+def test_a_provider_change_clears_a_failure_the_service_kept_and_shows_the_new_provider() -> None:
+    gateway = FakeSummariesGateway()
+    presenter, _, _states, _asked = _wire(gateway)
+    presenter.open("m1", "DONE")
+    presenter.request()
+    gateway.replies["get_summary_status"] = Ok(
+        summary_info("FAILED", failure_code="SUMMARY_TIMEOUT")
+    )
+    presenter.on_summary_finished("m1", "FAILED", "SUMMARY_TIMEOUT")
+    assert presenter.state.phase is SummaryPhase.FAILED
+    gateway.replies["providers"] = Ok([provider("cloud", cloud=True)])
+    presenter.on_settings_changed(("summaries.cloud_model",))
+    assert presenter.state.phase is SummaryPhase.NONE
+    assert presenter.state.message == ""
+    assert presenter.state.provider_caption == "Cloud · fake-model"
+
+
+def test_an_unrelated_setting_keeps_the_error() -> None:
+    presenter, gateway, _states, _asked = _wire()
+    presenter.open("m1", "DONE")
+    _failed_start(gateway, presenter)
+    presenter.on_settings_changed(("summaries.language",))
+    assert presenter.state.phase is SummaryPhase.FAILED
+
+
+def test_reopening_the_tab_does_not_show_the_failure_of_an_earlier_run() -> None:
+    gateway = FakeSummariesGateway()
+    gateway.replies["get_summary_status"] = Ok(
+        summary_info("FAILED", failure_code="SUMMARY_TIMEOUT")
+    )
+    presenter, _, _states, _asked = _wire(gateway)
+    presenter.open("m1", "DONE")
+    assert presenter.state.phase is SummaryPhase.NONE
+    assert presenter.state.message == ""

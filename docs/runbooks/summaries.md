@@ -80,10 +80,10 @@ The cloud is off by default. A cloud summary sends the transcript, with speaker 
 ([ADR-009](../decisions/009-cloud-summaries-through-opencode-go.md)); it happens only when you confirm it, every time.
 
 1. Store the API key in the GNOME Keyring, never in a file (BR-005):
-   [`store-cloud-api-key.md`](store-cloud-api-key.md). The review app also has a **Set API key** action once the
-   cloud is enabled; it writes to the same keyring entry.
+   [`store-cloud-api-key.md`](store-cloud-api-key.md). The Preferences window also has a **Set API key** action;
+   it writes to the same keyring entry (the Summary tab only points to Preferences when the key is missing).
 2. Choose the cloud as the provider: set `SUMMARIES_PROVIDER=cloud` (the Preferences window does the same).
-   That is the whole opt-in; the button then says "(cloud)" and asks for confirmation before it sends anything.
+   That is the whole opt-in; the caption under the button says "Cloud" and the button asks for confirmation before it sends anything.
    `SUMMARIES_CLOUD_ENABLED` no longer exists. Upgrading never switches the cloud on: a `SUMMARIES_PROVIDER=cloud` line in
    the environment or `.env` without `SUMMARIES_CLOUD_ENABLED=true` next to it (or with it `false`) keeps the provider
    local, logs one warning and locks the field in Preferences until you delete those lines; then choose Cloud in the
