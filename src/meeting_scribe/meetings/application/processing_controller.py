@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from returns.result import Failure, Result, Success
 
 from meeting_scribe.base.domain.errors import EntityNotFoundError, MeetingScribeError
+from meeting_scribe.meetings.application.gpu_lease import InMemoryGpuLease
 from meeting_scribe.meetings.domain.errors import (
     MeetingCorruptError,
     MeetingSchemaUnsupportedError,
@@ -38,6 +39,7 @@ from meeting_scribe.meetings.domain.meeting import (
 from meeting_scribe.meetings.domain.ports import (
     AudioInspector,
     Clock,
+    GpuLease,
     MeetingRepository,
     NullProcessingEvents,
     ProcessingEvents,
@@ -114,6 +116,7 @@ class ProcessingController:
         config: ProcessingConfig,
         events: ProcessingEvents | None = None,
         monotonic: Callable[[], float] = time.monotonic,
+        lease: GpuLease | None = None,
     ) -> None:
         self._repository = repository
         self._runner = runner
@@ -128,6 +131,7 @@ class ProcessingController:
         self._stopping = False
         self._cancel = threading.Event()  # belongs to the running job; replaced per job
         self._monotonic = monotonic
+        self._lease: GpuLease = lease or InMemoryGpuLease()
         self._storage_runs: dict[str, int] = {}  # consecutive runs ended by a storage failure
         self._delayed: list[tuple[float, str]] = []  # (due time, meeting id) waiting to retry
         self._active_id = ""  # the job the loop is running, "" when idle (guarded by the lock)
@@ -210,11 +214,18 @@ class ProcessingController:
         with self._condition:
             self._recording_active = True
             self._cancel.set()
+            self._lease.acquire("recording")  # revokes a local summary as well
 
     def release(self) -> None:
         """The recording ended: GPU work may start again."""
         with self._condition:
             self._recording_active = False
+            self._lease.release("recording")
+            self._condition.notify_all()
+
+    def wake(self) -> None:
+        """Another GPU holder (a local summary) let go: look at the queue again."""
+        with self._condition:
             self._condition.notify_all()
 
     def shutdown(self) -> None:
@@ -255,9 +266,18 @@ class ProcessingController:
             self._promote_due_retries()
             if self._stopping or not self._can_start():
                 return False
+            cancel = threading.Event()
+            if not self._lease.acquire("processing", cancel.set):
+                return False  # a local summary holds the GPU; ``wake`` will call us again
             meeting_id = self._queue.popleft()
-            self._cancel = cancel = threading.Event()
+            self._cancel = cancel
             self._active_id, self._active_state = meeting_id, "QUEUED"
+        try:
+            return self._run_and_settle(meeting_id, cancel)
+        finally:
+            self._lease.release("processing")  # after the worker ended: the GPU is free again
+
+    def _run_and_settle(self, meeting_id: str, cancel: threading.Event) -> bool:
         try:
             outcome = self._run_job(meeting_id, cancel)
         except Exception:
@@ -291,8 +311,10 @@ class ProcessingController:
     # -- internals ------------------------------------------------------------------------
 
     def _can_start(self) -> bool:
-        """Caller holds the lock. Pure: a job is ready and no recording holds the GPU."""
-        return bool(self._queue) and not self._recording_active
+        """Caller holds the lock. A job is ready and the GPU is free."""
+        return (
+            bool(self._queue) and not self._recording_active and self._lease.available("processing")
+        )
 
     def _promote_due_retries(self) -> None:
         """Caller holds the lock. Retries whose delay has passed join the queue tail, once each."""

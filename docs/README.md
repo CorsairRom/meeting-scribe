@@ -71,6 +71,8 @@ changes, mark it `superseded` and create a new ADR.
 | [`005`](decisions/005-review-ui-native-gtk-app.md) | Review UI as a native GTK4 + libadwaita app | active |
 | [`006`](decisions/006-summary-provider-openai-compatible.md) | `SummaryProvider` port with an OpenAI-compatible adapter | active |
 | [`007`](decisions/007-gpu-worker-subprocess.md) | GPU work in short-lived worker processes, one per GPU stage | active |
+| [`008`](decisions/008-summary-sections.md) | The summary has a Decisions section (extends ADR-006's format) | active |
+| [`009`](decisions/009-cloud-summaries-through-opencode-go.md) | Cloud summaries go through OpenCode Go (replaces ADR-006's DeepSeek preset) | active |
 
 > **AI**: before taking a technical decision, check whether an ADR already covers it.
 > If an ADR is `superseded`, follow the one that replaces it.

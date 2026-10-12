@@ -4,7 +4,7 @@
 
 **meeting-scribe** — a local, GPU-accelerated meeting assistant for GNOME (Fedora, Wayland). A Python service
 (`systemd --user`, D-Bus session bus API) records meetings, transcribes (faster-whisper) and diarizes (pyannote)
-after stop, and summarizes through an OpenAI-compatible LLM (Ollama local / DeepSeek cloud opt-in). A thin GNOME
+after stop, and summarizes through an OpenAI-compatible LLM (Ollama local / OpenCode Go cloud opt-in). A thin GNOME
 Shell extension is the recording trigger, and a native GTK4/libadwaita app (opened from the extension menu) lets the
 user name/merge speakers. Both are thin D-Bus clients. Python 3.12, `uv`, strict layered domains enforced by
 import-linter, errors as `returns.Result`.
@@ -45,7 +45,7 @@ import-linter, errors as `returns.Result`.
 | Know what is in/out of scope         | `docs/project/mvp-scope.md`                                    |
 | See what work remains                | `docs/project/backlog.md` and `odd/tasks/meeting-scribe.md`    |
 | Check rules, gotchas, anti-patterns  | `docs/project/rules-registry.md`                               |
-| Know why something was decided       | `docs/decisions/` (ADR 001-007)                                |
+| Know why something was decided       | `docs/decisions/` (ADR 001-009)                                |
 | Change the D-Bus API                 | `docs/architecture/api-contracts.md` + ADR-001        |
 | Add an error code                    | `docs/architecture/error-codes-catalog.md` + `src/meeting_scribe/base/domain/errors.py` |
 | Add a setting                        | `src/meeting_scribe/settings.py` + `.env.example` + `ARCHITECTURE.md` section 7 |
@@ -55,6 +55,8 @@ import-linter, errors as `returns.Result`.
 | Set up or debug processing and models | `docs/runbooks/processing.md`                                 |
 | Pack, try or install the extension   | `docs/runbooks/gnome-extension.md`                             |
 | Install, open or debug the review app | `docs/runbooks/review-app.md`                                 |
+| Set up or debug summaries (Ollama, cloud key) | `docs/runbooks/summaries.md`                          |
+| Change settings (Preferences window, settings.json) | `docs/runbooks/preferences.md`                  |
 | Write a doc                          | `docs/README.md` (taxonomy) and `docs/_templates/`             |
 | Know when to update docs             | `docs/project/doc-sync-protocol.md`                            |
 | See the canonical shared-kernel code | `src/meeting_scribe/base/`                                     |
@@ -67,13 +69,13 @@ import-linter, errors as `returns.Result`.
 - **No push, no PR, no merge without asking.**
 - **Doc sync**: follow `docs/project/doc-sync-protocol.md`; update docs in the same commit as the code.
 - **Docs gate**: before an integration PR is reported as ready to merge, `make check` is green and a read-only docs audit has no open P1/P2 and a language scan finds no Spanish outside chat (see "Integration PR docs gate" in `docs/project/doc-sync-protocol.md`).
-- **Current phase**: F4 Review app (in progress); the phase table in `docs/project/mvp-scope.md` is the source of truth and a drift test keeps this line in sync.
+- **Current phase**: F5 Summaries (in progress); the phase table in `docs/project/mvp-scope.md` is the source of truth and a drift test keeps this line in sync.
 - **Bug fix**: do not refactor unrelated code or widen scope.
 
 ## Tooling
 
 - **Package manager**: `uv` (Python ~=3.12). Dev tools are in the `quality-assurance` extra.
-- **Make targets**: `make setup` (`uv sync --extra ml --extra quality-assurance`), `make lint` (ruff + pyrefly + import-linter), `make format` (auto-fix), `make imports` (architecture contracts), `make test` (`pytest -m 'not gpu'`; GPU tests only with `uv run pytest -m gpu`), `make test-extension` (extension logic and D-Bus client against a private `dbus-daemon`, `gjs -m`), `make check` (lint + test + test-extension), `make install` / `make uninstall` (one-command plug-and-play install of service, ML stack, models and extension; agents run them only on the user's explicit go; `meeting-scribe prefetch-models` downloads the models and follows the same rule), `make run` (development only, foreground service), `make run-review-app` (opens the review app window from the working tree; only on the user's explicit go), `make extension-pack` (build the extension zip into `dist/`), `make extension-install` (install it, does not enable).
+- **Make targets**: `make setup` (`uv sync --extra ml --extra quality-assurance`), `make lint` (ruff + pyrefly + import-linter), `make format` (auto-fix), `make imports` (architecture contracts), `make test` (`pytest -m 'not gpu'`; GPU tests only with `uv run pytest -m gpu`), `make test-extension` (extension logic and D-Bus client against a private `dbus-daemon`, `gjs -m`), `make test-packaging` (builds the wheel offline with uv and checks the shipped package data), `make check` (lint + test + test-packaging + test-extension), `make install` / `make uninstall` (one-command plug-and-play install of service, ML stack, models and extension; agents run them only on the user's explicit go; `meeting-scribe prefetch-models` downloads the models and follows the same rule), `make run` (development only, foreground service), `make run-review-app` (opens the review app window from the working tree; only on the user's explicit go), `make extension-pack` (build the extension zip into `dist/`), `make extension-install` (install it, does not enable).
 - **Linter/formatter**: ruff (`ruff.toml`, line length 100). **Type checker**: pyrefly (`pyrefly.toml`).
 - **Search/read tools**: prefer `rg`, `fd`, `bat`, `eza` over `grep`, `find`, `cat`, `ls`.
 

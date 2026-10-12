@@ -58,3 +58,20 @@ def test_ui_modules_never_open_a_path_or_import_the_service() -> None:
                 ), f"{path.name} imports a file or service module"
             if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "open":
                 pytest.fail(f"{path.name} calls open()")
+
+
+def test_the_preferences_entry_points_are_wired() -> None:
+    """Static check: no window can open here. The manual check opens the real ones."""
+    application = (UI / "application.py").read_text(encoding="utf-8")
+    window = (UI / "window.py").read_text(encoding="utf-8")
+    assert "PREFERENCES_OPTION" in application
+    assert "wants_preferences(options)" in application
+    assert "open_preferences" in application
+    assert '"win.preferences"' in window  # the primary-menu entry
+    assert 'Gio.SimpleAction.new("preferences"' in window
+
+
+def test_the_key_never_reaches_the_settings_widgets() -> None:
+    for name in ("preferences_dialog.py", "preferences_controller.py"):
+        source = (UI / name).read_text(encoding="utf-8")
+        assert "PasswordEntry" not in source, name  # the only key entry is api_key_dialog.py

@@ -32,7 +32,7 @@ flowchart LR
   GPU["GPU models<br/>faster-whisper, pyannote"]
   FS[("Meetings dir<br/>one folder per meeting")]
   LLM_L["Ollama (local)"]
-  LLM_C["DeepSeek (cloud, opt-in)"]
+  LLM_C["OpenCode Go (cloud, opt-in)"]
 
   EXT -- "methods, signals" --> BUS
   REVIEW -- "methods, signals" --> BUS
@@ -52,7 +52,7 @@ flowchart LR
 | Transcription | faster-whisper `large-v3-turbo`, float16, CUDA, in a short-lived worker process | built (F3.2) and wired into the service (F3.4a); [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
 | Diarization | pyannote `speaker-diarization-community-1` on the system channel (the microphone in person), in a short-lived worker process; then "Me", assignment, `transcript.md` and per-speaker voice samples | worker stage implemented (F3.3b; the real model run is pending the user's consent) and wired into the service (F3.4a), [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
 | Review UI | Native GTK4 + libadwaita app on system python, thin D-Bus client | built (F4), [ADR-005](docs/decisions/005-review-ui-native-gtk-app.md) |
-| Summaries | `SummaryProvider` port, OpenAI-compatible adapter | planned (F5), [ADR-006](docs/decisions/006-summary-provider-openai-compatible.md) |
+| Summaries | `SummaryProvider` port; native Ollama adapter (`ollama_provider.py`, `/api/chat`, `num_ctx`, `think: false`) for local runs and an OpenAI-compatible adapter (`openai_provider.py`) for the cloud (OpenCode Go) | built (F5), [ADR-006](docs/decisions/006-summary-provider-openai-compatible.md), [ADR-009](docs/decisions/009-cloud-summaries-through-opencode-go.md), [spec](docs/specs/summaries.md) |
 | Storage | folder per meeting + versioned `meeting.json` | built (F3.1) and wired into the service (F3.4a), [ADR-004](docs/decisions/004-folder-per-meeting-json-storage.md) |
 
 ---
@@ -67,7 +67,8 @@ Source root: `src/meeting_scribe/`. Each package has `domain/`, `application/`, 
 | `recording/` | Start/stop capture, recording session state, PipeWire/ffmpeg adapter |
 | `transcription/` | Audio to words with timestamps (faster-whisper adapter) |
 | `speakers/` | Diarization (pyannote adapter), voice samples, rename, merge, "Me" labelling |
-| `summaries/` | `SummaryProvider` port and OpenAI-compatible adapter (Ollama / DeepSeek) |
+| `summaries/` | `SummaryProvider` port, native Ollama adapter (local) and OpenAI-compatible adapter (OpenCode Go, cloud); see [ADR-006](docs/decisions/006-summary-provider-openai-compatible.md), [ADR-009](docs/decisions/009-cloud-summaries-through-opencode-go.md) and the [spec](docs/specs/summaries.md) |
+| `preferences/` | The few user-editable settings: the `FieldSpec` registry, the JSON settings file store, the meetings-folder check, the use cases (`PreferencesService`, `RestartService`), the systemd restarter and the `Settings1` adapter; validators are injected by the composition root ([spec](docs/specs/preferences.md)) |
 | `meetings/` | Meeting catalog, `MeetingRepository`, post-recording pipeline orchestration and job queue, worker protocol and subprocess runner, WAV readers |
 | `settings.py` | Root `Settings` composed of per-domain settings classes |
 | `main.py` | Composition root: `create_app(settings)`, `run()` |
@@ -140,18 +141,21 @@ Defined in `pyproject.toml` under `[tool.importlinter]` (`root_packages = ["meet
 
 | # | Name | Type | Rule |
 |---|---|---|---|
-| 1 | Domains recording, transcription, speakers and summaries are independent | independence | `recording`, `transcription`, `speakers`, `summaries` do not import each other |
-| 2 | Layers per package: infrastructure > application > domain | layers | In `base`, `recording`, `transcription`, `speakers`, `summaries`, `meetings`: `infrastructure` may import `application` may import `domain`, never the reverse |
+| 1 | Domains recording, transcription, speakers and summaries are independent | independence | `recording`, `transcription`, `speakers`, `summaries` and `preferences` do not import each other |
+| 2 | Layers per package: infrastructure > application > domain | layers | In `base`, `recording`, `transcription`, `speakers`, `summaries`, `meetings`, `preferences`: `infrastructure` may import `application` may import `domain`, never the reverse |
 | 3 | meetings only depends on other domains through their application layer | forbidden | `meetings` may not import `<domain>.domain` or `<domain>.infrastructure` of `recording`, `transcription`, `speakers`, `summaries` (`allow_indirect_imports = true`) |
-| 4 | Shared kernel does not depend on the domains | forbidden | `base` may not import any domain or `meetings` (`settings`/`main` are covered by contract 6) |
-| 5 | Domain layers do not import frameworks | forbidden | every `<package>.domain` (including `base` and `meetings`) may not import `pydantic_settings`, `dbus_fast`, `gi` |
-| 6 | Domain packages do not import settings or the composition root | forbidden | `base` and all domain packages may not import `meeting_scribe.main` or `meeting_scribe.settings` |
+| 4 | Shared kernel does not depend on the domains | forbidden | `base` may not import any domain, `meetings` or `preferences` (`settings`/`main` are covered by contract 6) |
+| 5 | Domain layers do not import frameworks | forbidden | every `<package>.domain` (including `base`, `meetings` and `preferences`) may not import `pydantic_settings`, `dbus_fast`, `gi` |
+| 6 | Domain packages do not import settings or the composition root | forbidden | `base` and all domain packages (including `preferences`) may not import `meeting_scribe.main` or `meeting_scribe.settings` |
 | 7 | The service never imports ML libraries (only the two backends do, in the worker) | forbidden | no module of `meeting_scribe` may import `faster_whisper`, `ctranslate2`, `torch`, `torchaudio` or `pyannote`, except the faster-whisper backend (`faster_whisper`, `ctranslate2`) and the pyannote backend (`torch`, `pyannote`), both loaded only in the worker |
 | 8 | The service entry point never reaches the worker or its ML backends | forbidden | `meeting_scribe.main` may not import `meeting_scribe.worker` or the faster-whisper backend, directly or indirectly |
 | 9 | The app core never imports gi | forbidden | `meeting_scribe_review.core` may not import `gi` (only `ui` does, F4.5) |
 | 10 | The app and the service are independent | independence | `meeting_scribe` and `meeting_scribe_review` never import each other; the app reaches the service over D-Bus only |
 | 11 | The app has no service-side dependencies | forbidden | `meeting_scribe_review` may not import `pydantic`, `pydantic_settings`, `returns`, `dbus_fast` or `numpy` (it runs on system Python) |
 | 12 | App layers: ui over core | layers | `meeting_scribe_review.ui` may import `core`, never the reverse |
+| 13 | Summaries domain and application stay free of HTTP and settings libraries | forbidden | `summaries.domain` and `summaries.application` may not import `httpx`, `httpx2`, `openai`, `pydantic_settings` or `dbus_fast`; `openai` and `httpx2` are confined to `summaries.infrastructure` by contract 14 |
+| 14 | The openai client and httpx2 are imported only by summaries.infrastructure | forbidden | No `meeting_scribe` module may import `openai` or `httpx2`, except the adapters `summaries.infrastructure.openai_provider` and `ollama_releaser` (allowed by `ignore_imports`) |
+| 15 | Preferences application stays free of D-Bus and settings libraries | forbidden | `preferences.application` may not import `dbus_fast`, `pydantic_settings` or `gi`; the `Settings1` adapter and the file store live in `preferences.infrastructure` |
 
 ---
 
@@ -180,7 +184,7 @@ sequenceDiagram
   MT->>N: "Meeting processed: N speakers"
 ```
 
-Orchestration lives in `meetings` (built in F3.1, wired in F3.4a: `main.py` builds `ProcessingConfig` from the settings, `meeting_scribe/handoff.py` adapts the `RecordingListener` port to `ProcessingController`, and `serve()` resumes unfinished jobs and runs the loop in its own thread; the D-Bus `Meetings1` interface and the desktop notification are F3.4a too: `MeetingsInterface` is a `ProcessingEvents` observer on a `ProcessingEventHub`, so its signals and `PropertiesChanged` follow the persisted states, and `NotifyOnFinish` sends one `org.freedesktop.Notifications` message per finished job unless `PROCESSING_NOTIFY=false`; the extension is F3.4b): one FIFO queue persisted in each `meeting.json`, states `QUEUED`, `TRANSCRIBING`, `DIARIZING`, `EXTRACTING_SAMPLES`, `DONE` or `FAILED`, resumed at service start. Transcription hears the mean of both channels; diarization runs on the system channel only, and "Me" comes from per-frame mic versus system energy dominance with loudspeaker bleed compensation (ADR-002). The contract is the [processing spec](docs/specs/processing.md). Decision records: [ADR-003](docs/decisions/003-process-after-stop-single-gpu-worker.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md).
+Orchestration lives in `meetings` (built in F3.1, wired in F3.4a: `main.py` builds `ProcessingConfig` from the settings, `meeting_scribe/handoff.py` adapts the `RecordingListener` port to `ProcessingController`, and `serve()` resumes unfinished jobs and runs the loop in its own thread; the D-Bus `Meetings1` interface and the desktop notification are F3.4a too: `MeetingsInterface` is a `ProcessingEvents` observer on a `ProcessingEventHub`, so its signals and `PropertiesChanged` follow the persisted states, and `NotifyOnFinish` sends one `org.freedesktop.Notifications` message per finished job unless `PROCESSING_NOTIFY=false`; the extension is F3.4b): one FIFO queue persisted in each `meeting.json`, states `QUEUED`, `TRANSCRIBING`, `DIARIZING`, `EXTRACTING_SAMPLES`, `DONE` or `FAILED`, resumed at service start. Transcription hears the mean of both channels; diarization runs on the system channel only, and "Me" comes from per-frame mic versus system energy dominance with loudspeaker bleed compensation (ADR-002). The contract is the [processing spec](docs/specs/processing.md). Summaries (F5.4) also live in `meetings`: `SummaryController` snapshots under the meeting lock, runs the model on one job thread outside it, and saves `summary.md` then the `summary` section of `meeting.json`; a `GpuLease` shared with `ProcessingController` keeps a local summary and a worker off the GPU together and lets a recording cancel the summary. Decision records: [ADR-003](docs/decisions/003-process-after-stop-single-gpu-worker.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md).
 
 ---
 
@@ -196,7 +200,7 @@ Target GPU: RTX 5060 Laptop, 8 GB.
 
 ---
 
-## 6. D-Bus API (`Recording1` and `Meetings1` implemented, others planned)
+## 6. D-Bus API (`Recording1`, `Meetings1`, `Summaries1` and `Settings1` implemented, others planned)
 
 All clients (extension, review app, e2e tests) use the session bus; there is no HTTP server ([ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md)).
 Names are proposed and renamable until F6. The contract lives in [`docs/architecture/api-contracts.md`](docs/architecture/api-contracts.md).
@@ -208,7 +212,8 @@ Names are proposed and renamable until F6. The contract lives in [`docs/architec
 | `dev.meetingscribe.Recording1` (implemented, F1.4) | `Start`, `Stop`; properties `State`, `SessionId`, `ElapsedSeconds`, `Directory`, `FailureReason`; signal `StateChanged` |
 | `dev.meetingscribe.Meetings1` (implemented, F3.4a) | `List`, `Get`, `Reprocess`; properties `ActiveMeetingId`, `ActiveState`, `QueuedCount`; signals `ProcessingStateChanged`, `ProcessingFinished` ([spec](docs/specs/processing.md) section 8) |
 | `dev.meetingscribe.Speakers1` | rename, merge, sample path |
-| `dev.meetingscribe.Summaries1` | generate/read summary |
+| `dev.meetingscribe.Summaries1` (implemented, F5.5) | `Providers`, `Summarize`, `CancelSummary`, `GetSummaryStatus`, `GetSummary`, `LastSummary`; property `ActiveSummaryMeetingId`; signals `SummaryProgress`, `SummaryFinished` ([spec](docs/specs/summaries.md) section 10) |
+| `dev.meetingscribe.Settings1` (implemented, F5.10) | `GetAll`, `Set` (all or nothing, per-field error rows), `Restart` (systemd, only when idle), `ListModels` (installed Ollama models, or the cloud provider's models behind the keyring key; unsupported cloud models are listed but flagged); property `RestartRequired`; signal `SettingsChanged` ([spec](docs/specs/preferences.md) section 4). The API key never crosses it |
 | Errors | `dev.meetingscribe.Error.<ERROR_CODE>` (see [error codes](docs/architecture/error-codes-catalog.md)) |
 | Activation | `systemd --user` unit plus D-Bus session activation file, installed by `make install` |
 
@@ -230,6 +235,15 @@ its current poll before stopping, so controller calls never overlap.
 `MeetingScribeSettings` base (`extra="ignore"`, `case_sensitive=False`, utf-8) and only set their own
 `env_prefix`. The base class lives in `base/infrastructure/settings.py` (re-exported by `meeting_scribe.settings`) so
 domain infrastructure can inherit it without importing the root settings module (import contract 6). `get_settings()` is `lru_cache`d. Template: [`.env.example`](.env.example).
+
+Precedence, highest first: process environment, `.env`, `settings.json` (the user's saved values from the
+Preferences window, `$XDG_CONFIG_HOME/meeting-scribe/settings.json`, JSON `{"version": 1, "values": {...}}`, sparse,
+mode `0600` in a `0700` folder, written atomically), then defaults. The saved values enter as a settings source
+below the dotenv source (`file_layer` in `base/infrastructure/settings.py`), so only `Settings.load(file_values=...)`
+and `Settings.with_overrides(values)` read them; constructors with explicit arguments are unchanged. Only five fields are
+exposed in the file (`summaries.provider`, `summaries.local_model`, `summaries.language`, `summaries.cloud_model`,
+`storage.meetings_dir`); `Settings.source_of(key)` reports the winning layer (`default`, `file`, `env`, `dotenv`) and
+whether it locks the field. The API key is never a setting (BR-005).
 
 Env file resolution (once, in the base class): `$XDG_CONFIG_HOME/meeting-scribe/.env` (default
 `~/.config/meeting-scribe/.env`) if it exists, otherwise `./.env` in the CWD (development). Process environment
@@ -268,8 +282,25 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | `SPEAKERS_SAMPLE_MAX_CLIPS` | `SpeakersSettings.sample_max_clips` | `3` | Clips per speaker sample (>= 1) |
 | `SPEAKERS_SAMPLE_TARGET_SECONDS` | `SpeakersSettings.sample_target_seconds` | `15.0` | Target total sample length (> 0) |
 | `SPEAKERS_SAMPLE_MIN_CLIP_SECONDS` / `SPEAKERS_SAMPLE_MAX_CLIP_SECONDS` | `SpeakersSettings.sample_min_clip_seconds` / `sample_max_clip_seconds` | `1.5` / `6.0` | Clip length bounds (min must not exceed max) |
+| `SUMMARIES_PROVIDER` | `SummariesSettings.provider` | `local` | Provider the "Generate summary" button uses, `local` or `cloud` (choosing `cloud` is the opt-in and also needs a key; `SUMMARIES_CLOUD_ENABLED` was removed) |
+| `SUMMARIES_LOCAL_BASE_URL` | `SummariesSettings.local_base_url` | `http://127.0.0.1:11434/v1` | Local Ollama; the host must be `127.0.0.1`, `::1` or `localhost`. Local summaries use the native API at the same origin (`/api/chat`), so the `/v1` path is ignored |
+| `SUMMARIES_LOCAL_MODEL` | `SummariesSettings.local_model` | `qwen3:4b-instruct-2507-q4_K_M` | Ollama model name; fits 100% on an 8 GB GPU at 16k |
+| `SUMMARIES_LOCAL_CONTEXT_TOKENS` | `SummariesSettings.local_context_tokens` | `16384` | Context the service sends as `num_ctx` on every local request and plans against (at least 1880; output limits are clamped to fit it) |
+| `SUMMARIES_UNLOAD_LOCAL_MODEL` | `SummariesSettings.unload_local_model` | `true` | Ask Ollama to unload the model after a local summary |
+| `SUMMARIES_CLOUD_PROVIDER` | `SummariesSettings.cloud_provider` | `opencode-go` | The cloud provider choice (one option today); decides the default name and base URL below |
+| `SUMMARIES_CLOUD_PROVIDER_NAME` | `SummariesSettings.cloud_provider_name` | `OpenCode Go` | Name shown in the "cloud" label (for example `cloud: OpenCode Go, deepseek-v4-pro`) |
+| `SUMMARIES_CLOUD_BASE_URL` | `SummariesSettings.cloud_base_url` | `https://opencode.ai/zen/go/v1` | OpenAI-compatible cloud gateway; must be https ([ADR-009](docs/decisions/009-cloud-summaries-through-opencode-go.md)) |
+| `SUMMARIES_CLOUD_MODEL` | `SummariesSettings.cloud_model` | `deepseek-v4-pro` | Any model the gateway serves on `/chat/completions`; models on `/responses` or `/messages` are not supported |
+| `SUMMARIES_CLOUD_CONTEXT_TOKENS` | `SummariesSettings.cloud_context_tokens` | `100000` | Cloud budget the service plans against |
+| `SUMMARIES_LANGUAGE` | `SummariesSettings.language` | `auto` | `auto` follows the meeting language, or an ISO code |
+| `SUMMARIES_MAX_OUTPUT_TOKENS` | `SummariesSettings.max_output_tokens` | `3072` | Output limit of the final summary (>= 256) |
+| `SUMMARIES_NOTES_MAX_OUTPUT_TOKENS` | `SummariesSettings.notes_max_output_tokens` | `768` | Output limit of a map or merge notes step (>= 128) |
+| `SUMMARIES_TEMPERATURE` | `SummariesSettings.temperature` | `0.2` | Sampling temperature (0 to 1) |
+| `SUMMARIES_TIMEOUT_SECONDS` | `SummariesSettings.timeout_seconds` | `300` | Seconds without data before a step times out (> 0) |
+| `SUMMARIES_TOTAL_TIMEOUT_SECONDS` | `SummariesSettings.total_timeout_seconds` | `3600` | Bound for one whole summary (> 0) |
+| `SUMMARIES_MAX_RETRIES` | `SummariesSettings.max_retries` | `2` | Retries for transient provider failures (>= 0) |
 
-`RecordingSettings` lives in `recording/infrastructure/recording_settings.py`, `ProcessingSettings` in `meetings/infrastructure/processing_settings.py`, `TranscriptionSettings` in `transcription/infrastructure/transcription_settings.py`, `SpeakersSettings` in `speakers/infrastructure/speakers_settings.py` (it builds the domain's `MeParams` and `SampleParams`; the worker reads the same values from the job spec as `DiarizationParams` and `AssemblyParams`). Future per-domain settings (for example `SUMMARIES_`) live in each domain's `infrastructure/` and are composed into `Settings` by the root.
+`RecordingSettings` lives in `recording/infrastructure/recording_settings.py`, `ProcessingSettings` in `meetings/infrastructure/processing_settings.py`, `TranscriptionSettings` in `transcription/infrastructure/transcription_settings.py`, `SummariesSettings` in `summaries/infrastructure/summaries_settings.py` (loopback and https validation, the "cloud" label and limits; the cloud API key is not a setting, it lives in the GNOME Keyring, [ADR-009](docs/decisions/009-cloud-summaries-through-opencode-go.md)), `SpeakersSettings` in `speakers/infrastructure/speakers_settings.py` (it builds the domain's `MeParams` and `SampleParams`; the worker reads the same values from the job spec as `DiarizationParams` and `AssemblyParams`). Future per-domain settings live in each domain's `infrastructure/` and are composed into `Settings` by the root.
 
 ---
 
@@ -284,5 +315,7 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | [005](docs/decisions/005-review-ui-native-gtk-app.md) | Review UI as a native GTK4 + libadwaita app |
 | [006](docs/decisions/006-summary-provider-openai-compatible.md) | `SummaryProvider` port, OpenAI-compatible adapter |
 | [007](docs/decisions/007-gpu-worker-subprocess.md) | GPU work in short-lived worker processes, one per GPU stage |
+| [008](docs/decisions/008-summary-sections.md) | The summary has a Decisions section |
+| [009](docs/decisions/009-cloud-summaries-through-opencode-go.md) | Cloud summaries go through OpenCode Go |
 
 Related: [error codes](docs/architecture/error-codes-catalog.md) · [rules registry](docs/project/rules-registry.md) · [scope](docs/project/mvp-scope.md).

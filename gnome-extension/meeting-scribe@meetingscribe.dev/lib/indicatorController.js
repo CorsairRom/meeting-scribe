@@ -1,4 +1,4 @@
-import {viewModel, errorMessage, launchFailureMessage} from './indicatorModel.js';
+import {viewModel, errorMessage, launchFailureMessage, summaryOpenFailureMessage} from './indicatorModel.js';
 
 const TICK_SECONDS = 1;
 
@@ -18,15 +18,23 @@ export class IndicatorController {
      * @param {Function} options.notify - `notify(title, body)` shows an error to the user
      * @param {Function} [options.launchReview] - opens the review app (no argument, no meeting
      *     data); returns false or throws when it cannot. Omit it and the action does nothing
+     * @param {Function} [options.launchPreferences] - opens the review app's Preferences dialog
+     *     (no argument, no data); returns false or throws when it cannot. Omit it and the action
+     *     does nothing
+     * @param {Function} [options.openSummary] - opens the summary file at the given path with the
+     *     default handler; returns false or throws when it cannot. Omit it and the action does nothing
      * @param {Function} [options._] - translation function (identity by default)
      */
-    constructor({client, meetings = null, view, scheduler, notify, launchReview = null, _ = s => s}) {
+    constructor({client, meetings = null, view, scheduler, notify, launchReview = null, launchPreferences = null,
+        openSummary = null, _ = s => s}) {
         this._client = client;
         this._meetings = meetings;
         this._view = view;
         this._scheduler = scheduler;
         this._notify = notify;
         this._launchReview = launchReview;
+        this._launchPreferences = launchPreferences;
+        this._openSummary = openSummary;
         this._ = _;
         this._tick = null;
         this._destroyed = false;
@@ -78,7 +86,8 @@ export class IndicatorController {
     /**
      * Handle a menu action item.
      *
-     * @param {string} id - `start`, `stop`, `reprocess` (the failed meeting shown last) or `review`
+     * @param {string} id - `start`, `stop`, `reprocess` (the failed meeting shown last), `review`,
+     *     `summary` or `preferences`
      * @returns {Promise<void>} settles once the call (and any notification) is done
      */
     onMenuAction(id) {
@@ -92,7 +101,17 @@ export class IndicatorController {
             return this._reprocess();
         if (id === 'review')
             return this._review();
+        if (id === 'summary')
+            return this._summary();
+        if (id === 'preferences')
+            return this._preferences();
         return Promise.resolve();
+    }
+
+    /** The menu opened: let the client check for a newer summary. */
+    onMenuOpened() {
+        if (!this._destroyed)
+            this._meetings?.refreshLastSummary?.();
     }
 
     /** Cancel the tick and ignore everything afterwards. Idempotent. */
@@ -118,17 +137,41 @@ export class IndicatorController {
     }
 
     // The failure text is fixed: a launch error may carry private paths or text and is never shown.
-    async _review() {
-        if (this._launchReview === null)
+    _review() {
+        return this._launchOrNotify(this._launchReview);
+    }
+
+    // Both launches mean the desktop entry needs `make install` when they fail: one fixed text.
+    async _launchOrNotify(launch) {
+        if (launch === null)
             return;
         let launched = false;
         try {
-            launched = await this._launchReview() !== false;
+            launched = await launch() !== false;
         } catch (_e) {
             launched = false;
         }
         if (!launched && !this._destroyed)
             this._notify(this._('Meeting Scribe'), launchFailureMessage(this._));
+    }
+
+    _preferences() {
+        return this._launchOrNotify(this._launchPreferences);
+    }
+
+    // The path comes from the client's snapshot (the service's answer), never from the model.
+    async _summary() {
+        const path = this._meetings?.snapshot.lastSummary?.path;
+        if (this._openSummary === null || !path)
+            return;
+        let opened = false;
+        try {
+            opened = await this._openSummary(path) !== false;
+        } catch (_e) {
+            opened = false;
+        }
+        if (!opened && !this._destroyed)
+            this._notify(this._('Meeting Scribe'), summaryOpenFailureMessage(this._));
     }
 
     _stopTick() {

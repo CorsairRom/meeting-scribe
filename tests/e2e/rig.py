@@ -19,8 +19,10 @@ from dbus_fast.aio import MessageBus
 from meeting_scribe.base.infrastructure.dbus.constants import BUS_NAME, OBJECT_PATH
 from meeting_scribe.main import (
     Application,
+    PreferencesAdapters,
     ProcessingAdapters,
     RecordingAdapters,
+    SummaryAdapters,
     create_app,
     serve,
 )
@@ -33,11 +35,17 @@ from meeting_scribe.meetings.domain.meeting import (
     SpeakerEntry,
     SpeakerReview,
 )
+from meeting_scribe.meetings.infrastructure.filesystem_summary_files import FilesystemSummaryFiles
 from meeting_scribe.meetings.infrastructure.processing_settings import ProcessingSettings
-from meeting_scribe.settings import Settings, StorageSettings
+from meeting_scribe.preferences.infrastructure.json_settings_store import JsonSettingsStore
+from meeting_scribe.preferences.infrastructure.systemd_restarter import SystemdRestarter
+from meeting_scribe.settings import Settings
+from meeting_scribe.summaries.application.list_models import ListModels
+from meeting_scribe.summaries.domain.headings import EnglishHeadingCatalog
 from tests.unit.meetings.fakes import (
     T0,
     FakeAudioInspector,
+    FakeKeyStore,
     FakeNotifier,
     InMemoryMeetingRepository,
     ScriptedRunner,
@@ -49,6 +57,7 @@ from tests.unit.recording.fakes import (
     FakeDeviceResolver,
     FakeRecordingStorage,
 )
+from tests.unit.summaries.fakes import FakeCloudModels, FakeLocalModels, FakeProvider, FakeReleaser
 
 type Proxy = Any  # dbus-fast builds proxy members at runtime
 
@@ -56,19 +65,48 @@ POLL = 0.05
 WAIT = 5.0
 
 
+async def _no_bus() -> MessageBus:
+    raise OSError("no bus for the restart in this test")
+
+
 class ServiceRig:
     def __init__(
-        self, tmp_path: Path, runner: ScriptedRunner | None = None, *, notify: bool = True
+        self,
+        tmp_path: Path,
+        runner: ScriptedRunner | None = None,
+        *,
+        notify: bool = True,
+        bus_address: str | None = None,
     ) -> None:
         self.meetings_dir = tmp_path / "meetings"
+        # The settings come from a tmp ``settings.json`` (never the real config folder); the cloud
+        # is selected so both providers are usable. ``bus_address`` is where the restart looks for
+        # systemd (a fake on the private bus); without it the restart finds nothing.
+        self.settings_file = tmp_path / "config" / "settings.json"
+        saved = {"summaries.provider": "cloud", "storage.meetings_dir": str(self.meetings_dir)}
+        store = JsonSettingsStore(self.settings_file)
+        store.write(saved).unwrap()
+        settings = Settings.load(file_values=saved)
+        settings.processing = ProcessingSettings(notify=notify)
         self.notifier = FakeNotifier()
         self.capture = FakeAudioCapture()
         self.repository = InMemoryMeetingRepository()
         self.runner = runner or ScriptedRunner()
+        self.local_provider = FakeProvider()  # the summaries: no model, no network, no keyring
+        self.cloud_provider = FakeProvider()
+        self.keys = FakeKeyStore()
+        self.local_models = FakeLocalModels()  # the model lists: no Ollama, no network
+        self.cloud_models = FakeCloudModels()
         self.app: Application = create_app(
-            Settings(
-                storage=StorageSettings(meetings_dir=self.meetings_dir),
-                processing=ProcessingSettings(notify=notify),
+            settings,
+            preferences_adapters=PreferencesAdapters(
+                store=store,
+                restarter=SystemdRestarter(
+                    (lambda: MessageBus(bus_address=bus_address).connect())
+                    if bus_address
+                    else _no_bus
+                ),
+                saved=saved,
             ),
             recording_adapters=RecordingAdapters(
                 clock=FakeClock(),
@@ -82,6 +120,16 @@ class ServiceRig:
                 audio=FakeAudioInspector(),
                 clock=FakeMeetingsClock(),
                 notifier=self.notifier,
+            ),
+            summary_adapters=SummaryAdapters(
+                files=FilesystemSummaryFiles(),  # real files, under tmp
+                keys=self.keys,
+                local_provider=self.local_provider,
+                cloud_provider=self.cloud_provider,
+                local_releaser=FakeReleaser(),
+                cloud_releaser=FakeReleaser(),
+                headings=EnglishHeadingCatalog(),
+                models=ListModels(self.local_models, self.cloud_models, self.keys),
             ),
         )
 

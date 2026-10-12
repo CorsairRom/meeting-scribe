@@ -473,7 +473,7 @@ own meeting, without reading its content into the repo or logs.
 - [x] F3 docs gate: read-only audit (no P1/P2 left after #80), `make check` green, language scan clean
       (no voseo in code, docs or commits; only neutral Spanish fixture words for non-ASCII tests).
       Review review-9c4fa0825fe1a866 approved. Tracker #52 marked ready for the owner.
-### F4 Review app — in progress (integration `feat/review-app`, tracker #82)
+### F4 Review app — done (tracker #82 merged 2026-10-11)
 Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv run pytest` / `make check`
 (source: AGENTS.md). Route: delegated direct (one writer per task, 2+ non-trivial files each).
 - [x] F4.0a Language scan added to the "Integration PR docs gate" (#81; user rule: Spanish only in chat).
@@ -526,7 +526,93 @@ Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv 
       ready, Meetings1 review methods confirmed by introspection); the owner opened the app from the menu and
       reported it works. Docs gate: read-only audit (5 P1, 5 P2 doc drifts, no code issue) fixed in `6718079`;
       language scan clean; `make check` green (1123 python / 122 gjs, 12 contracts). Tracker #82 marked ready.
-### F5 Summaries — pending
+### F5 Summaries — in progress (integration `feat/summaries`)
+TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: delegated direct.
+- [x] F5.0a Phase start: F4 done, F5 in progress (mvp-scope, AGENTS, backlog, README, spec statuses).
+- [x] F5.0b Design spec `docs/specs/summaries.md` (approved) + ADR-008 (Decisions section). Owner decisions
+      OQ-1..OQ-8 (2026-10-11): Decisions section; manual button only; names sent as written to the cloud;
+      meeting language, technical terms never translated; one backup on regenerate, stale on reprocess; default
+      `qwen3.5:9b`; menu opens summary.md in the default app; ONE button with SUMMARIES_PROVIDER, "(cloud)"
+      label and per-request confirmation when the provider is the cloud (safety rule 3).
+- [x] F5.1 `summaries` domain (#101). Review review-3fe52d6e14e847af approved.
+- [x] F5.2 `GenerateSummary` (#102) + F5.2b headings in the detected meeting language via a .po catalog (owner
+      refined OQ-4: headings and body in the meeting language), cancel precedence, clamped per-call time (#103).
+      Reviews review-b9e02e4855ae20b7, review-5fd84e9c27bc8686 approved.
+- [x] F5.3 settings, ADR-009 (owner: cloud through OpenCode Go, https://opencode.ai/zen/go/v1, deepseek-v4-pro),
+      API key in the GNOME Keyring via Secret Service (owner decision; BR-005; runbook store-cloud-api-key.md),
+      streaming provider with adapter-owned cancellable retries, truncation guard, no proxy for local traffic,
+      Ollama release. Reviews review-bcbdad1d9bcbbbf7 (4 lenses) and review-58fdfc4359a605fa approved.
+      Integrated #104-#106. GREEN 1344 python / 122 gjs / 14 contracts. Note: one test attempted a connection to
+      TEST-NET 192.0.2.1 before the guard covered connect_ex (nothing sent). Follow-ups for F5.4 first commit:
+      undecodable secret reported as unavailable (should be missing), vacuous no-secret-in-log test, stringly
+      _Outcome.kind; suggestions: max_retries dual budget comment, Retry-After docstring, releaser client close.
+- [x] F5.4 `meetings`: summary section, GpuLease shared by recording/processing/summaries, summary.md with one
+      backup, SummaryController (gates, one job thread, cancel on recording, cloud key only after confirmation).
+      Reviews review-7c5ad1ca6786fd9b (3 warnings: leaked slot/lease could stop processing, spawn failure,
+      shutdown race — fixed in `17bc14d`) and review-2737a59f4ffb8a39 approved. Integrated #107-#108.
+      GREEN 1417 python / 122 gjs. Follow-ups for F5.5 first commit: older backup lost if the backup replace
+      fails; _start_job called under the slot lock (inline starter would deadlock); _finish_slot release
+      unguarded; untested _stopping branch.
+- [x] F5.5 `Summaries1` D-Bus (api-contracts first), event hub + throttle, one shared GpuLease wired in
+      create_app, bounded summary shutdown (exit 4, GO-057). Reviews review-c1445be86c187082,
+      review-e3e801d311e2ba33, review-35dffd1a4f599fd6 approved. A racy shutdown test (job not yet inside the
+      provider call) failed in the clean publish worktree; fixed `c9c5cd3` (15/15 green). Integrated #109-#110.
+      GREEN 1452 python / 122 gjs. Follow-up: assert the summary job thread is a daemon (it is,
+      summary_controller.py:155); e2e exit-4 test should assert the summary-specific log.
+- [x] F5.6a review app core: Summaries1 models/parsers/gateway, summary, cloud confirmation and api key
+      presenters. Integrated #111.
+- [x] F5.6b review app ui: Summary tab, one Generate button ("Generate summary: <label>"), confirmation,
+      progress/cancel, stale banner, copy, Save a copy, Set API key via libsecret into the GNOME Keyring.
+      Reviews review-6843a9a67c7d1793 (4 lenses), review-b84280bd0e924176, review-cc04d7693e8e5c89,
+      review-193c0b3104f96d54 approved. A load-dependent e2e race (processing of the stopped recording takes
+      the GPU before the summary) failed in the publish worktree; test fixed to retry only on
+      SUMMARY_GPU_BUSY (`53ca355`, `13760b6`), suite green 3/3. Integrated #112. GREEN 1523 python / 122 gjs.
+      Follow-ups for F5.7 first commit: a keyring write that succeeds after cancel is dropped by the presenter
+      (key stored but UI says none); attempt-token path untested; re-confirm completion untested; comment the
+      on_processing_finished alias and the skip code 77; assert the summary thread is a daemon; e2e exit-4
+      test should assert the summary log.
+- [x] F5.7 extension "Open last summary (<date>)" opening summary.md in the default app (GO-058). Integrated #113.
+- [x] F5.8 install Ollama/model check (warn only, never pulls), runbook summaries.md. Reviews
+      review-cf9c592be9440044 (4 lenses), review-b60625c75c655385, review-121fd6b875ca5159 approved; my follow-up
+      instruction on late keyring stores was incomplete and the review caught it (fixed `7638d2c`, `08ba207`).
+      Integrated #114. GREEN 1548 python / 145 gjs / 14 contracts. Follow-ups (stopped the review loop here):
+      a stale success arriving after a newer attempt already failed replaces that failure text with the
+      stored-key note; misplaced comment and duplicated reset in api_key.py; the gjs hold test waits 100 ms.
+- [x] F5.10 Preferences window (owner request 2026-10-11: no .env, no console; no separate cloud switch,
+      Provider=Cloud is the opt-in). Spec `docs/specs/preferences.md` approved (`b755136`): Settings1 D-Bus,
+      settings.json (0600) with env/.env as developer override, live vs restart fields, prefs.js launcher +
+      menu item, key stays in libsecret. Tasks P1-P7 (P8 optional model picker, not planned).
+  - [x] P1-P3 service: field registry + settings.json + precedence (#116), cloud gate from the provider + live
+        swap (#117), Settings1 + safe restart (#118). Reviews review-edcf693d97542b1d, review-5e317fa67eaf541b,
+        review-76789eee35333bff approved (4 lenses each). Safety fix: a cloud provider from env/.env needs an
+        explicit legacy SUMMARIES_CLOUD_ENABLED=true (never silently opted in after upgrade); data-loss fix: only
+        a read-but-invalid settings file is set aside. GREEN 1669 python / 145 gjs / 15 contracts. Follow-ups for
+        P4: a folder created by prepare stays if the file write then fails; apply_failed only in that Set reply;
+        legacy warning wording when an explicit false overrides a window-saved cloud provider.
+  - [x] P4-P6 app core (#119) + Preferences window, prefs.js gear launcher and menu item (#120). Reviews
+        review-9aa7c0239004abb7, review-333282dbe2b0f2d6, review-b5a17925047f41cb approved (4 lenses each).
+        TDD deviation recorded: the P4 models, parsers and gateway were written before their tests (tests were
+        then shown to fail with the sources stashed). GREEN 1759 python / 163 gjs. Follow-ups: restart wait state
+        survives closing the dialog (self-clears after the 20 s timer); failed-save test name overclaims; fake
+        unwatch diverges from the real gateway; timer truncates fractional seconds.
+  - [x] P7 runbook, docs (2026-10-12). `docs/runbooks/preferences.md` added and linked from the runbooks index,
+        AGENTS.md and summaries.md (Preferences is the user path, `.env` the developer override); install.sh summary
+        points to Preferences and the Ollama check reads `summaries.local_model` from settings.json (env > .env >
+        file > default; RED: new test failed with the file ignored, GREEN after); uninstall.sh states settings.json
+        and the keyring entry stay; systemd unit comment updated. Commits `7de660b`, `f4dc687`.
+        Evidence: `make lint` contracts 15 kept; `make check` 1901 python passed, packaging 1 passed, gjs 163
+        passed; Spanish language scan over docs/ scripts/ src/ README.md AGENTS.md: no matches. Validation with
+        consent is F5.9 below.
+- [ ] F5.9 validation with consent (local run; cloud only on explicit go), docs gate.
+      make install done 2026-10-12 (version 20261012015947-1358289; ollama reachable,
+      qwen3:4b-instruct-2507-q4_K_M present). Owner tested a local summary and a cloud summary (OpenCode Go)
+      successfully on 2026-10-12.
+      Docs gate (2026-10-12, branch `f5/docs-gate`): read-only audit P1 0 / P2 8 / P3 6, all fixed (backlog, scope
+      FR-6 row, ARCHITECTURE, summaries spec, ADR-006/009 notes, key runbook, PRD open questions, README, spec
+      statuses and Definition of Done, review-app runbook, `.env.example`, editor wording, test citations).
+      Evidence: `make check` 1901 python passed, packaging 1 passed, gjs 163 passed; citation check over
+      `docs/specs/*.md` and `rules-registry.md`: 99 citations, 0 broken (22 repointed); Spanish scan only the known
+      fixtures and `doc-sync-protocol.md`. Remaining: owner reviews and merges the integration PR.
 ### F6 Install — pending
 
 ## Route log
@@ -535,6 +621,7 @@ Spec: `docs/specs/review-app.md` (approved 2026-10-11). TDD: strict, runner `uv 
 |---|---|---|
 | Mapping | delegated (2 Explore mappers, parallel) | prototype = 5 files; conventions = 3 repos |
 | F0.1 + F0.2 | delegated (1 writer) | 2+ non-trivial files (pyproject, settings, main, kernel, tests) |
+| F5.10 P7 | delegated (1 writer) | 2+ non-trivial files (runbook, install.sh, summaries.md, tests) |
 | gitignore fix | inline | one mechanical file, root cause already understood |
 | F0.3 + F0.4 | delegated (1 writer, ran in parallel with the code review — disjoint files) | 30+ doc files |
 | review suggestions | inline | two mechanical one-line doc edits |

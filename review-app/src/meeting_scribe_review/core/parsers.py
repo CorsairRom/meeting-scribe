@@ -9,12 +9,26 @@ from datetime import UTC, datetime
 from typing import Any
 
 from meeting_scribe_review.core.errors import INVALID_REPLY, ServiceError
-from meeting_scribe_review.core.models import MeetingSummary, Speaker, Utterance
+from meeting_scribe_review.core.models import (
+    FieldIssue,
+    MeetingSummary,
+    ModelList,
+    ModelOption,
+    ProviderRow,
+    SetOutcome,
+    SettingsField,
+    Speaker,
+    SummaryDocument,
+    SummaryInfo,
+    Utterance,
+)
 from meeting_scribe_review.core.result import Err, Ok, Result
 
 _INVALID = Err(ServiceError(INVALID_REPLY))
 _SUMMARY_FIELDS = 5
 _UTTERANCE_FIELDS = 4
+_ISSUE_FIELDS = 3
+_MODEL_FIELDS = 3
 
 
 class _InvalidReplyError(Exception):
@@ -127,3 +141,156 @@ def parse_speakers(rows: Any) -> Result[list[Speaker], ServiceError]:
 def parse_transcript(rows: Any) -> Result[list[Utterance], ServiceError]:
     """``GetTranscript``: ``a(sdds)``."""
     return _parse_all(rows, _utterance)
+
+
+def _provider(row: Any) -> ProviderRow:
+    fields = _mapping(row)
+    return ProviderRow(
+        id=_text(_key(fields, "id")),
+        label=_text(_key(fields, "label")),
+        cloud=_flag(_key(fields, "cloud")),
+        model=_text(_key(fields, "model")),
+        available=_flag(_key(fields, "available")),
+        reason=_text(_key(fields, "reason")),
+        default=_flag(_key(fields, "default")),
+    )
+
+
+def _info(row: Any) -> SummaryInfo:
+    fields = _mapping(row)
+    generated_at = _text(_key(fields, "generated_at"))
+    return SummaryInfo(
+        state=_text(_key(fields, "state")),
+        stale=_flag(_key(fields, "stale")),
+        cloud=_flag(_key(fields, "cloud")),
+        provider_label=_text(_key(fields, "provider_label")),
+        generated_at=_moment(generated_at) if generated_at else None,
+        step=_count(_key(fields, "step")),
+        total_steps=_count(_key(fields, "total_steps")),
+        failure_code=_text(_key(fields, "failure_code")),
+    )
+
+
+def _document(row: Any) -> SummaryDocument:
+    fields = _mapping(row)
+    return SummaryDocument(
+        markdown=_text(_key(fields, "markdown")),
+        title=_text(_key(fields, "title")),
+        generated_at=_moment(_key(fields, "generated_at")),
+        provider_label=_text(_key(fields, "provider_label")),
+        cloud=_flag(_key(fields, "cloud")),
+        model=_text(_key(fields, "model")),
+        language=_text(_key(fields, "language")),
+        stale=_flag(_key(fields, "stale")),
+    )
+
+
+def _parse_one[T](row: Any, one: Callable[[Any], T]) -> Result[T, ServiceError]:
+    try:
+        return Ok(one(row))
+    except _InvalidReplyError:
+        return _INVALID
+
+
+def parse_providers(rows: Any) -> Result[list[ProviderRow], ServiceError]:
+    """``Providers``: ``aa{sv}``."""
+    return _parse_all(rows, _provider)
+
+
+def parse_summary_info(row: Any) -> Result[SummaryInfo, ServiceError]:
+    """``GetSummaryStatus``: ``a{sv}``."""
+    return _parse_one(row, _info)
+
+
+def parse_summary_document(row: Any) -> Result[SummaryDocument, ServiceError]:
+    """``GetSummary``: ``a{sv}``."""
+    return _parse_one(row, _document)
+
+
+def parse_started(value: Any) -> Result[str, ServiceError]:
+    """``Summarize``: ``s`` (``RUNNING``)."""
+    return _parse_one(value, _text)
+
+
+def parse_cancelled(value: Any) -> Result[bool, ServiceError]:
+    """``CancelSummary``: ``b``."""
+    return _parse_one(value, _flag)
+
+
+def _texts(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str) or not isinstance(value, Sequence):
+        raise _InvalidReplyError
+    return tuple(_text(item) for item in value)
+
+
+def _setting(row: Any) -> SettingsField:
+    fields = _mapping(row)
+    return SettingsField(
+        key=_text(_key(fields, "key")),
+        kind=_text(_key(fields, "kind")),
+        value=_text(_key(fields, "value")),
+        default=_text(_key(fields, "default")),
+        source=_text(_key(fields, "source")),
+        locked=_flag(_key(fields, "locked")),
+        lock_reason=_text(_key(fields, "lock_reason")),
+        apply=_text(_key(fields, "apply")),
+        choices=_texts(_key(fields, "choices")),
+        file_problem=_text(_key(fields, "file_problem")),
+        apply_problem=_text(_key(fields, "apply_problem")),
+    )
+
+
+def _issue(row: Any) -> FieldIssue:
+    key, code, message = _tuple(row, _ISSUE_FIELDS)
+    return FieldIssue(_text(key), _text(code), _text(message))
+
+
+def _outcome(row: Any) -> SetOutcome:
+    fields = _mapping(row)
+    errors = _key(fields, "errors")
+    if isinstance(errors, str) or not isinstance(errors, Sequence):
+        raise _InvalidReplyError
+    return SetOutcome(
+        applied=_texts(_key(fields, "applied")),
+        restart_required=_texts(_key(fields, "restart_required")),
+        apply_failed=_flag(_key(fields, "apply_failed")),
+        errors=tuple(_issue(error) for error in errors),
+    )
+
+
+def _model(row: Any) -> ModelOption:
+    model_id, supported, reason = _tuple(row, _MODEL_FIELDS)
+    return ModelOption(_text(model_id), _flag(supported), _text(reason))
+
+
+def _model_list(row: Any) -> ModelList:
+    fields = _mapping(row)
+    models = _key(fields, "models")
+    if isinstance(models, str) or not isinstance(models, Sequence):
+        raise _InvalidReplyError
+    return ModelList(_text(_key(fields, "status")), tuple(_model(model) for model in models))
+
+
+def parse_model_list(row: Any) -> Result[ModelList, ServiceError]:
+    """``Settings1.ListModels``: ``a{sv}``."""
+    return _parse_one(row, _model_list)
+
+
+def parse_settings_fields(rows: Any) -> Result[list[SettingsField], ServiceError]:
+    """``Settings1.GetAll``: ``aa{sv}``."""
+    return _parse_all(rows, _setting)
+
+
+def parse_set_outcome(row: Any) -> Result[SetOutcome, ServiceError]:
+    """``Settings1.Set``: ``a{sv}``."""
+    return _parse_one(row, _outcome)
+
+
+def parse_keys(value: Any) -> Result[tuple[str, ...], ServiceError]:
+    """``Settings1.RestartRequired`` (read through ``Properties.Get``): ``as``."""
+    return _parse_one(value, _texts)
+
+
+def parse_restarting(value: Any) -> Result[str, ServiceError]:
+    """``Settings1.Restart``: ``s`` (``RESTARTING``)."""
+    return _parse_one(value, _text)

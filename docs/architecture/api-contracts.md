@@ -1,13 +1,17 @@
 ---
 type: architecture
 status: active
-last_updated: 2026-10-09
+last_updated: 2026-10-12
 mvp: true
 verifiable_by:
   - src/meeting_scribe/recording/infrastructure/dbus/recording_interface.py
   - src/meeting_scribe/meetings/infrastructure/dbus/meetings_interface.py
   - tests/e2e/recording/test_recording_over_dbus.py
   - tests/e2e/meetings/test_meetings_over_dbus.py
+  - src/meeting_scribe/meetings/infrastructure/dbus/summaries_interface.py
+  - tests/e2e/meetings/test_summaries_over_dbus.py
+  - src/meeting_scribe/preferences/infrastructure/dbus/settings_interface.py
+  - tests/e2e/preferences/test_settings_over_dbus.py
   - "busctl --user introspect dev.meetingscribe.Service /dev/meetingscribe/Service"
 ai_instructions:
   - "This doc is the SOURCE OF TRUTH for D-Bus contracts. If a method, property or signal changes, update THIS file in the same commit."
@@ -134,11 +138,80 @@ gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meeting
 
 ---
 
+### `dev.meetingscribe.Summaries1`
+
+Summarizes a finished meeting with the configured provider (local Ollama, or the opt-in cloud gateway), one summary at
+a time. Same bus name and object path as `Recording1`. A summary never starts by itself: only `Summarize` starts one.
+Spec: [summaries](../specs/summaries.md) section 10.
+
+| Member | Kind | Signature | Description | Errors |
+|---|---|---|---|---|
+| `Providers` | method | `() -> aa{sv}` | One row per configured provider: `id` (s, `local` or `cloud`), `label` (s, `Local (<model>)` or `cloud: <name>, <model>`; the cloud label always contains the word "cloud"), `cloud` (b), `model` (s), `available` (b), `reason` (s, empty or an error code such as `SUMMARY_CLOUD_DISABLED`), `default` (b, the row chosen by `SUMMARIES_PROVIDER`). Local availability is not probed and the key is not read. The cloud URL and the key are never returned | none |
+| `Summarize` | method | `(ssb) -> s` | `(meeting_id, provider_id, cloud_confirmed)`: start a summary and return `RUNNING` at once; the model runs on a job thread. A saved summary is replaced only on success | `MEETING_NOT_PROCESSED`; `SUMMARY_NO_SPEECH`; `SUMMARY_CLOUD_DISABLED`; `SUMMARY_CLOUD_NOT_CONFIRMED`; `SUMMARY_CLOUD_KEY_MISSING`, `SUMMARY_CLOUD_KEY_LOCKED`, `SUMMARY_CLOUD_KEY_UNAVAILABLE`; `SUMMARY_GPU_BUSY`; `SUMMARY_ALREADY_RUNNING`; `SUMMARY_BUSY`; `INVALID_VALUE` (unknown provider); `ENTITY_NOT_FOUND_MEETING`; `MEETING_SCHEMA_UNSUPPORTED`; `MEETING_CORRUPT`; `MEETING_STORAGE_FAILED` |
+| `CancelSummary` | method | `(s) -> b` | Cancel the running summary of the meeting: `true` when one was running, `false` otherwise (not an error). The outcome arrives as `SummaryFinished` with `CANCELLED` | `ENTITY_NOT_FOUND_MEETING` |
+| `GetSummaryStatus` | method | `(s) -> a{sv}` | No content. `state` (s: `NONE`, `RUNNING`, `DONE`, `FAILED`), `stale` (b), `cloud` (b), `provider_label` (s), `generated_at` (s, empty when none), `step` (i), `total_steps` (i), `failure_code` (s, empty when none). `FAILED` means the last attempt failed; a previous `summary.md` may still exist (`generated_at` non-empty) | `ENTITY_NOT_FOUND_MEETING`; `MEETING_SCHEMA_UNSUPPORTED`; `MEETING_CORRUPT`; `MEETING_STORAGE_FAILED` |
+| `GetSummary` | method | `(s) -> a{sv}` | The text and facts: `markdown` (s), `title` (s), `generated_at` (s), `provider_label` (s), `cloud` (b), `model` (s), `language` (s), `stale` (b). No path | `ENTITY_NOT_FOUND_SUMMARY`; `ENTITY_NOT_FOUND_MEETING`; `SUMMARY_STORAGE_FAILED` (unreadable file); the lookup errors of `GetSummaryStatus` |
+| `LastSummary` | method | `() -> a{sv}` | The newest summary by `generated_at` whose `summary.md` still exists: `meeting_id` (s), `started_at` (s, the meeting's start), `generated_at` (s), `path` (s, absolute). For the panel menu, which opens the file with the system handler and never builds a path | `ENTITY_NOT_FOUND_SUMMARY` (none); `MEETING_STORAGE_FAILED` |
+| `ActiveSummaryMeetingId` | property | `s` (read) | The meeting being summarized; empty when idle | n/a |
+| `SummaryProgress` | signal | `(sii)` | `(meeting_id, step, total_steps)` after a step, at most one per second (the last step of a run is always sent) | n/a |
+| `SummaryFinished` | signal | `(sss)` | `(meeting_id, state, error_code)` when a summary ends, `state` `DONE`, `FAILED` or `CANCELLED`; sent after the result is saved and the slot is free | n/a |
+
+`PropertiesChanged` is emitted with `ActiveSummaryMeetingId` when it changes. Error messages carry ids and setting
+names, never transcript text, speaker names, summary text or keys. Clients refresh `GetSummaryStatus` on
+`SummaryFinished` and on `SpeakersChanged` (a rename may make the summary stale). The cloud label comes from the service
+(`Providers`); no client builds it. A service shutdown cancels a running summary without a `SummaryFinished` guarantee.
+
+Example calls (documentation only, run them against your own session bus; `Summarize` with `local` sends the transcript
+to the local model only, with `cloud` it needs `true` as the last argument and sends it off this computer):
+
+```bash
+gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service \
+  --method dev.meetingscribe.Summaries1.Providers
+gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service \
+  --method dev.meetingscribe.Summaries1.GetSummaryStatus "2026-10-09_101500"
+```
+
+---
+
+### `dev.meetingscribe.Settings1`
+
+The few settings the user may change (summary provider, models and language, the meetings folder), owned by the
+service: clients never read the settings file and never write `.env`. Same bus name and object path as `Recording1`.
+Nothing here carries the cloud API key, which is not a setting and never crosses D-Bus (BR-005). Spec:
+[preferences](../specs/preferences.md) sections 2 to 5.
+
+| Member | Kind | Signature | Description | Errors |
+|---|---|---|---|---|
+| `GetAll` | method | `() -> aa{sv}` | One row per exposed field, in registry order: `key` (s, for example `summaries.provider`), `kind` (s: `choice`, `text`, `path`), `value` (s, the effective value), `default` (s), `source` (s: `default`, `file`, `env`, `dotenv`; the layer that wins), `locked` (b, true when `env` or `dotenv` supplies it), `lock_reason` (s, empty or a code such as `LEGACY_SETTING`), `apply` (s: `live`, `restart`), `choices` (as, empty unless `choice`), `file_problem` (s, empty or `SETTINGS_FILE_INVALID` when the saved file could not be read; the same on every row), `apply_problem` (s, empty or `SETTINGS_APPLY_FAILED` when the last save was kept but applying a live change raised; the same on every row, cleared by the next save whose apply succeeds). Values are strings; the client parses by `kind` | none |
+| `Set` | method | `(a{ss}) -> a{sv}` | Validate the whole candidate (key to text) over the current values; on success write the settings file atomically, apply and signal. Returns `applied` (as, the keys written; empty on any error), `restart_required` (as, every key saved but not yet in effect, not only this call's), `apply_failed` (b, true when the values were saved and signalled but applying a live change raised: a restart picks them up) and `errors` (a(sss): key, code, message; one row per invalid field). An empty candidate is a no-op that writes nothing. All or nothing: any error means nothing is written, applied or signalled. Only one `Set` runs at a time; a second waits | `SETTINGS_STORAGE_FAILED` |
+| `Restart` | method | `() -> s` | Restart `meeting-scribe.service` through the user systemd manager when nothing is active; returns `RESTARTING` and asks systemd after the reply is sent (`org.freedesktop.systemd1.Manager.RestartUnit("meeting-scribe.service", "replace")`). Unfinished jobs resume as on any start | `SETTINGS_RESTART_BUSY`; `SETTINGS_RESTART_UNAVAILABLE` |
+| `ListModels` | method | `(s) -> a{sv}` | `scope` is `local` or `cloud`. Reply keys: `status` (s: `OK`, or why the list is unavailable: `SUMMARY_CLOUD_KEY_MISSING`, `SUMMARY_CLOUD_KEY_LOCKED`, `SUMMARY_CLOUD_KEY_UNAVAILABLE`, `SUMMARY_AUTH_FAILED`, `SUMMARY_MODELS_UNAVAILABLE`; an unknown scope is `SUMMARY_MODELS_UNAVAILABLE`) and `models` (a(sbs): `id`, `supported`, `reason`; empty unless `OK`; `reason` is empty for a supported model and `NOT_SUPPORTED_YET` otherwise). Local reads the installed models of Ollama (`GET /api/tags` on the configured loopback base, no proxy); cloud calls `GET {cloud_base_url}/models` with the key the service reads from the keyring (the key never crosses D-Bus). All models are listed; a cloud model is supported when its id starts with a documented chat-completions family (`deepseek-`, `glm-`, `kimi-`, `mimo-`, `longcat-`). Network calls are bounded (5 s local, 10 s cloud) and run off the event loop. An unavailable list is a normal reply, not a D-Bus error | none |
+| `RestartRequired` | property | `as` (read) | Keys saved but not yet in effect (the meetings folder after a change) | n/a |
+| `SettingsChanged` | signal | `(as)` | The keys written by a `Set`, emitted after the file is saved. `PropertiesChanged` carries `RestartRequired` when it changes | n/a |
+
+Field error codes inside `Set` replies: `FIELD_UNKNOWN`, `FIELD_LOCKED`, `FIELD_INVALID`, `FIELD_FOLDER_NOT_WRITABLE`
+(see `error-codes-catalog.md`). Messages carry keys and next steps, never values: a value can hold a home path, and
+logs and signals follow the same rule. A client that gets `UnknownMethod` or `UnknownInterface` treats the service as too
+old and asks the user to update it. A `Set` that changes `summaries.local_model` or `summaries.cloud_model` checks the
+value against the last good `ListModels` result of that scope (kept 10 minutes; `FIELD_INVALID` for a model that is not
+listed or not supported). `Set` never fetches a list (it holds its lock): without a fresh one the save is accepted.
+
+Example calls (documentation only, run them against your own session bus; `Set` changes your real settings):
+
+```bash
+gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service \
+  --method dev.meetingscribe.Settings1.GetAll
+gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service \
+  --method dev.meetingscribe.Settings1.Set "{'summaries.language': 'es'}"
+```
+
+---
+
 ## Out-of-scope members (documented for visibility)
 
 | Member | Status | Reason |
 |---|---|---|
-| `dev.meetingscribe.Speakers1`, `Summaries1` | planned (F4+) | The domains exist; only their D-Bus adapters are missing |
+| `dev.meetingscribe.Speakers1` | planned | The domain exists; only its D-Bus adapter is missing (the review members live in `Meetings1`) |
 
 ---
 

@@ -4,21 +4,29 @@ Declarative glue only. Which meeting is open and what refreshes on a service eve
 ``ReviewSession``; this class shows the states it publishes.
 """
 
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, Gio, Gtk
 
 from meeting_scribe_review.core.errors import command_hint
+from meeting_scribe_review.core.presenters.api_key import ApiKeyState
+from meeting_scribe_review.core.presenters.cloud_confirmation import ConfirmationState
 from meeting_scribe_review.core.presenters.meeting_list import MeetingListState, MeetingListStatus
 from meeting_scribe_review.core.presenters.merge import MergeState
 from meeting_scribe_review.core.presenters.playback import PlaybackState
 from meeting_scribe_review.core.presenters.rename import RenameState
 from meeting_scribe_review.core.presenters.review import ReviewState, ReviewStatus
-from meeting_scribe_review.core.session import ReviewSession
+from meeting_scribe_review.core.presenters.summary import SummaryState
+from meeting_scribe_review.core.session import ReviewSession, SummarySettingsListener
 from meeting_scribe_review.ui.dbus_gateway import DBusGateway
 from meeting_scribe_review.ui.dialogs import SpeakerDialogs
+from meeting_scribe_review.ui.key_store import SecretKeyStore
 from meeting_scribe_review.ui.media_player import MediaPlayer
 from meeting_scribe_review.ui.meeting_sidebar import MeetingSidebar
+from meeting_scribe_review.ui.preferences_controller import PreferencesController
 from meeting_scribe_review.ui.speaker_row import SpeakerActions, SpeakersSection
 from meeting_scribe_review.ui.status_view import StatusView
+from meeting_scribe_review.ui.summary_dialogs import SummaryDialogs
+from meeting_scribe_review.ui.summary_export import SummaryExport
+from meeting_scribe_review.ui.summary_view import SummaryActions, SummaryView
 from meeting_scribe_review.ui.transcript_view import TranscriptView
 
 TITLE = "Meeting Scribe"
@@ -36,6 +44,7 @@ class ReviewWindow(Adw.ApplicationWindow):
         application: Adw.Application,
         gateway: DBusGateway,
         player: MediaPlayer,
+        keys: SecretKeyStore,
         meeting_id: str,
     ) -> None:
         super().__init__(
@@ -45,8 +54,13 @@ class ReviewWindow(Adw.ApplicationWindow):
             default_height=DEFAULT_HEIGHT,
         )
         self._gateway = gateway
+        self._preferences = PreferencesController(gateway, keys)
+        action = Gio.SimpleAction.new("preferences", None)
+        action.connect("activate", lambda _action, _param: self.open_preferences())
+        self.add_action(action)
         self._meetings = MeetingListState()
         self._review = ReviewState()
+        self._summary_state = SummaryState()
 
         self._sidebar = MeetingSidebar(
             lambda selected: self._session.select(selected), lambda: self._session.retry()
@@ -63,14 +77,33 @@ class ReviewWindow(Adw.ApplicationWindow):
         self._last_toast = ""
         self._status = StatusView(lambda: self._session.retry())
         self._banner = Adw.Banner(use_markup=False)
+        self._summary = SummaryView(
+            SummaryActions(
+                generate=lambda: self._session.generate_summary(),
+                cancel=lambda: self._session.cancel_summary(),
+                open_preferences=lambda: self.open_preferences(),
+                copy=lambda: self._export.copy(self._summary_state),
+                save=lambda: self._export.save(self._summary_state),
+            )
+        )
+        self._tabs = Adw.ViewStack()
+        self._tabs.add_titled(self._review_box(), "review", "Review")
+        self._tabs.add_titled(self._summary, "summary", "Summary")
+        self._switcher = Adw.ViewSwitcher(stack=self._tabs, policy=Adw.ViewSwitcherPolicy.WIDE)
         self._panes = Gtk.Stack()
-        self._panes.add_named(self._review_box(), _REVIEW)
+        self._panes.add_named(self._tabs, _REVIEW)
         self._panes.add_named(self._status, _STATUS)
         self._toasts = Adw.ToastOverlay(child=self._panes)
 
         split = Adw.NavigationSplitView(
             sidebar=self._page("Meetings", self._sidebar),
-            content=self._page(TITLE, self._toasts, banner=self._banner),
+            content=self._page(
+                TITLE,
+                self._toasts,
+                banner=self._banner,
+                title_widget=self._switcher,
+                menu=self._primary_menu(),
+            ),
         )
         breakpoint_ = Adw.Breakpoint.new(Adw.BreakpointCondition.parse(COLLAPSE_BELOW))
         breakpoint_.add_setter(split, "collapsed", True)
@@ -78,13 +111,21 @@ class ReviewWindow(Adw.ApplicationWindow):
         self.set_content(split)
         self.connect("close-request", self._on_close_request)
 
-        self._session = ReviewSession(gateway, player, self)
+        self._session = ReviewSession(gateway, player, self, summaries=gateway, keys=keys)
+        self._settings_listener = SummarySettingsListener(self._session)
+        gateway.watch_settings(self._settings_listener)
         self._dialogs = SpeakerDialogs(self, self._session)
+        self._summary_dialogs = SummaryDialogs(self, self._session)
+        self._export = SummaryExport(self, self._toast)
         self._session.start(meeting_id)
 
     def open_meeting(self, meeting_id: str) -> None:
         """Show another meeting in this window (a second launch with ``--meeting``)."""
         self._session.start(meeting_id)
+
+    def open_preferences(self) -> None:
+        """Show the Preferences dialog over this window (the menu entry and ``--preferences``)."""
+        self._preferences.open(self)
 
     def show_meetings(self, state: MeetingListState) -> None:
         self._meetings = state
@@ -110,6 +151,21 @@ class ReviewWindow(Adw.ApplicationWindow):
             self._toasts.add_toast(Adw.Toast(title=state.message))
         self._last_toast = state.message
 
+    def show_summary(self, state: SummaryState) -> None:
+        self._summary_state = state
+        self._summary.update(state)
+
+    def show_cloud_confirmation(self, state: ConfirmationState) -> None:
+        self._summary_dialogs.show_confirmation(state)
+
+    def show_api_key(self, state: ApiKeyState) -> None:
+        self._summary_dialogs.show_api_key(state)
+        if state.message:
+            self._toast(state.message)
+
+    def _toast(self, text: str) -> None:
+        self._toasts.add_toast(Adw.Toast(title=text))
+
     def _review_box(self) -> Gtk.Box:
         """Speakers on top (a short scrolling list), the transcript below it."""
         speakers = Gtk.ScrolledWindow(
@@ -126,11 +182,28 @@ class ReviewWindow(Adw.ApplicationWindow):
         return box
 
     @staticmethod
+    def _primary_menu() -> Gtk.MenuButton:
+        menu = Gio.Menu()
+        menu.append("Preferences", "win.preferences")
+        return Gtk.MenuButton(
+            icon_name="open-menu-symbolic", menu_model=menu, primary=True, tooltip_text="Main menu"
+        )
+
+    @staticmethod
     def _page(
-        title: str, child: Gtk.Widget, banner: Adw.Banner | None = None
+        title: str,
+        child: Gtk.Widget,
+        banner: Adw.Banner | None = None,
+        title_widget: Gtk.Widget | None = None,
+        menu: Gtk.Widget | None = None,
     ) -> Adw.NavigationPage:
         view = Adw.ToolbarView(content=child)
-        view.add_top_bar(Adw.HeaderBar())
+        header = Adw.HeaderBar()
+        if title_widget is not None:
+            header.set_title_widget(title_widget)
+        if menu is not None:
+            header.pack_end(menu)
+        view.add_top_bar(header)
         if banner is not None:
             view.add_top_bar(banner)
         return Adw.NavigationPage.new(view, title)
@@ -138,6 +211,7 @@ class ReviewWindow(Adw.ApplicationWindow):
     def _refresh(self) -> None:
         meetings, review = self._meetings, self._review
         self._banner.set_revealed(False)
+        self._switcher.set_visible(review.status is ReviewStatus.READY)
         if meetings.status is MeetingListStatus.ERROR:
             self._message(meetings.message, command_hint(meetings.detail), retry=True)
         elif meetings.status is MeetingListStatus.EMPTY:
@@ -162,5 +236,7 @@ class ReviewWindow(Adw.ApplicationWindow):
 
     def _on_close_request(self, _window: Adw.ApplicationWindow) -> bool:
         self._session.close()
+        self._gateway.unwatch_settings(self._settings_listener)
+        self._preferences.shutdown()
         self._gateway.close()
         return False

@@ -230,7 +230,7 @@ GIVEN PROCESSING_DEVICE=cpu
 THEN the stages run on the CPU, meeting.json records the device used, and the log says so at WARNING
 ```
 
-**Test**: `tests/unit/transcription/test_device_policy.py::test_cuda_required_never_falls_back`
+**Test**: `tests/unit/transcription/test_params.py::test_cuda_required_never_falls_back`
 
 ### AC-16: Shutdown cancels the worker and the job resumes
 
@@ -265,7 +265,7 @@ AND a notification service error is logged at WARNING and never changes the job 
 AND no notification ever contains transcript text
 ```
 
-**Test**: `tests/unit/meetings/test_processing_controller.py::test_notification_on_finish_never_fails_the_job`
+**Test**: `tests/unit/meetings/test_notifications.py::test_notification_on_finish_never_fails_the_job`
 
 ### AC-19: Meetings1 over D-Bus
 

@@ -36,13 +36,14 @@ function until(changes, condition, description) {
 }
 
 /** Private bus + fake Meetings1 + client; always cleaned up. */
-async function withFixture(body, {appear = true, clientOptions = {}} = {}) {
+async function withFixture(body, {appear = true, clientOptions = {}, setup = () => {}} = {}) {
     const bus = await PrivateBus.start();
     let client = null;
     let fake = null;
     try {
         const changes = {snapshots: [], listeners: []};
         fake = new FakeMeetingsService(await bus.connect(), BUS_NAME, OBJECT_PATH);
+        setup(fake);
         if (appear)
             await fake.appear();
         client = new MeetingsClient({
@@ -82,7 +83,7 @@ test('meetings: the service appears with its pipeline status', async () => {
         await until(() => client.snapshot.available);
         assertDeepEqual(client.snapshot, {
             available: true, activeMeetingId: 'm1', activeState: 'DIARIZING',
-            queuedCount: 2, last: null,
+            queuedCount: 2, last: null, lastSummary: null,
         });
     });
 });
@@ -167,6 +168,7 @@ test('meetings: the service vanishing resets the snapshot and reports it once', 
         await until(() => !client.snapshot.available);
         assertDeepEqual(client.snapshot, {
             available: false, activeMeetingId: '', activeState: 'IDLE', queuedCount: 0, last: null,
+            lastSummary: null,
         });
         const count = changes.snapshots.length;
         await sleep(100);
@@ -259,4 +261,130 @@ test('meetings: a proxy that cannot be built is logged once and stays unavailabl
         createProxy: (_connection, _name, _path, callback) =>
             callback(null, new Error('no interface')),
     }});
+});
+
+// -- LastSummary (Summaries1, F5.7) ------------------------------------------------------------
+
+const SUMMARY = {
+    meeting_id: 'm1', started_at: '2026-10-09T14:30:00+00:00',
+    generated_at: '2026-10-09T16:00:00+00:00', path: '/fake/dir/m1/summary.md',
+};
+
+test('meetings: the last summary is read when the service appears', async () => {
+    await withFixture(async ({client, fake, until}) => {
+        fake.lastSummary = SUMMARY;
+        client.connect();
+        await until(() => client.snapshot.lastSummary !== null);
+        assertDeepEqual(client.snapshot.lastSummary,
+            {startedAt: SUMMARY.started_at, path: SUMMARY.path});
+    });
+});
+
+test('meetings: no summary yet, or an older service, hides the summary without failing', async () => {
+    await withFixture(async ({client, until}) => {
+        client.connect();
+        await until(() => client.snapshot.available);
+        await sleep(150);
+        assertEqual(client.snapshot.lastSummary, null);
+    });
+    await withFixture(async ({client, fake, until}) => {
+        client.connect();
+        await until(() => client.snapshot.available);
+        await sleep(150);
+        assertEqual(fake.summaryCalls, 0);
+        assertEqual(client.snapshot.lastSummary, null);
+        assertEqual(client.snapshot.available, true);
+    }, {setup: fake => {
+        fake.withSummaries = false;
+    }});
+});
+
+test('meetings: SummaryFinished refreshes the last summary', async () => {
+    await withFixture(async ({client, fake, until}) => {
+        client.connect();
+        await until(() => client.snapshot.available);
+        fake.lastSummary = SUMMARY;
+        fake.finishSummary('m1', 'DONE');
+        await until(() => client.snapshot.lastSummary?.path === SUMMARY.path);
+    });
+});
+
+test('meetings: refreshLastSummary follows the service and drops a summary that is gone', async () => {
+    await withFixture(async ({client, fake, until}) => {
+        fake.lastSummary = SUMMARY;
+        client.connect();
+        await until(() => client.snapshot.lastSummary !== null);
+        fake.lastSummary = {...SUMMARY, path: '/fake/dir/m2/summary.md'};
+        await client.refreshLastSummary();
+        assertEqual(client.snapshot.lastSummary.path, '/fake/dir/m2/summary.md');
+        fake.lastSummary = null;
+        await client.refreshLastSummary();
+        assertEqual(client.snapshot.lastSummary, null);
+    });
+});
+
+test('meetings: a refresh without a service or after destroy is a quiet no-op', async () => {
+    await withFixture(async ({client}) => {
+        await client.refreshLastSummary();
+        client.connect();
+        client.destroy();
+        await client.refreshLastSummary();
+        assertEqual(client.snapshot.lastSummary, null);
+    }, {appear: false});
+});
+
+test('meetings: a vanished or restarted service forgets the summary', async () => {
+    await withFixture(async ({client, fake, until}) => {
+        fake.lastSummary = SUMMARY;
+        client.connect();
+        await until(() => client.snapshot.lastSummary !== null);
+        fake.vanish();
+        await until(() => !client.snapshot.available);
+        assertEqual(client.snapshot.lastSummary, null);
+    });
+});
+
+test('meetings: a path that is not absolute is never kept', async () => {
+    await withFixture(async ({client, fake, until}) => {
+        fake.lastSummary = {...SUMMARY, path: 'relative/summary.md'};
+        client.connect();
+        await until(() => client.snapshot.available);
+        await sleep(150);
+        assertEqual(client.snapshot.lastSummary, null);
+    });
+});
+
+test('meetings: overlapping refreshes resolved out of order keep the newest answer', async () => {
+    await withFixture(async ({client, fake, until}) => {
+        client.connect();
+        await until(() => client.snapshot.available);
+        await sleep(150); // the refresh made on appear is settled
+        assertEqual(fake.summaryCalls, 1);
+        fake.holdNext = 1; // the first answer is held back by the fake until released
+        fake.lastSummary = SUMMARY; // the first call is asked while this is the answer
+        const first = client.refreshLastSummary();
+        await sleep(100); // the call reaches the fake and is held
+        assertEqual(fake.held.length, 1, 'the first call is held: ');
+        fake.lastSummary = {...SUMMARY, path: '/fake/dir/m2/summary.md'};
+        await client.refreshLastSummary(); // the second is answered first
+        assertEqual(client.snapshot.lastSummary?.path, '/fake/dir/m2/summary.md');
+        fake.releaseHeld(); // the late answer for the first call arrives now
+        await first;
+        assertEqual(client.snapshot.lastSummary?.path, '/fake/dir/m2/summary.md');
+        assertEqual(fake.summaryCalls, 3);
+    });
+});
+
+test('meetings: a hung LastSummary times out, hides the item and does not hang the refresh', async () => {
+    await withFixture(async ({client, fake, until}) => {
+        client.connect();
+        await until(() => client.snapshot.available);
+        await sleep(100);
+        fake.hangSummary = true;
+        const startedAt = GLib.get_monotonic_time();
+        await client.refreshLastSummary();
+        const waitedMs = (GLib.get_monotonic_time() - startedAt) / 1000;
+        assertEqual(waitedMs < 2500, true, `waited ${waitedMs} ms: `);
+        assertEqual(client.snapshot.lastSummary, null);
+    }, {clientOptions: {callTimeoutMs: 300}});
 });

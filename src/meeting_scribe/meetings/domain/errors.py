@@ -63,6 +63,42 @@ class WorkerCancelledError(MeetingScribeError):
     error_code = "WORKER_CANCELLED"
 
 
+class SummaryCloudDisabledError(MeetingScribeError):
+    """The cloud provider was requested while the provider setting is not ``cloud``."""
+
+    error_code = "SUMMARY_CLOUD_DISABLED"
+
+
+class SummaryCloudNotConfirmedError(MeetingScribeError):
+    """The cloud provider was requested without the user's confirmation for this request."""
+
+    error_code = "SUMMARY_CLOUD_NOT_CONFIRMED"
+
+
+class SummaryAlreadyRunningError(MeetingScribeError):
+    """A summary of this meeting is already running."""
+
+    error_code = "SUMMARY_ALREADY_RUNNING"
+
+
+class SummaryBusyError(MeetingScribeError):
+    """A summary of another meeting is running (one at a time)."""
+
+    error_code = "SUMMARY_BUSY"
+
+
+class SummaryGpuBusyError(MeetingScribeError):
+    """A local summary was requested while a recording or processing job holds the GPU."""
+
+    error_code = "SUMMARY_GPU_BUSY"
+
+
+class SummaryStorageError(MeetingScribeError):
+    """``summary.md`` could not be written or rotated."""
+
+    error_code = "SUMMARY_STORAGE_FAILED"
+
+
 class NotificationError(MeetingScribeError):
     """The desktop notification could not be delivered; logged, never changes a job."""
 

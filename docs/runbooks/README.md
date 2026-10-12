@@ -21,5 +21,8 @@ A runbook gives exact commands, preconditions and what to verify afterwards.
 | [Try and install the GNOME extension](gnome-extension.md) | F2 | active |
 | [Set up and troubleshoot processing](processing.md) | F3 | active |
 | [Install, open and troubleshoot the review app](review-app.md) | F4 | active |
+| [Set up and troubleshoot summaries](summaries.md) | F5 | active |
+| [Change settings in Preferences](preferences.md) | F5 | active |
+| [Store the cloud API key in the GNOME Keyring](store-cloud-api-key.md) | F5 | active |
 
 Planned: install troubleshooting (F6).

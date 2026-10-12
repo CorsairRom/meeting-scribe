@@ -1,5 +1,5 @@
 import {test, assertEqual, assertDeepEqual} from './harness.js';
-import {formatElapsed, errorMessage, launchFailureMessage, viewModel, ICON_IDLE, ICON_RECORDING, ICON_FAILED, ICON_UNAVAILABLE} from '../meeting-scribe@meetingscribe.dev/lib/indicatorModel.js';
+import {formatElapsed, errorMessage, launchFailureMessage, summaryOpenFailureMessage, formatStartedAt, viewModel, ICON_IDLE, ICON_RECORDING, ICON_FAILED, ICON_UNAVAILABLE} from '../meeting-scribe@meetingscribe.dev/lib/indicatorModel.js';
 
 test('formatElapsed pads to HH:MM:SS', () => {
     assertEqual(formatElapsed(0), '00:00:00');
@@ -82,7 +82,13 @@ const base = {
     elapsedSeconds: 0,
     failureReason: '',
 };
-const vm = (overrides, tr) => viewModel({...base, ...overrides}, tr);
+const full = (overrides, tr) => viewModel({...base, ...overrides}, tr);
+// The Preferences item ends every menu that can open (tested in its own section below): the
+// other tests describe the items above it, so they compare the model without that tail.
+const withoutPreferences = model => model.menuItems.at(-1)?.action === 'preferences'
+    ? {...model, menuItems: model.menuItems.slice(0, -2)}
+    : model;
+const vm = (overrides, tr) => withoutPreferences(full(overrides, tr));
 const ids = items => items.filter(i => i.kind === 'action').map(i => i.action);
 
 test('icons are distinct named constants', () => {
@@ -319,7 +325,7 @@ test('processing lines translate through the injected function', () => {
     const up = s => s.split('%s').map(part => part.toUpperCase()).join('%s');
     const m = viewModel({...base, processing: proc({activeMeetingId: 'm1',
         activeState: 'DIARIZING', queuedCount: 2})}, up);
-    assertDeepEqual(texts(m.menuItems).slice(2),
+    assertDeepEqual(texts(withoutPreferences(m).menuItems).slice(2),
         ['PROCESSING MEETING… (DIARIZING)', '2 MEETINGS QUEUED']);
 });
 
@@ -373,4 +379,102 @@ test('launchFailureMessage tells the user to run make install', () => {
     const message = launchFailureMessage(s => s);
     assertEqual(message.includes('make install'), true);
     assertEqual(launchFailureMessage(s => `<${s}>`).startsWith('<'), true);
+});
+
+// -- Open last summary (F5.7, AC-19) -----------------------------------------------------------
+
+const STARTED = '2026-10-09T14:30:00+00:00';
+const SUMMARY_PATH = '/private/place/m1/summary.md';
+const withSummary = (extra = {}) => ({
+    available: true, activeState: 'IDLE', queuedCount: 0, last: null,
+    lastSummary: {startedAt: STARTED, path: SUMMARY_PATH}, ...extra,
+});
+const summaryItems = model => model.menuItems.filter(item => item.action === 'summary');
+
+test('formatStartedAt gives a readable weekday, date and 24-hour time in the given locale', () => {
+    const text = formatStartedAt(STARTED, {locale: 'en-US', timeZone: 'UTC'});
+    for (const part of ['Fri', 'Oct', '9', '14:30'])
+        assertEqual(text.includes(part), true, `${text}: missing ${part}: `);
+});
+
+test('formatStartedAt returns an empty string for an invalid or missing date', () => {
+    for (const value of ['', 'not a date', undefined, null, 42])
+        assertEqual(formatStartedAt(value), '', `${value}: `);
+});
+
+test('the summary item shows the readable date, no title, no path', () => {
+    const model = vm({state: 'IDLE', processing: withSummary()});
+    const [item] = summaryItems(model);
+    assertEqual(item.text, `Open last summary (${formatStartedAt(STARTED)})`);
+    assertDeepEqual(Object.keys(item).sort(), ['action', 'kind', 'text']);
+    assertEqual(JSON.stringify(model).includes(SUMMARY_PATH), false);
+});
+
+test('the summary item follows the review item, before the processing lines', () => {
+    const items = vm({state: 'IDLE', processing: withSummary({
+        last: {meetingId: 'm', state: 'DONE', speakerCount: 2}})}).menuItems;
+    assertDeepEqual(items.map(i => i.action ?? i.kind),
+        ['start', 'review', 'summary', 'separator', 'status']);
+});
+
+test('the summary item is hidden without a summary, with an invalid date or an older service', () => {
+    assertDeepEqual(summaryItems(vm({state: 'IDLE', processing: withSummary({lastSummary: null})})), []);
+    assertDeepEqual(summaryItems(vm({state: 'IDLE', processing: withSummary({lastSummary: undefined})})), []);
+    assertDeepEqual(summaryItems(vm({state: 'IDLE', processing: withSummary({
+        lastSummary: {startedAt: 'garbage', path: SUMMARY_PATH}})})), []);
+    assertDeepEqual(summaryItems(vm({state: 'IDLE', processing: {available: true,
+        activeState: 'IDLE', queuedCount: 0, last: null}})), []);
+});
+
+test('the summary item follows the review visibility: not recording, busy, unknown or unavailable', () => {
+    const processing = withSummary();
+    for (const state of ['IDLE', 'STOPPED', 'FAILED'])
+        assertEqual(summaryItems(vm({state, processing})).length, 1, `${state}: `);
+    assertDeepEqual(summaryItems(vm({state: 'RECORDING', processing})), []);
+    assertDeepEqual(summaryItems(vm({state: 'IDLE', busy: true, processing})), []);
+    assertDeepEqual(summaryItems(vm({state: 'WEIRD', processing})), []);
+    assertDeepEqual(summaryItems(vm({available: false, processing})), []);
+    assertDeepEqual(summaryItems(vm({state: 'IDLE',
+        processing: {...processing, available: false}})), []);
+});
+
+test('the summary item text is translated through the template', () => {
+    const tr = s => `<${s}>`;
+    const [item] = summaryItems(vm({state: 'IDLE', processing: withSummary()}, tr));
+    assertEqual(item.text.startsWith('<Open last summary ('), true);
+});
+
+test('summaryOpenFailureMessage is short, fixed and translated', () => {
+    assertEqual(summaryOpenFailureMessage(s => s).includes('summary'), true);
+    assertEqual(summaryOpenFailureMessage(s => `<${s}>`).startsWith('<'), true);
+});
+
+// -- Preferences... (F5.10, AC-12): always offered where the menu opens, last, after a separator ---
+
+const PREFERENCES = {kind: 'action', text: 'Preferences…', action: 'preferences'};
+const preferencesItems = model => model.menuItems.filter(item => item.action === 'preferences');
+
+test('the preferences item ends the menu after a separator in every state that opens it', () => {
+    for (const overrides of [{state: 'IDLE'}, {state: 'STOPPED', sessionId: 's1'},
+        {state: 'RECORDING'}, {state: 'FAILED'}, {available: false}]) {
+        const items = full(overrides).menuItems;
+        assertDeepEqual(items.slice(-2), [{kind: 'separator'}, PREFERENCES], `${JSON.stringify(overrides)}: `);
+        assertEqual(preferencesItems(full(overrides)).length, 1);
+    }
+});
+
+test('the preferences item does not depend on the recording, the review or the processing state', () => {
+    const processing = {available: true, activeState: 'DIARIZING', queuedCount: 2, last: null};
+    assertDeepEqual(full({state: 'IDLE', processing}).menuItems.at(-1), PREFERENCES);
+    assertDeepEqual(full({state: 'RECORDING', processing}).menuItems.at(-1), PREFERENCES);
+});
+
+test('the preferences item is absent where the menu cannot open: busy and unknown states', () => {
+    assertDeepEqual(preferencesItems(full({state: 'IDLE', busy: true})), []);
+    assertDeepEqual(preferencesItems(full({state: 'WEIRD'})), []);
+});
+
+test('the preferences item is translated', () => {
+    const [item] = preferencesItems(full({state: 'IDLE'}, s => `<${s}>`));
+    assertEqual(item.text, '<Preferences…>');
 });

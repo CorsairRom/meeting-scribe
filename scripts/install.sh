@@ -13,6 +13,10 @@
 # download is reported in the summary (the worker runs offline and says MODEL_UNAVAILABLE until a
 # later `make install` fetches them); it never fails the install. The download is bounded by
 # MEETING_SCRIBE_PREFETCH_TIMEOUT seconds (default 3600) and skipped when the install rolled back.
+#
+# Ollama and the local summary model are only CHECKED, read-only (`ollama list`, bounded by
+# MEETING_SCRIBE_OLLAMA_TIMEOUT seconds, default 10): the install never starts Ollama, never pulls a
+# model and never sends a prompt. A gap only warns with the command to fix it.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -164,7 +168,9 @@ fi
 if [[ -z "$rolled_back" ]]; then
   desktop_template="$(<"$REPO_ROOT/packaging/applications/$DESKTOP_ENTRY_NAME.in")"
   mkdir -p "$APPLICATIONS_DIR"
-  printf '%s\n' "${desktop_template%%@EXEC@*}$(desktop_exec_argument "$CURRENT_LINK/bin/$REVIEW_LAUNCHER_NAME")${desktop_template#*@EXEC@}" >"$DESKTOP_ENTRY_PATH"
+  desktop_exec="$(desktop_exec_argument "$CURRENT_LINK/bin/$REVIEW_LAUNCHER_NAME")"
+  # Every placeholder (the entry and its actions); quoted so a "&" in the path stays literal.
+  printf '%s\n' "${desktop_template//@EXEC@/"$desktop_exec"}" >"$DESKTOP_ENTRY_PATH"
   refresh_desktop_database
 elif [[ ! -x "$CURRENT_LINK/bin/$REVIEW_LAUNCHER_NAME" ]]; then
   rm -f "$DESKTOP_ENTRY_PATH"
@@ -242,6 +248,57 @@ else
     || review_missing+=(libadwaita)
 fi
 
+# The value of a `KEY=value` line: CR removed, surrounding spaces trimmed; a quoted value ends at its
+# closing quote (so a trailing comment is dropped); an unquoted one ends at a ` #` comment.
+parse_env_value() {
+  local value="${1%$'\r'}" quote
+  value="${value#"${value%%[![:space:]]*}"}"
+  case "$value" in
+    \"* | \'*)
+      quote="${value:0:1}"
+      value="${value:1}"
+      value="${value%%"$quote"*}" ;;
+    *) value="${value%%[[:space:]]\#*}" ;;
+  esac
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+# The configured local model, with the service's precedence: SUMMARIES_LOCAL_MODEL from the environment,
+# else that one line of `.env` (nothing else in it is read), else the `summaries.local_model` entry of
+# the Preferences file `settings.json` (nothing else in it is read; a value with JSON escapes is ignored),
+# else the default. The `.env` value is parsed by `parse_env_value` (above).
+readonly OLLAMA_MODEL_DEFAULT="qwen3:4b-instruct-2507-q4_K_M"
+readonly OLLAMA_TIMEOUT_DEFAULT=10
+ollama_model="${SUMMARIES_LOCAL_MODEL:-}"
+if [[ -z "$ollama_model" && -f "$CONFIG_HOME/meeting-scribe/.env" ]]; then
+  ollama_model="$(grep -m1 '^SUMMARIES_LOCAL_MODEL=' "$CONFIG_HOME/meeting-scribe/.env" 2>/dev/null || true)"
+  ollama_model="$(parse_env_value "${ollama_model#SUMMARIES_LOCAL_MODEL=}")"
+fi
+if [[ -z "$ollama_model" && -f "$CONFIG_HOME/meeting-scribe/settings.json" ]]; then
+  ollama_model="$(grep -o '"summaries\.local_model"[[:space:]]*:[[:space:]]*"[^"\\]*"' \
+    "$CONFIG_HOME/meeting-scribe/settings.json" 2>/dev/null | head -n1 || true)"
+  ollama_model="${ollama_model#*:}"
+  ollama_model="$(printf '%s' "$ollama_model" | sed -e 's/^[[:space:]]*"//' -e 's/"$//')"
+fi
+ollama_model="${ollama_model:-$OLLAMA_MODEL_DEFAULT}"
+ollama_timeout="${MEETING_SCRIBE_OLLAMA_TIMEOUT:-$OLLAMA_TIMEOUT_DEFAULT}"
+if ! [[ "$ollama_timeout" =~ ^[1-9][0-9]*$ ]]; then ollama_timeout="$OLLAMA_TIMEOUT_DEFAULT"; fi
+ollama_status=missing # ok | missing | unreachable | no_model
+if command -v ollama >/dev/null 2>&1; then
+  if ollama_list="$(timeout --kill-after=2 "$ollama_timeout" ollama list 2>/dev/null)"; then
+    ollama_status=no_model
+    while read -r listed _; do
+      if [[ "$listed" == "$ollama_model" || "$listed" == "$ollama_model:latest" ]]; then
+        ollama_status=ok
+        break
+      fi
+    done <<<"$ollama_list"
+  else
+    ollama_status=unreachable
+  fi
+fi
+
 echo
 echo "meeting-scribe installed"
 if [[ -n "$rolled_back" ]]; then
@@ -301,7 +358,25 @@ case "$models_status" in
     echo "  models:    $models_state"
     ;;
 esac
-echo "  config:    $CONFIG_HOME/meeting-scribe/.env (optional, see .env.example)"
+case "$ollama_status" in
+  ok)
+    echo "  ollama:    reachable; model $ollama_model present"
+    ;;
+  no_model)
+    echo "  ollama:    reachable; model $ollama_model NOT found (summaries stay unavailable until it is pulled)"
+    echo "             Pull it with: ollama pull $ollama_model"
+    ;;
+  unreachable)
+    echo "  ollama:    found but not reachable (summaries stay unavailable; recording and processing are unaffected)"
+    echo "             Start it with: systemctl start ollama (or run: ollama serve), then re-run 'make install' to re-check."
+    ;;
+  *)
+    echo "  ollama:    NOT found (summaries stay unavailable; recording and processing are unaffected)"
+    echo "             Install it from https://ollama.com/download, then run: ollama pull $ollama_model"
+    ;;
+esac
+echo "  config:    open Preferences from the Meeting Scribe menu (saved in $CONFIG_HOME/meeting-scribe/settings.json)"
+echo "             .env in the same folder stays an optional developer override (see .env.example)"
 if ((start_failed || reload_failed)) || [[ -n "$extension_failed" ]]; then
   exit 1
 fi

@@ -9,6 +9,8 @@ authors = [
 requires-python = "~=3.12.0"
 dependencies = [
     "dbus-fast>=5.2.0",
+    "httpx2>=2.13.1",
+    "openai>=3.29.0",
     "pydantic>=2.11.0",
     "pydantic-settings>=2.9.0",
     "returns>=0.25.0",
@@ -45,10 +47,11 @@ module-root = "src"
 pythonpath = ["src", "review-app/src"]
 testpaths = ["tests"]
 python_files = ["*test*.py"]
-addopts = "-q -m 'not gpu'"
+addopts = "-q -m 'not gpu and not packaging'"
 markers = [
     "dbus: runs against a private dbus-daemon session bus (skipped when dbus-daemon is not on PATH)",
     "ffmpeg: runs real ffmpeg on synthetic lavfi sources only (skipped when ffmpeg is not on PATH)",
+    "packaging: builds the wheel with uv --offline (run by make test-packaging, not by make test)",
     "gpu: loads a real model on the GPU with synthetic audio (excluded by default; run with -m gpu)",
 ]
 
@@ -68,6 +71,7 @@ modules = [
     "meeting_scribe.transcription",
     "meeting_scribe.speakers",
     "meeting_scribe.summaries",
+    "meeting_scribe.preferences",
 ]
 
 [[tool.importlinter.contracts]]
@@ -81,6 +85,7 @@ containers = [
     "meeting_scribe.speakers",
     "meeting_scribe.summaries",
     "meeting_scribe.meetings",
+    "meeting_scribe.preferences",
 ]
 
 [[tool.importlinter.contracts]]
@@ -109,6 +114,7 @@ forbidden_modules = [
     "meeting_scribe.speakers",
     "meeting_scribe.summaries",
     "meeting_scribe.meetings",
+    "meeting_scribe.preferences",
 ]
 
 [[tool.importlinter.contracts]]
@@ -121,8 +127,21 @@ source_modules = [
     "meeting_scribe.speakers.domain",
     "meeting_scribe.summaries.domain",
     "meeting_scribe.meetings.domain",
+    "meeting_scribe.preferences.domain",
 ]
 forbidden_modules = ["pydantic_settings", "dbus_fast", "gi"]
+
+[[tool.importlinter.contracts]]
+name = "Preferences application stays free of D-Bus and settings libraries"
+type = "forbidden"
+source_modules = ["meeting_scribe.preferences.application"]
+forbidden_modules = ["dbus_fast", "pydantic_settings", "gi"]
+
+[[tool.importlinter.contracts]]
+name = "Summaries domain and application stay free of HTTP and settings libraries"
+type = "forbidden"
+source_modules = ["meeting_scribe.summaries.domain", "meeting_scribe.summaries.application"]
+forbidden_modules = ["httpx", "httpx2", "openai", "pydantic_settings", "dbus_fast"]
 
 [[tool.importlinter.contracts]]
 name = "Domain packages do not import settings or the composition root"
@@ -134,8 +153,23 @@ source_modules = [
     "meeting_scribe.speakers",
     "meeting_scribe.summaries",
     "meeting_scribe.meetings",
+    "meeting_scribe.preferences",
 ]
 forbidden_modules = ["meeting_scribe.main", "meeting_scribe.settings"]
+
+[[tool.importlinter.contracts]]
+name = "The openai client and httpx2 are imported only by summaries.infrastructure"
+type = "forbidden"
+source_modules = ["meeting_scribe"]
+forbidden_modules = ["openai", "httpx2"]
+ignore_imports = [
+    "meeting_scribe.summaries.infrastructure.openai_provider -> openai",
+    "meeting_scribe.summaries.infrastructure.openai_provider -> httpx2",
+    "meeting_scribe.summaries.infrastructure.ollama_releaser -> httpx2",
+    "meeting_scribe.summaries.infrastructure.ollama_provider -> httpx2",
+    "meeting_scribe.summaries.infrastructure.provider_support -> httpx2",
+    "meeting_scribe.summaries.infrastructure.model_listing -> httpx2",
+]
 
 [[tool.importlinter.contracts]]
 name = "The service never imports ML libraries (only the two backends do, in the worker)"

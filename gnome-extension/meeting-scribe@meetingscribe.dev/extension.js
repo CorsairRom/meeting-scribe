@@ -7,6 +7,7 @@ import {GLibScheduler} from './lib/glibScheduler.js';
 import {IndicatorController} from './lib/indicatorController.js';
 import {MeetingsClient} from './lib/meetingsClient.js';
 import {PanelIndicator} from './lib/panelIndicator.js';
+import {REVIEW_DESKTOP_ENTRY, launchPreferencesAction} from './lib/preferencesLauncher.js';
 import {RecordingClient} from './lib/recordingClient.js';
 
 const BUS_NAME = 'dev.meetingscribe.Service';
@@ -14,7 +15,17 @@ const OBJECT_PATH = '/dev/meetingscribe/Service';
 
 // Installed by `make install` (packaging/applications/); the app resolves "last meeting" itself.
 const launchReview = () =>
-    Gio.DesktopAppInfo.new('dev.meetingscribe.Review.desktop')?.launch([], null) ?? false;
+    Gio.DesktopAppInfo.new(REVIEW_DESKTOP_ENTRY)?.launch([], null) ?? false;
+
+// The same desktop entry's "preferences" action (`Exec=<launcher> --preferences`); the dialog and
+// every setting live in the review app and the service, never here.
+const launchPreferences = () => launchPreferencesAction(id => Gio.DesktopAppInfo.new(id));
+
+// The path is the service's answer (opaque); the Shell hands it to the default handler for
+// Markdown. launch_default_for_uri_async never blocks the Shell and rejects when no app is set.
+Gio._promisify(Gio.AppInfo, 'launch_default_for_uri_async', 'launch_default_for_uri_finish');
+const openSummary = path =>
+    Gio.AppInfo.launch_default_for_uri_async(Gio.File.new_for_path(path).get_uri(), null, null);
 
 export default class MeetingScribeExtension extends Extension {
     enable() {
@@ -24,6 +35,7 @@ export default class MeetingScribeExtension extends Extension {
             name: _('Meeting Scribe'),
             onPrimaryClick: options => this._controller?.onPrimaryClick(options) ?? 'none',
             onMenuAction: id => this._controller?.onMenuAction(id),
+            onMenuOpen: () => this._controller?.onMenuOpened(),
         });
         this._client = new RecordingClient({
             busName: BUS_NAME,
@@ -42,6 +54,8 @@ export default class MeetingScribeExtension extends Extension {
             scheduler: this._scheduler,
             notify: (title, body) => Main.notify(title, body),
             launchReview,
+            launchPreferences,
+            openSummary,
             _,
         });
         Main.panel.addToStatusArea(this.uuid, this._indicator);

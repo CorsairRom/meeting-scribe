@@ -6,6 +6,8 @@ verifiable_by:
   - src/meeting_scribe/base/domain/errors.py
   - src/meeting_scribe/recording/domain/errors.py
   - src/meeting_scribe/meetings/domain/errors.py
+  - src/meeting_scribe/preferences/domain/errors.py
+  - src/meeting_scribe/preferences/domain/fields.py
   - src/meeting_scribe/transcription/domain/errors.py
   - tests/unit/meetings/test_errors.py
   - tests/unit/recording/test_errors.py
@@ -78,6 +80,33 @@ All classes derive from `MeetingScribeError` in `src/meeting_scribe/base/domain/
 | `SpeakerMergeInvalidError` | `SPEAKER_MERGE_INVALID` | `speakers`: self merge, a merged-away source or target, "Me" as the source, or a rename of a merged-away speaker (subclass of `InvalidValueError`) | `dev.meetingscribe.Error.SPEAKER_MERGE_INVALID` |
 | `TranscriptCorruptError` | `TRANSCRIPT_CORRUPT` | `speakers`: `utterances.json` is unreadable or has an invalid shape, or the stored speaker review state is inconsistent (unknown ids, merge chain or cycle); the message never quotes its content; `meetings` maps it to `MEETING_CORRUPT` at the boundary | internal until mapped |
 | `TranscriptStorageError` | `TRANSCRIPT_STORAGE_FAILED` | `speakers`: `transcript.md` could not be written (I/O error); the previous file is kept; `meetings` maps it to `MEETING_STORAGE_FAILED` at the boundary | internal until mapped |
+| `SummaryError` | `SUMMARY_FAILED` | `summaries`: base class of the summary failures below; not raised directly | internal |
+| `SummaryNoSpeechError` | `SUMMARY_NO_SPEECH` | `summaries`: the meeting has no utterances; no provider is called; the message says there is nothing to summarize | `dev.meetingscribe.Error.SUMMARY_NO_SPEECH` |
+| `SummaryProviderUnavailableError` | `SUMMARY_PROVIDER_UNAVAILABLE` | `summaries`: the provider is unreachable (Ollama stopped, no network); the message says to start Ollama or check the network | `dev.meetingscribe.Error.SUMMARY_PROVIDER_UNAVAILABLE` |
+| `SummaryModelNotFoundError` | `SUMMARY_MODEL_NOT_FOUND` | `summaries`: the configured model is not available; the message names `ollama pull <model>` or the setting | `dev.meetingscribe.Error.SUMMARY_MODEL_NOT_FOUND` |
+| `SummaryAuthFailedError` | `SUMMARY_AUTH_FAILED` | `summaries`: the provider answered 401 or 403; the message says to check the key | `dev.meetingscribe.Error.SUMMARY_AUTH_FAILED` |
+| `SummaryRateLimitedError` | `SUMMARY_RATE_LIMITED` | `summaries`: the provider kept answering 429 after the retries; try again later | `dev.meetingscribe.Error.SUMMARY_RATE_LIMITED` |
+| `SummaryProviderRejectedError` | `SUMMARY_PROVIDER_REJECTED` | `summaries`: any other 4xx; the message carries the HTTP status only | `dev.meetingscribe.Error.SUMMARY_PROVIDER_REJECTED` |
+| `SummaryTimeoutError` | `SUMMARY_TIMEOUT` | `summaries`: a step produced no data for `SUMMARIES_TIMEOUT_SECONDS`, or the whole summary exceeded its total bound | `dev.meetingscribe.Error.SUMMARY_TIMEOUT` |
+| `SummaryModelRunFailedError` | `SUMMARY_MODEL_RUN_FAILED` | `summaries`: a reachable Ollama could not run the model (HTTP 500 or an error line in the stream: load failure, out of memory); never retried; the message says to check memory or pick a smaller model | `dev.meetingscribe.Error.SUMMARY_MODEL_RUN_FAILED` |
+| `SummaryContextTooLargeError` | `SUMMARY_CONTEXT_TOO_LARGE` | `summaries`: the prompt reached the context window (truncation guard), the context leaves no room for the transcript, or the notes cannot be merged within the budget; the message says to raise `SUMMARIES_LOCAL_CONTEXT_TOKENS` or pick a smaller model | `dev.meetingscribe.Error.SUMMARY_CONTEXT_TOO_LARGE` |
+| `SummaryOutputLimitReachedError` | `SUMMARY_OUTPUT_LIMIT_REACHED` | `summaries`: the model stopped at the output token limit (`finish_reason` length), so the answer is cut; the message says to raise `SUMMARIES_MAX_OUTPUT_TOKENS` (or `SUMMARIES_NOTES_MAX_OUTPUT_TOKENS` for notes steps) or choose another model | `dev.meetingscribe.Error.SUMMARY_OUTPUT_LIMIT_REACHED` |
+| `SummaryOutputInvalidError` | `SUMMARY_OUTPUT_INVALID` | `summaries`: the model output is empty or does not follow the summary format after one repair request; the message never quotes it | `dev.meetingscribe.Error.SUMMARY_OUTPUT_INVALID` |
+| `SummaryCancelledError` | `SUMMARY_CANCELLED` | `summaries`: cancelled by the user or by a recording start; press Generate again | `dev.meetingscribe.Error.SUMMARY_CANCELLED` |
+| `SummaryCloudKeyMissingError` | `SUMMARY_CLOUD_KEY_MISSING` | `summaries`: the cloud API key is not in the GNOME Keyring, or the Secret Service has no matching item; the message names `secret-tool` and the runbook; never quotes the key | `dev.meetingscribe.Error.SUMMARY_CLOUD_KEY_MISSING` |
+| `SummaryCloudKeyLockedError` | `SUMMARY_CLOUD_KEY_LOCKED` | `summaries`: the keyring holds the key but is locked; unlock it and retry (the service never prompts) | `dev.meetingscribe.Error.SUMMARY_CLOUD_KEY_LOCKED` |
+| `SummaryCloudKeyUnavailableError` | `SUMMARY_CLOUD_KEY_UNAVAILABLE` | `summaries`: the Secret Service could not be reached (no service on the session bus, a D-Bus error or a timeout); distinct from a missing or locked key; the message says the keyring service is not reachable | `dev.meetingscribe.Error.SUMMARY_CLOUD_KEY_UNAVAILABLE` |
+| `SummaryCloudDisabledError` | `SUMMARY_CLOUD_DISABLED` | `meetings`: the cloud provider was requested while the provider setting is not `cloud` (choosing Cloud is the opt-in; the code keeps its name); the message says to choose Cloud in Preferences | `dev.meetingscribe.Error.SUMMARY_CLOUD_DISABLED` |
+| `SummaryModelsUnavailableError` | `SUMMARY_MODELS_UNAVAILABLE` | `summaries`: the model list could not be read (Ollama stopped or unreachable, the provider offline, an unexpected answer, a timeout); the cause is logged by exception type or HTTP status only; returned as the `status` of `Settings1.ListModels`, never as a D-Bus error | not returned by a method |
+| `SettingsStorageFailedError` | `SETTINGS_STORAGE_FAILED` | `preferences`: the settings file could not be written; nothing changed; the message says to check disk space and the config folder permissions | `dev.meetingscribe.Error.SETTINGS_STORAGE_FAILED` |
+| `SettingsRestartBusyError` | `SETTINGS_RESTART_BUSY` | `preferences`: `Settings1.Restart` while a recording, a processing job or a summary is active; the service keeps running | `dev.meetingscribe.Error.SETTINGS_RESTART_BUSY` |
+| `SettingsRestartUnavailableError` | `SETTINGS_RESTART_UNAVAILABLE` | `preferences`: the user systemd manager could not be reached; the message carries the manual command `systemctl --user restart meeting-scribe.service` | `dev.meetingscribe.Error.SETTINGS_RESTART_UNAVAILABLE` |
+| `SettingsFileInvalidError` | `SETTINGS_FILE_INVALID` | `preferences`: the settings file is damaged or has an unknown version; logged at start and surfaced by `GetAll`, never raised to a client; the next successful save moves it to `settings.json.invalid` | not returned by a method |
+| `SummaryCloudNotConfirmedError` | `SUMMARY_CLOUD_NOT_CONFIRMED` | `meetings`: the cloud provider was requested without `cloud_confirmed`; the message says to confirm in the app | `dev.meetingscribe.Error.SUMMARY_CLOUD_NOT_CONFIRMED` |
+| `SummaryAlreadyRunningError` | `SUMMARY_ALREADY_RUNNING` | `meetings`: a summary of this meeting is already running; wait or cancel | `dev.meetingscribe.Error.SUMMARY_ALREADY_RUNNING` |
+| `SummaryBusyError` | `SUMMARY_BUSY` | `meetings`: a summary of another meeting is running (one at a time); wait or cancel | `dev.meetingscribe.Error.SUMMARY_BUSY` |
+| `SummaryGpuBusyError` | `SUMMARY_GPU_BUSY` | `meetings`: a local summary was requested while a recording or processing job holds the GPU; try again when it ends | `dev.meetingscribe.Error.SUMMARY_GPU_BUSY` |
+| `SummaryStorageError` | `SUMMARY_STORAGE_FAILED` | `meetings`: `summary.md` could not be written or rotated; check disk space and permissions; the previous summary is kept | `dev.meetingscribe.Error.SUMMARY_STORAGE_FAILED` |
 | `TranscriptionError` | `TRANSCRIPTION_FAILED` | `transcription`: the model or the `words.json` cache failed for a reason not covered by a more specific code | `dev.meetingscribe.Error.TRANSCRIPTION_FAILED` |
 | `NotificationError` | `NOTIFICATION_FAILED` | `meetings`: the desktop notification could not be delivered (no notification service, bus lost, timeout); logged at WARNING, never changes a job and never reaches a client | not exposed |
 | `WorkerCancelledError` | `WORKER_CANCELLED` | `meetings`: the worker was stopped on request (preemption or shutdown); internal, the job is not failed and it never reaches a client | not exposed |
@@ -86,6 +115,19 @@ All classes derive from `MeetingScribeError` in `src/meeting_scribe/base/domain/
 
 Domain packages add their own subclasses next to their domain code (for example a `recording` error) and
 register them in this table.
+
+### Per-field codes (`Settings1.Set`)
+
+These are rows inside a `Set` reply, not D-Bus errors and not `MeetingScribeError` classes (`FieldCode` in
+`src/meeting_scribe/preferences/domain/fields.py`). Messages carry keys and next steps, never values.
+
+| Code | Meaning |
+|---|---|
+| `FIELD_UNKNOWN` | The key is not an exposed setting |
+| `FIELD_LOCKED` | The environment or `.env` sets the field; remove that override to unlock it |
+| `FIELD_INVALID` | The value failed the settings validators (or the folder is relative, a file, or contains `..`; or a model is not in the available model list, or is not supported yet) |
+| `FIELD_FOLDER_NOT_WRITABLE` | The meetings folder cannot be created or written |
+| `SETTINGS_APPLY_FAILED` | Not an error: the `apply_problem` of every `GetAll` row while the last save was kept but applying a live change raised; cleared by the next successful apply |
 
 ---
 
@@ -139,3 +181,4 @@ is never mutated, so the base code stays stable.
 | `EntityNotFoundError(detail_code="SPEAKER")` | `ENTITY_NOT_FOUND_SPEAKER` | `speakers` | Unknown speaker id in this meeting |
 | `EntityNotFoundError(detail_code="SPEAKER_SAMPLE")` | `ENTITY_NOT_FOUND_SPEAKER_SAMPLE` | `meetings` | The speaker lists no sample, or the file is missing, unreadable or larger than the sample bound (A-4) |
 | `EntityNotFoundError(detail_code="TRANSCRIPT")` | `ENTITY_NOT_FOUND_TRANSCRIPT` | `speakers` | A finished meeting has no `utterances.json` |
+| `EntityNotFoundError(detail_code="SUMMARY")` | `ENTITY_NOT_FOUND_SUMMARY` | `meetings` | The meeting has no `summary.md` (`GetSummary`), or no meeting has one (`LastSummary`) |

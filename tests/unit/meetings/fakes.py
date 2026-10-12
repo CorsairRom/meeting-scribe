@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from pydantic import SecretStr
 from returns.result import Failure, Result, Success
 
 from meeting_scribe.base.domain.errors import EntityNotFoundError, MeetingScribeError
@@ -14,6 +15,7 @@ from meeting_scribe.meetings.domain.errors import (
     MeetingSchemaUnsupportedError,
     MeetingStorageError,
     NotificationError,
+    SummaryStorageError,
     WorkerCancelledError,
 )
 from meeting_scribe.meetings.domain.meeting import (
@@ -33,6 +35,7 @@ from meeting_scribe.meetings.domain.worker import (
     WorkerJob,
 )
 from meeting_scribe.speakers.application.render_transcript import Utterance
+from meeting_scribe.summaries.domain.errors import SummaryError
 
 T0 = datetime(2026, 10, 9, 10, 0, tzinfo=timezone(timedelta(hours=2)))
 ROOT = Path("/meetings")
@@ -274,3 +277,89 @@ class FakeSampleReader:
                 EntityNotFoundError("The sample is not available.", detail_code="SPEAKER_SAMPLE")
             )
         return Success(self.files[relative_path])
+
+
+class FakeSummaryFiles:
+    """In-memory ``SummaryFiles`` with the same one-backup rotation as the real store."""
+
+    def __init__(self, repository: InMemoryMeetingRepository, lock: FakeMeetingLock) -> None:
+        self._repository = repository
+        self._lock = lock
+        self.texts: dict[str, str] = {}
+        self.previous: dict[str, str] = {}
+        self.saves: list[str] = []
+        self.fail_saves = False
+        self.lock_held_on_save: list[bool] = []
+        self.section_when_saved: list[bool] = []
+
+    def save(self, meeting_dir: Path, markdown: str) -> Result[str, SummaryStorageError]:
+        if self.fail_saves:
+            return Failure(SummaryStorageError("disk full"))
+        name = meeting_dir.name
+        self.lock_held_on_save.append(self._lock.held)
+        stored = self._repository.meetings.get(name)
+        self.section_when_saved.append(bool(stored and stored.summary and stored.summary.file))
+        if name in self.texts:
+            self.previous[name] = self.texts[name]
+        self.texts[name] = markdown
+        self.saves.append(name)
+        return Success("summary.md")
+
+    def read(self, meeting_dir: Path) -> Result[str, MeetingScribeError]:
+        if meeting_dir.name not in self.texts:
+            return Failure(EntityNotFoundError("no summary", detail_code="SUMMARY"))
+        return Success(self.texts[meeting_dir.name])
+
+    def exists(self, meeting_dir: Path) -> bool:
+        return meeting_dir.name in self.texts
+
+    def path(self, meeting_dir: Path) -> Path:
+        return meeting_dir / "summary.md"
+
+
+class FakeKeyStore:
+    """A ``CloudKeyStore`` that counts reads; the key is an obvious fake."""
+
+    FAKE_KEY = "fake-key-not-a-secret"
+
+    def __init__(self, failure: SummaryError | None = None) -> None:
+        self.failure = failure
+        self.reads = 0
+
+    def get_key(self) -> Result[SecretStr, SummaryError]:
+        self.reads += 1
+        if self.failure is not None:
+            return Failure(self.failure)
+        return Success(SecretStr(self.FAKE_KEY))
+
+
+class RecordingSummaryEvents:
+    """Records every summary signal in order, with the stored state at the time."""
+
+    def __init__(self) -> None:
+        self.log: list[tuple[str, ...]] = []
+
+    def progress(self, meeting_id: str, step: int, total: int) -> None:
+        self.log.append(("progress", meeting_id, str(step), str(total)))
+
+    def finished(self, meeting_id: str, state: str, error_code: str) -> None:
+        self.log.append(("finished", meeting_id, state, error_code))
+
+    def active_changed(self) -> None:
+        self.log.append(("active",))
+
+    def finishes(self) -> list[tuple[str, ...]]:
+        return [entry for entry in self.log if entry[0] == "finished"]
+
+
+class ManualStarter:
+    """Collects the job instead of starting a thread: tests run it when they want to."""
+
+    def __init__(self) -> None:
+        self.jobs: list[Callable[[], None]] = []
+
+    def __call__(self, job: Callable[[], None]) -> None:
+        self.jobs.append(job)
+
+    def run_next(self) -> None:
+        self.jobs.pop(0)()

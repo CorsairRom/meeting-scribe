@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from returns.result import Failure, Result, Success
 
 from meeting_scribe.base.domain.errors import MeetingScribeError
+from meeting_scribe.meetings.application.gpu_lease import InMemoryGpuLease
 from meeting_scribe.meetings.application.processing_controller import (
     ProcessingConfig,
     ProcessingController,
@@ -84,6 +85,7 @@ class Fixture:
             storage_retry_delays_seconds=(2.0, 8.0, 30.0),
         )
         self.monotonic = FakeMonotonic()
+        self.lease = InMemoryGpuLease()
         self.controller = ProcessingController(
             repository=self.repository,
             runner=self.runner,
@@ -93,6 +95,7 @@ class Fixture:
             config=self.config,
             events=self.events,
             monotonic=self.monotonic,
+            lease=self.lease,
         )
 
     def seed(self, meeting_id: str, minutes: int, state: str) -> Meeting:

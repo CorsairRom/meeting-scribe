@@ -10,6 +10,11 @@ class AvailabilityFilter:
     def __init__(self) -> None:
         self._known: bool | None = None
 
+    @property
+    def known(self) -> bool | None:
+        """The last availability seen, or ``None`` before the first report."""
+        return self._known
+
     def changed(self, *, available: bool) -> bool | None:
         """The availability to announce, or ``None`` when nothing changed."""
         previous, self._known = self._known, available

@@ -8,7 +8,18 @@ from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from meeting_scribe_review.core.errors import ServiceError
-from meeting_scribe_review.core.models import MeetingSummary, Speaker, Utterance
+from meeting_scribe_review.core.models import (
+    KeyStatus,
+    MeetingSummary,
+    ModelList,
+    ProviderRow,
+    SetOutcome,
+    SettingsField,
+    Speaker,
+    SummaryDocument,
+    SummaryInfo,
+    Utterance,
+)
 from meeting_scribe_review.core.result import Result
 
 type Callback[T] = Callable[[Result[T, ServiceError]], None]
@@ -53,6 +64,80 @@ class MeetingsGateway(Protocol):
     ) -> None: ...
 
     def watch(self, listener: GatewayListener) -> None: ...
+
+
+class SummaryListener(Protocol):
+    """What ``Summaries1`` announces while a summary runs and when it ends."""
+
+    def on_summary_progress(self, meeting_id: str, step: int, total_steps: int) -> None: ...
+
+    def on_summary_finished(self, meeting_id: str, state: str, error_code: str) -> None: ...
+
+
+@runtime_checkable
+class SummariesGateway(Protocol):
+    """The ``Summaries1`` calls the app makes. Never exposes a path, a URL or a key (ADR-005)."""
+
+    def providers(self, done: Callback[list[ProviderRow]]) -> None: ...
+
+    def summarize(
+        self,
+        meeting_id: str,
+        provider_id: str,
+        done: Callback[str],
+        *,
+        cloud_confirmed: bool,
+    ) -> None: ...
+
+    def cancel_summary(self, meeting_id: str, done: Callback[bool]) -> None: ...
+
+    def get_summary_status(self, meeting_id: str, done: Callback[SummaryInfo]) -> None: ...
+
+    def get_summary(self, meeting_id: str, done: Callback[SummaryDocument]) -> None: ...
+
+    def watch_summaries(self, listener: SummaryListener) -> None: ...
+
+
+class SettingsListener(Protocol):
+    """What ``Settings1`` announces, plus the availability of the service's bus name."""
+
+    def on_service_available(self, available: bool) -> None: ...
+
+    def on_settings_changed(self, keys: tuple[str, ...]) -> None: ...
+
+
+@runtime_checkable
+class SettingsGateway(Protocol):
+    """The ``Settings1`` calls the app makes. The API key is not a setting and never passes here."""
+
+    def get_all(self, done: Callback[list[SettingsField]]) -> None: ...
+
+    def set_values(self, values: dict[str, str], done: Callback[SetOutcome]) -> None: ...
+
+    def restart_required(self, done: Callback[tuple[str, ...]]) -> None: ...
+
+    def restart(self, done: Callback[str]) -> None: ...
+
+    def list_models(self, scope: str, done: Callback[ModelList]) -> None:
+        """The models a scope (``local`` or ``cloud``) offers; the key stays with the service."""
+        ...
+
+    def watch_settings(self, listener: SettingsListener) -> None: ...
+
+    def unwatch_settings(self, listener: SettingsListener) -> None: ...
+
+
+@runtime_checkable
+class ApiKeyStore(Protocol):
+    """Stores the cloud API key in the GNOME Keyring (BR-005). The key never crosses the service."""
+
+    def store(self, secret: str, done: Callback[None]) -> None: ...
+
+    def is_stored(self, done: Callback[KeyStatus]) -> None:
+        """Whether the item exists, found without reading the secret (it never reveals the key)."""
+        ...
+
+    def remove(self, done: Callback[None]) -> None: ...
 
 
 class PlayerListener(Protocol):

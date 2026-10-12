@@ -76,7 +76,7 @@ GPU (8 GB). No accounts, no multi-user, no remote access.
 | FR-3 | On stop, enqueue a job that transcribes (word timestamps) and diarizes, one GPU job at a time | F3 |
 | FR-4 | Extract a voice sample per speaker; send a desktop notification on completion | F3 |
 | FR-5 | Review app (GTK4, opened from the extension menu): listen per speaker, rename, merge speakers, view transcript | F4 |
-| FR-6 | Summary through a `SummaryProvider` (Ollama local default, DeepSeek cloud opt-in), export `.md` | F5 |
+| FR-6 | Summary through a `SummaryProvider` (Ollama local default, OpenCode Go cloud opt-in), export `.md` | F5 |
 | FR-7 | Installable as a `systemd --user` service plus GNOME extension | F2.5 (runbook in F6) |
 
 ### 5.2 Non-functional
@@ -122,7 +122,7 @@ These come from the project history: a test once played speech into the user's h
 ## 9. Open questions
 
 1. Diarization of the system channel only (ADR-002): is per-turn energy dominance enough to decide "Me" with loudspeakers? Answered: the algorithm is specified in [`processing.md`](docs/specs/processing.md) section 2.4 and validated against a real recording at the end of F3.
-2. Summary language: follow the meeting language detected by Whisper, or a setting?
+2. Summary language: follow the meeting language detected by Whisper, or a setting? Answered: it is auto-detected (`SUMMARIES_LANGUAGE=auto|ISO`, `auto` by default) and the headings follow the meeting language; see [`summaries.md`](docs/specs/summaries.md) and [`summaries` runbook](docs/runbooks/summaries.md).
 3. Retention: should old meetings' raw audio be prunable after a summary exists?
 4. Should the review app also be launchable standalone (desktop entry), not only from the extension menu (ADR-005)?
-5. Which Ollama model is the default (size versus GPU memory while Whisper is released)?
+5. Which Ollama model is the default (size versus GPU memory while Whisper is released)? Answered: `qwen3:4b-instruct-2507-q4_K_M` at a 16384-token context, chosen after measuring on an 8 GB GPU; see [`summaries.md`](docs/specs/summaries.md) (OQ-6) and the [runbook](docs/runbooks/summaries.md).

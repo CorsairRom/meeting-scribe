@@ -16,6 +16,7 @@ from meeting_scribe.meetings.domain.errors import (
     MeetingSchemaUnsupportedError,
     MeetingStorageError,
     NotificationError,
+    SummaryStorageError,
 )
 from meeting_scribe.meetings.domain.meeting import Meeting
 from meeting_scribe.meetings.domain.notification import Notification
@@ -50,6 +51,52 @@ class MeetingLock(Protocol):
 
     def hold(self) -> AbstractContextManager[object]:
         """Block until the lock is free; held for the ``with`` block, re-entrant per thread."""
+        ...
+
+
+type GpuHolder = Literal["recording", "processing", "summary"]
+
+
+class GpuLease(Protocol):
+    """Who may use the single GPU (ADR-003, ADR-007). Thread-safe; never blocks.
+
+    A ``recording`` is always granted and revokes every other holder (their ``on_revoke`` is
+    called); a ``processing`` worker or a local ``summary`` is granted only when nobody holds it.
+    """
+
+    def available(self, holder: GpuHolder) -> bool:
+        """Whether ``acquire`` would succeed now (the answer can change at once)."""
+        ...
+
+    def acquire(self, holder: GpuHolder, on_revoke: Callable[[], None] | None = None) -> bool:
+        """Take the lease; ``on_revoke`` runs, once, if a recording starts while it is held."""
+        ...
+
+    def release(self, holder: GpuHolder) -> None:
+        """Give it back; a holder that does not hold it is ignored."""
+        ...
+
+
+class SummaryFiles(Protocol):
+    """``summary.md`` inside a meeting folder; the controller never builds a path itself."""
+
+    def save(self, meeting_dir: Path, markdown: str) -> Result[str, SummaryStorageError]:
+        """Replace ``summary.md`` atomically, keeping the old one as the single backup.
+
+        The file name. A failure leaves the current ``summary.md`` as it was.
+        """
+        ...
+
+    def exists(self, meeting_dir: Path) -> bool:
+        """Whether ``summary.md`` is there (the user may have deleted it)."""
+        ...
+
+    def path(self, meeting_dir: Path) -> Path:
+        """The absolute location of ``summary.md`` (for clients that open it; no name from JSON)."""
+        ...
+
+    def read(self, meeting_dir: Path) -> Result[str, MeetingScribeError]:
+        """The text; ``ENTITY_NOT_FOUND_SUMMARY`` when there is no file. No path in an error."""
         ...
 
 
@@ -149,6 +196,36 @@ class NullProcessingEvents:
         return None
 
     def status_changed(self) -> None:
+        return None
+
+
+type SummaryOutcome = Literal["DONE", "FAILED", "CANCELLED"]
+
+
+class SummaryEvents(Protocol):
+    """Observer of the summary job (the ``Summaries1`` signals are wired on it later)."""
+
+    def progress(self, meeting_id: str, step: int, total: int) -> None:
+        """A step finished; the observer throttles."""
+        ...
+
+    def finished(self, meeting_id: str, state: SummaryOutcome, error_code: str) -> None:
+        """The job ended and its result is saved (``error_code`` empty on ``DONE``)."""
+        ...
+
+    def active_changed(self) -> None:
+        """The active meeting changed; read ``active_meeting_id``."""
+        ...
+
+
+class NullSummaryEvents:
+    def progress(self, meeting_id: str, step: int, total: int) -> None:  # noqa: ARG002
+        return None
+
+    def finished(self, meeting_id: str, state: SummaryOutcome, error_code: str) -> None:  # noqa: ARG002
+        return None
+
+    def active_changed(self) -> None:
         return None
 
 

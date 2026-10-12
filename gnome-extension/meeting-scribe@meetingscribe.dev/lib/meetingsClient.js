@@ -21,11 +21,29 @@ export const INTERFACE_XML = `<node>
   </interface>
 </node>`;
 
+// Summaries1 lives on the same object. LastSummary feeds the "Open last summary" menu item.
+export const SUMMARIES_XML = `<node>
+  <interface name="dev.meetingscribe.Summaries1">
+    <method name="LastSummary">
+      <arg type="a{sv}" direction="out" name="summary"/>
+    </method>
+    <signal name="SummaryFinished">
+      <arg type="s" name="meeting_id"/>
+      <arg type="s" name="state"/>
+      <arg type="s" name="error_code"/>
+    </signal>
+  </interface>
+</node>`;
+
 const UNKNOWN_SERVICE = 'org.freedesktop.DBus.Error.ServiceUnknown';
 // Reprocess only queues the job and answers at once; 10 s is generous and below the 25 s default.
 export const DEFAULT_CALL_TIMEOUT_MS = 10_000;
 
 const MeetingsProxy = Gio.DBusProxy.makeProxyWrapper(INTERFACE_XML);
+const SummariesProxy = Gio.DBusProxy.makeProxyWrapper(SUMMARIES_XML);
+
+// a{sv} values arrive as GLib.Variant; plain values (a test double) pass through.
+const plain = value => typeof value?.deepUnpack === 'function' ? value.deepUnpack() : value;
 
 /**
  * Thin client for dev.meetingscribe.Meetings1: watches the service name (never starting it),
@@ -43,10 +61,12 @@ export class MeetingsClient {
      * @param {number} [options.callTimeoutMs] - timeout of every D-Bus call, in milliseconds
      * @param {Function} [options.logError] - receives a message when the proxy cannot be built
      * @param {Function} [options.createProxy] - proxy factory (test seam), same shape as `new MeetingsProxy`
+     * @param {Function} [options.createSummariesProxy] - same, for Summaries1
      */
     constructor({connection = Gio.DBus.session, busName, objectPath, onChange,
         callTimeoutMs = DEFAULT_CALL_TIMEOUT_MS, logError = message => console.error(message),
-        createProxy = (...args) => new MeetingsProxy(...args)}) {
+        createProxy = (...args) => new MeetingsProxy(...args),
+        createSummariesProxy = (...args) => new SummariesProxy(...args)}) {
         this._connection = connection;
         this._busName = busName;
         this._objectPath = objectPath;
@@ -54,6 +74,7 @@ export class MeetingsClient {
         this._callTimeoutMs = callTimeoutMs;
         this._logError = logError;
         this._createProxy = createProxy;
+        this._createSummariesProxy = createSummariesProxy;
 
         this._destroyed = false;
         this._watchId = 0;
@@ -62,6 +83,10 @@ export class MeetingsClient {
         this._cancellable = null;
         this._generation = 0; // bumped on every appear/vanish to drop stale async results
         this._busy = false;
+        this._summariesProxy = null;
+        this._summariesHandler = 0;
+        this._summaryRequest = 0; // bumped per LastSummary call so only the newest answer counts
+        this._lastSummary = null; // {startedAt, path}; the path is opaque and never built here
 
         this._available = false;
         this._activeMeetingId = '';
@@ -78,6 +103,7 @@ export class MeetingsClient {
             activeState: this._activeState,
             queuedCount: this._queuedCount,
             last: this._last,
+            lastSummary: this._lastSummary,
         };
     }
 
@@ -117,6 +143,34 @@ export class MeetingsClient {
         }
     }
 
+    /**
+     * Ask for the newest summary and update the snapshot; an unknown summary, an older service
+     * or any failure simply clears it. Never rejects.
+     */
+    async refreshLastSummary() {
+        const proxy = this._summariesProxy;
+        if (this._destroyed || !proxy)
+            return;
+        const request = ++this._summaryRequest;
+        let next = null;
+        try {
+            const [reply] = await proxy.LastSummaryAsync();
+            const startedAt = plain(reply.started_at);
+            const path = plain(reply.path);
+            // Only an absolute path is passed on; the extension never composes one.
+            if (typeof startedAt === 'string' && typeof path === 'string' && path.startsWith('/'))
+                next = {startedAt, path};
+        } catch (_e) {
+            next = null; // ENTITY_NOT_FOUND_SUMMARY, UnknownMethod or a timeout: hide the item
+        }
+        if (this._destroyed || request !== this._summaryRequest || proxy !== this._summariesProxy)
+            return;
+        if (JSON.stringify(next) === JSON.stringify(this._lastSummary))
+            return;
+        this._lastSummary = next;
+        this._notify();
+    }
+
     /** Unwatch the name, disconnect every handler and drop the proxy. Idempotent. */
     destroy() {
         if (this._destroyed)
@@ -139,6 +193,7 @@ export class MeetingsClient {
             return;
         this._dropProxy();
         this._last = null; // a (re)started service has no result to show yet
+        this._lastSummary = null;
         const generation = ++this._generation;
         const cancellable = new Gio.Cancellable();
         this._cancellable = cancellable;
@@ -170,6 +225,22 @@ export class MeetingsClient {
         this._queuedCount = proxy.QueuedCount ?? 0;
         this._available = true;
         this._notify();
+        this._adoptSummaries(this._generation);
+    }
+
+    // The second interface is optional: an older service lacks it and the item stays hidden.
+    _adoptSummaries(generation) {
+        this._createSummariesProxy(this._connection, this._busName, this._objectPath,
+            (proxy, error) => {
+                if (this._destroyed || generation !== this._generation || error)
+                    return;
+                // Same bound as every other call: a stuck service must not hang a refresh.
+                proxy.set_default_timeout(this._callTimeoutMs);
+                this._summariesProxy = proxy;
+                this._summariesHandler = proxy.connectSignal('SummaryFinished',
+                    () => this.refreshLastSummary());
+                this.refreshLastSummary();
+            }, this._cancellable, Gio.DBusProxyFlags.DO_NOT_AUTO_START);
     }
 
     _onProperties(changed) {
@@ -204,6 +275,7 @@ export class MeetingsClient {
         this._activeState = 'IDLE';
         this._queuedCount = 0;
         this._last = null;
+        this._lastSummary = null;
         if (wasAvailable)
             this._notify();
     }
@@ -211,6 +283,11 @@ export class MeetingsClient {
     _dropProxy() {
         this._cancellable?.cancel();
         this._cancellable = null;
+        this._summaryRequest++;
+        const summaries = this._summariesProxy;
+        this._summariesProxy = null;
+        if (summaries)
+            summaries.disconnectSignal(this._summariesHandler);
         const proxy = this._proxy;
         this._proxy = null;
         const handlers = this._proxyHandlers;

@@ -1,10 +1,10 @@
 ---
 type: backlog
 status: living
-last_updated: 2026-10-09
+last_updated: 2026-10-12
 ai_instructions:
   - "This tracks pending and completed work. The per-task checklist lives in odd/tasks/meeting-scribe.md."
-  - "Before implementing, check that the matching ADR is 'active' (not 'proposed'). ADRs 001-007 are active."
+  - "Before implementing, check that the matching ADR is 'active' (not 'proposed'). ADRs 001-009 are active."
   - "When you complete a task: mark it done, add the date, and update mvp-scope.md if it applies."
   - "When you add tasks for an epic: follow the existing format and reference the ADR."
 ---
@@ -17,14 +17,6 @@ Fine-grained task tracking lives in [`odd/tasks/meeting-scribe.md`](../../odd/ta
 ---
 
 ## To do
-
-### [EPIC] F5 Summaries — ADR-006
-
-- [ ] `summaries` domain: `SummaryProvider` port
-- [ ] OpenAI-compatible adapter (Ollama default, DeepSeek opt-in)
-- [ ] Cloud opt-in setting, "cloud" label, per-request confirmation
-- [ ] Export `.md` in the reference structure
-- [ ] Extension menu action that opens the last meeting's summary (decided 2026-10-09: the menu opens the summary, not the transcript, so it waits for F5); show the meeting date and time in a readable form instead of the folder id
 
 ### [EPIC] Later improvements (not scheduled)
 
@@ -42,19 +34,35 @@ Raised after the first real recording (2026-10-09); recorded so nothing is lost,
 ### [EPIC] F6 Hardening
 
 - [ ] Runbook: install, update, troubleshoot
+- [ ] Inputs from the owner's decisions of 2026-10-12 (to be discussed before F6 starts):
+  - No cloud-only install mode: transcription and diarization need the local NVIDIA GPU, so the cloud only replaces the summary step
+  - System prerequisites are listed in the main README
+  - The installer checks the prerequisites first and, when one is missing, stops without changing anything and prints the dependency list so the user installs them and runs it again
+  - Open topics: the sudo policy, the Ollama install path, and distribution through extensions.gnome.org versus an RPM/COPR package
 
 ---
 
 ## In progress
 
-### [EPIC] F4 Review app — ADR-005
+### [EPIC] F5 Summaries — ADR-006
 
-- [x] GTK4 + libadwaita app on system python, thin D-Bus client; presenters in pure Python (no `gi`) tested with pytest (validated by the owner on 2026-10-11)
-- [x] Audio sample playback with `Gtk.MediaFile` (validated by the owner on 2026-10-11)
-- [x] Rename and merge speakers (validated by the owner on 2026-10-11)
-- [x] Launch from the extension menu "Review last meeting" (validated by the owner on 2026-10-11)
+- [x] `summaries` domain: `SummaryProvider` port
+- [x] Provider adapters: native Ollama (`OllamaChatProvider`) for local runs, OpenAI-compatible (`OpenAiCompatibleProvider`) for OpenCode Go
+- [x] Cloud opt-in (`provider=cloud` chosen in Preferences), "cloud" label, per-request confirmation; the API key lives in the GNOME Keyring (ADR-009)
+- [x] Export `.md` in the reference structure (`summary.md`)
+- [x] Extension menu action "Open last summary" (date and time in a readable form)
+- [x] `dev.meetingscribe.Summaries1` (generate, status, providers, signals)
+- [x] `dev.meetingscribe.Settings1` and the Preferences window, with a menu item that opens it (`--preferences`) ([spec](../specs/preferences.md))
+- [x] Model pickers in Preferences (local and cloud lists through `ListModels`)
+- [ ] F5.9 validation and docs gate; the phase closes when the owner merges the integration PR
 
-The epic stays in progress until the owner merges the tracker.
+### [EPIC] Follow-ups (post-F5)
+
+- [ ] Summary quality: duplicate task rows, generic team owners instead of names, topics lost in the reduce step
+- [ ] The model list cache is not invalidated when the provider or the key changes
+- [ ] Listing threads are abandoned (a listing that times out keeps its thread)
+- [ ] The restart wait state survives closing the Preferences dialog
+- [ ] A stale `api_key` success arrives after a newer attempt already failed and is shown as current
 
 ---
 
@@ -69,5 +77,6 @@ The epic stays in progress until the owner merges the tracker.
 | 2026-10-09 | F0.3-F0.6 Docs, ADRs 001-006 and the F0 review approved | F0 |
 | 2026-10-09 | F1 Recording: `recording` domain, ffmpeg capture adapter, D-Bus `Recording1`, e2e on a private bus, systemd unit and activation file, runbook | PRs #16-#21 |
 | 2026-10-09 | F2 GNOME extension: panel indicator, D-Bus client, controller, packaging, runbook | PRs #33-#48 |
+| 2026-10-11 | F4 Review app: GTK4 + libadwaita app from the menu (listen per speaker, rename, merge, unmerge, transcript), Meetings1 review members, non-destructive review in meeting.json, install with the service | tracker #82 (PRs #81-#97) |
 | 2026-10-09 | F3 Processing: queued transcription and diarization after Stop, "Me" label, voice samples, D-Bus `Meetings1`, menu processing state, ML install with model prefetch, real GPU validation | tracker #52 (PRs #50-#80) |
 | 2026-10-09 | F2.5 `make install` / `make uninstall`: versioned uv tool, systemd user unit, D-Bus activation, extension enabled, idempotent, no restart while recording | F2.5 |

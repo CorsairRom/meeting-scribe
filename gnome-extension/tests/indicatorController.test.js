@@ -250,8 +250,12 @@ function withMeetings(processing = idleProcessing, {reprocessResult = 'QUEUED'} 
     return f;
 }
 
-const lastTexts = f => f.rendered.at(-1).menuItems.filter(i => i.kind !== 'separator')
-    .map(i => i.text);
+// The Preferences item ends the menu; these tests are about the lines above it.
+const lastTexts = f => {
+    const items = f.rendered.at(-1).menuItems;
+    const kept = items.at(-1)?.action === 'preferences' ? items.slice(0, -2) : items;
+    return kept.filter(i => i.kind !== 'separator').map(i => i.text);
+};
 
 test('controller renders the processing line when the pipeline changes', () => {
     const f = withMeetings();
@@ -381,4 +385,117 @@ test('the review action never calls the recording client, whatever the state', a
     const f = withLauncher(() => true, snap({state: 'RECORDING'}));
     await f.controller.onMenuAction('review');
     assertDeepEqual(f.client.calls, []);
+});
+
+// -- Open last summary (F5.7, AC-19) -----------------------------------------------------------
+
+const SUMMARY_PATH = '/private/place/m1/summary.md';
+const withSummaryLauncher = (openSummary, lastSummary = {startedAt: '2026-10-09T14:30:00+00:00',
+    path: SUMMARY_PATH}) => {
+    const f = withMeetings({...idleProcessing, lastSummary});
+    f.meetings.refreshes = 0;
+    f.meetings.refreshLastSummary = () => {
+        f.meetings.refreshes++;
+    };
+    f.opens = [];
+    f.controller = new IndicatorController({
+        client: f.client, meetings: f.meetings, view: f.view, scheduler: f.scheduler,
+        notify: (title, body) => f.notes.push([title, body]), _: s => s,
+        openSummary: (...args) => {
+            f.opens.push(args);
+            return openSummary();
+        },
+    });
+    return f;
+};
+
+test('the summary action opens the path the client holds, once, and only that', async () => {
+    const f = withSummaryLauncher(() => true);
+    await f.controller.onMenuAction('summary');
+    assertDeepEqual(f.opens, [[SUMMARY_PATH]]);
+    assertDeepEqual(f.notes, []);
+    assertDeepEqual(f.client.calls, []);
+});
+
+test('a summary that cannot be opened shows one fixed notification, never the error', async () => {
+    for (const fail of [() => false, () => {
+        throw new Error('/secret/path');
+    }, () => Promise.reject(new Error('/secret/path'))]) {
+        const f = withSummaryLauncher(fail);
+        await f.controller.onMenuAction('summary');
+        assertEqual(f.notes.length, 1);
+        assertEqual(f.notes[0][0], 'Meeting Scribe');
+        assertEqual(f.notes[0][1].includes('/secret'), false);
+        assertEqual(f.notes[0][1].includes(SUMMARY_PATH), false);
+    }
+});
+
+test('the summary action does nothing without a summary, a launcher, or after destroy', async () => {
+    const none = withSummaryLauncher(() => true, null);
+    await none.controller.onMenuAction('summary');
+    assertDeepEqual(none.opens, []);
+    assertDeepEqual(none.notes, []);
+    const plain = withMeetings({...idleProcessing, lastSummary: {startedAt: 'x', path: SUMMARY_PATH}});
+    await plain.controller.onMenuAction('summary');
+    assertDeepEqual(plain.notes, []);
+    const gone = withSummaryLauncher(() => true);
+    gone.controller.destroy();
+    await gone.controller.onMenuAction('summary');
+    assertDeepEqual(gone.opens, []);
+});
+
+test('opening the menu asks the client to refresh the last summary', () => {
+    const f = withSummaryLauncher(() => true);
+    f.controller.onMenuOpened();
+    assertEqual(f.meetings.refreshes, 1);
+    f.controller.destroy();
+    f.controller.onMenuOpened();
+    assertEqual(f.meetings.refreshes, 1);
+    withMeetings().controller.onMenuOpened(); // a client without the method: no error
+});
+
+// -- Preferences... (F5.10, AC-12) --------------------------------------------------------------
+
+function withPreferencesLauncher(launchPreferences, snapshot = snap()) {
+    const f = fixture(snapshot);
+    const launches = [];
+    const controller = new IndicatorController({
+        client: f.client, view: f.view, scheduler: f.scheduler,
+        notify: (title, body) => f.notes.push([title, body]), _: s => s,
+        launchPreferences: (...args) => {
+            launches.push(args);
+            return launchPreferences();
+        },
+    });
+    return {...f, controller, launches};
+}
+
+test('the preferences action launches the app once, with no argument and never touches the client', async () => {
+    const f = withPreferencesLauncher(() => true, snap({state: 'RECORDING'}));
+    await f.controller.onMenuAction('preferences');
+    assertDeepEqual(f.launches, [[]]);
+    assertDeepEqual(f.notes, []);
+    assertDeepEqual(f.client.calls, []);
+});
+
+test('a preferences launch that reports false or throws shows one fixed notification', async () => {
+    for (const launch of [() => false, () => {
+        throw new Error('GDBus.Error: private text');
+    }, () => Promise.reject(new Error('private text'))]) {
+        const f = withPreferencesLauncher(launch);
+        await f.controller.onMenuAction('preferences');
+        assertEqual(f.notes.length, 1);
+        assertEqual(f.notes[0][1].includes('make install'), true);
+        assertEqual(f.notes[0][1].includes('private text'), false);
+    }
+});
+
+test('the preferences action does nothing after destroy or without a launcher', async () => {
+    const f = withPreferencesLauncher(() => true);
+    f.controller.destroy();
+    await f.controller.onMenuAction('preferences');
+    assertDeepEqual(f.launches, []);
+    const plain = fixture();
+    await plain.controller.onMenuAction('preferences');
+    assertDeepEqual(plain.notes, []);
 });
