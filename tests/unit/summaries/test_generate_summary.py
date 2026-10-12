@@ -421,3 +421,57 @@ def test_the_default_catalog_is_english() -> None:
     summary = _use_case(FakeProvider()).run(request(language="es"), FakeCancel()).unwrap()
 
     assert "## Topics" in summary.text.markdown
+
+
+def _two_hour_request() -> SummaryRequest:
+    """About 10k estimated tokens of synthetic speech, planned against the local defaults."""
+    lines = tuple(
+        line(
+            "Person A" if n % 2 else "Person B", float(n * 10), f"synthetic utterance {n:04d}. " * 6
+        )
+        for n in range(180)
+    )
+    return request(
+        lines=lines, context_tokens=16384, max_output_tokens=3072, notes_output_tokens=768
+    )
+
+
+def test_a_two_hour_meeting_is_one_pass_at_the_local_defaults() -> None:
+    req = _two_hour_request()
+    transcript = "\n".join(format_line(item) for item in req.lines)
+    provider = FakeProvider()
+
+    result = _use_case(provider).run(req, FakeCancel())
+
+    assert 9_000 < estimate_tokens(transcript) < 11_000
+    assert result.unwrap().chunks == 1
+    assert len(provider.requests) == 1
+
+
+def test_the_usable_input_reserves_the_larger_output_budget() -> None:
+    assert request(context_tokens=16384, max_output_tokens=3072).usable_input_tokens == 12712
+    notes_bigger = request(context_tokens=4000, max_output_tokens=300, notes_output_tokens=900)
+    assert notes_bigger.usable_input_tokens == 4000 - 900 - 600
+
+
+def test_notes_steps_get_the_small_budget_and_the_final_summary_the_large_one() -> None:
+    provider = FakeProvider()
+    req = _long_request()
+    req = req.model_copy(
+        update={"limits": req.limits.model_copy(update={"notes_output_tokens": 77})}
+    )
+
+    result = _use_case(provider).run(req, FakeCancel())
+
+    assert result.unwrap().chunks > 1
+    budgets = [lim.max_output_tokens for lim in provider.limits]
+    assert budgets[-1] == MAX_OUTPUT
+    assert set(budgets[:-1]) == {77}
+
+
+def test_without_a_notes_budget_every_step_uses_the_output_limit() -> None:
+    provider = FakeProvider()
+
+    _use_case(provider).run(_long_request(), FakeCancel())
+
+    assert {lim.max_output_tokens for lim in provider.limits} == {MAX_OUTPUT}

@@ -24,6 +24,7 @@ _VARS = (
     "SUMMARIES_CLOUD_CONTEXT_TOKENS",
     "SUMMARIES_LANGUAGE",
     "SUMMARIES_MAX_OUTPUT_TOKENS",
+    "SUMMARIES_NOTES_MAX_OUTPUT_TOKENS",
     "SUMMARIES_TEMPERATURE",
     "SUMMARIES_TIMEOUT_SECONDS",
     "SUMMARIES_TOTAL_TIMEOUT_SECONDS",
@@ -45,15 +46,16 @@ def test_defaults_follow_the_spec() -> None:
 
     assert settings.provider == "local"
     assert settings.local_base_url == "http://127.0.0.1:11434/v1"
-    assert settings.local_model == "qwen3.5:9b"
-    assert settings.local_context_tokens == 4096
+    assert settings.local_model == "qwen3:4b-instruct-2507-q4_K_M"
+    assert settings.local_context_tokens == 16384
     assert settings.unload_local_model is True
     assert settings.cloud_provider_name == "OpenCode Go"
     assert settings.cloud_base_url == "https://opencode.ai/zen/go/v1"
     assert settings.cloud_model == "deepseek-v4-pro"
     assert settings.cloud_context_tokens == 100000
     assert settings.language == "auto"
-    assert settings.max_output_tokens == 2048
+    assert settings.max_output_tokens == 3072
+    assert settings.notes_max_output_tokens == 768
     assert settings.temperature == 0.2
     assert settings.timeout_seconds == 300
     assert settings.total_timeout_seconds == 3600
@@ -132,6 +134,7 @@ def test_the_api_key_is_not_a_setting(monkeypatch: pytest.MonkeyPatch) -> None:
         ("SUMMARIES_LANGUAGE", "Spanish"),
         ("SUMMARIES_LANGUAGE", "../es"),
         ("SUMMARIES_MAX_OUTPUT_TOKENS", "255"),
+        ("SUMMARIES_NOTES_MAX_OUTPUT_TOKENS", "127"),
         ("SUMMARIES_LOCAL_CONTEXT_TOKENS", "0"),
         ("SUMMARIES_TEMPERATURE", "1.5"),
         ("SUMMARIES_TEMPERATURE", "-0.1"),
@@ -154,18 +157,29 @@ def test_a_context_that_cannot_hold_the_output_and_the_margin_fails() -> None:
         SummariesSettings(local_context_tokens=2048, max_output_tokens=2048)
 
 
+def test_a_context_that_cannot_hold_the_notes_output_and_the_margin_fails() -> None:
+    with pytest.raises(ValidationError, match="SUMMARIES_LOCAL_CONTEXT_TOKENS"):
+        SummariesSettings(
+            local_context_tokens=2048, max_output_tokens=256, notes_max_output_tokens=2000
+        )
+
+
 def test_labels_and_limits_come_from_the_settings() -> None:
     settings = SummariesSettings(cloud_model="glm-test")
 
-    assert settings.local_label == "Local (qwen3.5:9b)"
+    assert settings.local_label == "Local (qwen3:4b-instruct-2507-q4_K_M)"
     assert settings.cloud_label == "cloud: OpenCode Go, glm-test"
     assert "cloud" in settings.cloud_label
     local = settings.limits_for(cloud=False)
-    assert (local.model, local.context_tokens) == ("qwen3.5:9b", 4096)
+    assert (local.model, local.context_tokens) == (
+        "qwen3:4b-instruct-2507-q4_K_M",
+        16384,
+    )
+    assert (local.max_output_tokens, local.notes_output_tokens) == (3072, 768)
     cloud = settings.limits_for(cloud=True)
     assert (cloud.model, cloud.context_tokens) == ("glm-test", 100000)
     assert cloud.temperature == 0.2
-    assert cloud.max_output_tokens == 2048
+    assert cloud.max_output_tokens == 3072
 
 
 def test_the_loopback_error_names_the_variable_and_the_accepted_hosts() -> None:

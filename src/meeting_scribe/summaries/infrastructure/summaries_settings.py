@@ -44,8 +44,10 @@ class SummariesSettings(MeetingScribeSettings):
 
     provider: Literal["local", "cloud"] = "local"
     local_base_url: str = "http://127.0.0.1:11434/v1"
-    local_model: str = Field(default="qwen3.5:9b", min_length=1, max_length=MAX_MODEL_NAME)
-    local_context_tokens: int = Field(default=4096, gt=0)
+    local_model: str = Field(
+        default="qwen3:4b-instruct-2507-q4_K_M", min_length=1, max_length=MAX_MODEL_NAME
+    )
+    local_context_tokens: int = Field(default=16384, gt=0)
     unload_local_model: bool = True
     cloud_provider: Literal["opencode-go"] = DEFAULT_CLOUD_PROVIDER
     cloud_provider_name: str = Field(default=_DEFAULT_CLOUD.name, min_length=1)
@@ -53,7 +55,8 @@ class SummariesSettings(MeetingScribeSettings):
     cloud_model: str = Field(default="deepseek-v4-pro", min_length=1, max_length=MAX_MODEL_NAME)
     cloud_context_tokens: int = Field(default=100000, gt=0)
     language: str = "auto"
-    max_output_tokens: int = Field(default=2048, ge=256)
+    max_output_tokens: int = Field(default=3072, ge=256)
+    notes_max_output_tokens: int = Field(default=768, ge=128)
     temperature: float = Field(default=0.2, ge=0, le=1)
     timeout_seconds: float = Field(default=300, gt=0)
     total_timeout_seconds: float = Field(default=3600, gt=0)
@@ -111,15 +114,17 @@ class SummariesSettings(MeetingScribeSettings):
 
     @model_validator(mode="after")
     def _contexts_hold_the_output(self) -> Self:
-        needed = self.max_output_tokens + MARGIN_TOKENS
+        needed = max(self.max_output_tokens, self.notes_max_output_tokens) + MARGIN_TOKENS
         if self.local_context_tokens <= needed:
             raise ValueError(
-                "SUMMARIES_LOCAL_CONTEXT_TOKENS must exceed SUMMARIES_MAX_OUTPUT_TOKENS + "
+                "SUMMARIES_LOCAL_CONTEXT_TOKENS must exceed the larger of "
+                "SUMMARIES_MAX_OUTPUT_TOKENS and SUMMARIES_NOTES_MAX_OUTPUT_TOKENS + "
                 f"{MARGIN_TOKENS}"
             )
         if self.cloud_context_tokens <= needed:
             raise ValueError(
-                "SUMMARIES_CLOUD_CONTEXT_TOKENS must exceed SUMMARIES_MAX_OUTPUT_TOKENS + "
+                "SUMMARIES_CLOUD_CONTEXT_TOKENS must exceed the larger of "
+                "SUMMARIES_MAX_OUTPUT_TOKENS and SUMMARIES_NOTES_MAX_OUTPUT_TOKENS + "
                 f"{MARGIN_TOKENS}"
             )
         return self
@@ -142,5 +147,6 @@ class SummariesSettings(MeetingScribeSettings):
             model=self.cloud_model if cloud else self.local_model,
             temperature=self.temperature,
             max_output_tokens=self.max_output_tokens,
+            notes_output_tokens=self.notes_max_output_tokens,
             context_tokens=self.cloud_context_tokens if cloud else self.local_context_tokens,
         )

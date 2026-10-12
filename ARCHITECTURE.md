@@ -283,9 +283,9 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | `SPEAKERS_SAMPLE_TARGET_SECONDS` | `SpeakersSettings.sample_target_seconds` | `15.0` | Target total sample length (> 0) |
 | `SPEAKERS_SAMPLE_MIN_CLIP_SECONDS` / `SPEAKERS_SAMPLE_MAX_CLIP_SECONDS` | `SpeakersSettings.sample_min_clip_seconds` / `sample_max_clip_seconds` | `1.5` / `6.0` | Clip length bounds (min must not exceed max) |
 | `SUMMARIES_PROVIDER` | `SummariesSettings.provider` | `local` | Provider the "Generate summary" button uses, `local` or `cloud` (choosing `cloud` is the opt-in and also needs a key; `SUMMARIES_CLOUD_ENABLED` was removed) |
-| `SUMMARIES_LOCAL_BASE_URL` | `SummariesSettings.local_base_url` | `http://127.0.0.1:11434/v1` | Ollama OpenAI-compatible endpoint; the host must be `127.0.0.1`, `::1` or `localhost` |
-| `SUMMARIES_LOCAL_MODEL` | `SummariesSettings.local_model` | `qwen3.5:9b` | Ollama model name |
-| `SUMMARIES_LOCAL_CONTEXT_TOKENS` | `SummariesSettings.local_context_tokens` | `4096` | Window the service plans against; raise it together with Ollama's context (must exceed output limit + 600) |
+| `SUMMARIES_LOCAL_BASE_URL` | `SummariesSettings.local_base_url` | `http://127.0.0.1:11434/v1` | Local Ollama; the host must be `127.0.0.1`, `::1` or `localhost`. Local summaries use the native API at the same origin (`/api/chat`), so the `/v1` path is ignored |
+| `SUMMARIES_LOCAL_MODEL` | `SummariesSettings.local_model` | `qwen3:4b-instruct-2507-q4_K_M` | Ollama model name; fits 100% on an 8 GB GPU at 16k |
+| `SUMMARIES_LOCAL_CONTEXT_TOKENS` | `SummariesSettings.local_context_tokens` | `16384` | Context the service sends as `num_ctx` on every local request and plans against (must exceed the larger output limit + 600) |
 | `SUMMARIES_UNLOAD_LOCAL_MODEL` | `SummariesSettings.unload_local_model` | `true` | Ask Ollama to unload the model after a local summary |
 | `SUMMARIES_CLOUD_PROVIDER` | `SummariesSettings.cloud_provider` | `opencode-go` | The cloud provider choice (one option today); decides the default name and base URL below |
 | `SUMMARIES_CLOUD_PROVIDER_NAME` | `SummariesSettings.cloud_provider_name` | `OpenCode Go` | Name shown in the "cloud" label (for example `cloud: OpenCode Go, deepseek-v4-pro`) |
@@ -293,7 +293,8 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | `SUMMARIES_CLOUD_MODEL` | `SummariesSettings.cloud_model` | `deepseek-v4-pro` | Any model the gateway serves on `/chat/completions`; models on `/responses` or `/messages` are not supported |
 | `SUMMARIES_CLOUD_CONTEXT_TOKENS` | `SummariesSettings.cloud_context_tokens` | `100000` | Cloud budget the service plans against |
 | `SUMMARIES_LANGUAGE` | `SummariesSettings.language` | `auto` | `auto` follows the meeting language, or an ISO code |
-| `SUMMARIES_MAX_OUTPUT_TOKENS` | `SummariesSettings.max_output_tokens` | `2048` | Output limit per request (>= 256) |
+| `SUMMARIES_MAX_OUTPUT_TOKENS` | `SummariesSettings.max_output_tokens` | `3072` | Output limit of the final summary (>= 256) |
+| `SUMMARIES_NOTES_MAX_OUTPUT_TOKENS` | `SummariesSettings.notes_max_output_tokens` | `768` | Output limit of a map or merge notes step (>= 128) |
 | `SUMMARIES_TEMPERATURE` | `SummariesSettings.temperature` | `0.2` | Sampling temperature (0 to 1) |
 | `SUMMARIES_TIMEOUT_SECONDS` | `SummariesSettings.timeout_seconds` | `300` | Seconds without data before a step times out (> 0) |
 | `SUMMARIES_TOTAL_TIMEOUT_SECONDS` | `SummariesSettings.total_timeout_seconds` | `3600` | Bound for one whole summary (> 0) |
