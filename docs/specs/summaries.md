@@ -353,12 +353,16 @@ AND the extension never reads meeting content and never builds a path
 
 **Test**: `gnome-extension/tests/indicatorModel.test.js`, `gnome-extension/tests/indicatorController.test.js`, `gnome-extension/tests/meetingsClient.test.js`
 
-### AC-20: Install reports Ollama without failing
+### AC-20: Install reports Ollama (superseded by F6: the install now stops)
+
+> Superseded by F6. The original wording below said a missing or stopped Ollama, or a missing model, only warned.
+> That is no longer true: `scripts/preflight.sh` makes `ollama.installed`, `ollama.reachable` and `ollama.model`
+> FIX items and `scripts/install.sh` stops with zero changes (exit 10). See [install.md](install.md) AC-12.
 
 ```gherkin
 GIVEN make install runs
 THEN the summary says whether Ollama is found and reachable and whether the configured local model is present
-AND a missing or stopped Ollama, or a missing model, only warns with the command to fix it
+AND a missing or stopped Ollama, or a missing model, stops the install before any change, with the command to fix it (superseded by F6, install.md AC-12)
 AND the install never starts Ollama, never pulls a model and never sends a prompt
 GIVEN make uninstall runs
 THEN meetings, summaries and .env are untouched
@@ -963,7 +967,7 @@ The owner answered all eight questions on 2026-10-11.
 - [ ] Lint, format, type check and import contracts clean
 - [ ] The cloud path is gated by setting, key, `cloud_confirmed` and a visible confirmation, and is labelled "cloud" in every UI that triggers it
 - [ ] The API key and transcript content appear in no log, error, fixture, commit or doc (checked by the tests in AC-9 and AC-7)
-- [ ] `make install` reports Ollama and the model without failing; `make uninstall` leaves meetings and `.env`
+- [ ] `make install` reports Ollama and the model, and stops with zero changes when they are missing (F6, install.md AC-12); `make uninstall` leaves meetings and `.env`
 - [ ] `docs/runbooks/summaries.md` written (Ollama, context, model choice, cloud key, troubleshooting)
 - [ ] Traceability for FR-6 filled in `project/mvp-scope.md`; `README.md`, `ARCHITECTURE.md` and the backlog updated
 - [ ] New gotchas and rules in `project/rules-registry.md` (Ollama context, truncation guard, GPU release, key handling)

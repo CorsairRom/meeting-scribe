@@ -1,7 +1,7 @@
 ---
 type: architecture
 status: active
-last_updated: 2026-10-09
+last_updated: 2026-10-12
 verifiable_by:
   - src/meeting_scribe/base/domain/errors.py
   - src/meeting_scribe/recording/domain/errors.py
@@ -30,7 +30,7 @@ it with dbus-fast as `DBusError("dev.meetingscribe.Error.<ERROR_CODE>", message)
 | Error name | `dev.meetingscribe.Error.<ERROR_CODE>` | Stable, machine-readable. Clients (extension, review app) map on this. Example: `dev.meetingscribe.Error.ENTITY_NOT_FOUND`. |
 | Message | `string` | English debug description (for example `Meeting 'abc123' does not exist.`). Not intended for direct display. |
 
-The error-name prefix is stable since F6 closed, together with the bus name
+The error-name prefix is frozen as of F6 (owner decision 2026-10-12), together with the bus name
 ([ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md)); any later rename needs an ADR. Inspect errors with `gdbus call` or `busctl --user call`.
 
 > **Current behavior**: `to_dbus_error` (`src/meeting_scribe/base/infrastructure/dbus/errors.py`) builds this error

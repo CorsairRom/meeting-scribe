@@ -78,7 +78,7 @@ consent) run them. Design: [`../specs/install.md`](../specs/install.md), [ADR-01
 | Exit code | Meaning | What to do |
 |---|---|---|
 | 0 | Success: installed (models may be pending), or `--check` found nothing that blocks | Nothing |
-| 1 | An install stage failed or was refused: recording in progress or its state unreadable, the service did not start, the extension step failed | Read the summary; see Troubleshooting |
+| 1 | An install stage failed or was refused: recording in progress or its state unreadable, the `systemctl --user daemon-reload` failed, the service did not start, the extension step failed | Read the summary; see Troubleshooting |
 | 2 | Usage error (unknown option, `--json` without `--check`) | Fix the command line |
 | 10 | Blocked by the preflight: at least one `FIX` item | Run the printed commands, run `--check` again |
 | 11 | Blocked by the preflight: only `HUMAN` items remain | Only you can resolve them; an agent hands them back |
@@ -91,7 +91,7 @@ The ids are stable; the fields only grow in a later `schema_version`.
 
 Environment: `FORCE=1` (above), `REVIEW_APP_PYTHON` (the system interpreter the review app and the toolkit checks use,
 default `/usr/bin/python3`), `MEETING_SCRIBE_NVIDIA_SMI_TIMEOUT` (default 10 s), `MEETING_SCRIBE_OLLAMA_TIMEOUT`
-(default 3 s), `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT` (default 30 s) and `SUMMARIES_LOCAL_BASE_URL` (a non-default Ollama address).
+(default 3 s), `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT` (default 30 s), `SUMMARIES_LOCAL_BASE_URL` (a non-default Ollama address) and `HF_HUB_CACHE` or `HF_HOME` (where `disk.space` looks for the model cache).
 
 ## Check ids and fixes
 
@@ -117,7 +117,7 @@ default `/usr/bin/python3`), `MEETING_SCRIBE_NVIDIA_SMI_TIMEOUT` (default 10 s),
 | `tool.secret-tool` | WARN | `sudo dnf install libsecret` (stores a key from a terminal) |
 | `gpu.driver` | HUMAN | Install the NVIDIA driver (for example from RPM Fusion), reboot, check that `nvidia-smi` lists your GPU |
 | `gpu.vram` | HUMAN | No command: transcription and diarization need at least 8000 MiB of VRAM (an "8 GB" card reports 8151 to 8192 MiB) |
-| `disk.space` | FIX | Free space on the named filesystem; `du -xsh ~/.cache ~/.local/share` shows what is large. Needs 8 GiB for one new service environment and 2 GiB for the models when they are not cached; directories on one filesystem are added |
+| `disk.space` | FIX (WARN when the free space cannot be measured) | Free space on the named filesystem; `du -xsh ~/.cache ~/.local/share` shows what is large. Needs 8 GiB for one new service environment and 2 GiB for the models when they are not cached; directories on one filesystem are added |
 | `ollama.installed` | FIX | `xdg-open https://ollama.com/download`; its install script asks for administrator rights, so read it and run it yourself |
 | `ollama.reachable` | FIX | `sudo systemctl start ollama` when Ollama is a system service, else `ollama serve` in a terminal |
 | `ollama.model` | FIX | `ollama pull <model>` (the default `qwen3:4b-instruct-2507-q4_K_M` is about 2.5 GB); the installer never pulls |

@@ -1,7 +1,7 @@
 ---
 type: architecture
 status: draft
-last_updated: 2026-10-09
+last_updated: 2026-10-12
 ai_instructions:
   - "This is the system-level view. Sections marked (planned) describe decided-but-unbuilt parts; everything else reflects code that exists."
   - "If you change a contract in pyproject.toml [tool.importlinter] or a settings variable, update this file in the same commit."
@@ -46,7 +46,7 @@ flowchart LR
 
 | Element | Technology | Status |
 |---|---|---|
-| Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root serves the `Recording1` D-Bus interface (`create_app`, `serve`, `run`); more interfaces in later phases, unit file and activation installed by `make install` (F2.5) |
+| Service | Python 3.12, dbus-fast (asyncio), `systemd --user` | composition root serves `Recording1`, `Meetings1`, `Summaries1`, `Settings1` and `Models1` (`create_app`, `serve`, `run`); unit file and activation installed by `make install` (F2.5) |
 | GNOME extension | GJS, thin client, no ML | done (F2), [ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md) |
 | Capture | ffmpeg on PipeWire, 2-channel 30 s chunks | adapter built (F1.3) and wired in `main.py` (F1.4), [ADR-002](docs/decisions/002-separate-mic-and-system-audio-tracks.md) |
 | Transcription | faster-whisper `large-v3-turbo`, float16, CUDA, in a short-lived worker process | built (F3.2) and wired into the service (F3.4a); [spec](docs/specs/processing.md), [ADR-007](docs/decisions/007-gpu-worker-subprocess.md) |
@@ -205,7 +205,7 @@ Target GPU: RTX 5060 Laptop, 8 GB.
 ## 6. D-Bus API (`Recording1`, `Meetings1`, `Summaries1`, `Settings1` and `Models1` implemented, others planned)
 
 All clients (extension, review app, e2e tests) use the session bus; there is no HTTP server ([ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md)).
-Names are stable since F6 closed; a later rename needs an ADR. The contract lives in [`docs/architecture/api-contracts.md`](docs/architecture/api-contracts.md).
+Names are frozen as of F6 (owner decision 2026-10-12); a later rename needs an ADR. The contract lives in [`docs/architecture/api-contracts.md`](docs/architecture/api-contracts.md).
 
 | Item | Value |
 |---|---|
@@ -233,6 +233,8 @@ its current poll before stopping, so controller calls never overlap.
 ---
 
 ## 7. Configuration
+
+Installer-only timeout knobs (`MEETING_SCRIBE_NVIDIA_SMI_TIMEOUT`, `MEETING_SCRIBE_OLLAMA_TIMEOUT`, `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT`, `REVIEW_APP_PYTHON`) are not settings: see [`docs/runbooks/install.md`](docs/runbooks/install.md).
 
 `Settings` (root) composes per-domain classes via `Field(default_factory=...)`. All inherit the shared
 `MeetingScribeSettings` base (`extra="ignore"`, `case_sensitive=False`, utf-8) and only set their own
@@ -321,5 +323,7 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | [007](docs/decisions/007-gpu-worker-subprocess.md) | GPU work in short-lived worker processes, one per GPU stage |
 | [008](docs/decisions/008-summary-sections.md) | The summary has a Decisions section |
 | [009](docs/decisions/009-cloud-summaries-through-opencode-go.md) | Cloud summaries go through OpenCode Go |
+| [010](docs/decisions/010-install-never-uses-sudo.md) | The install checks first, never uses sudo and never prompts |
+| [011](docs/decisions/011-hugging-face-token-in-keyring-and-models-from-preferences.md) | The Hugging Face token lives in the keyring; models are downloaded from Preferences |
 
 Related: [error codes](docs/architecture/error-codes-catalog.md) · [rules registry](docs/project/rules-registry.md) · [scope](docs/project/mvp-scope.md).

@@ -16,7 +16,7 @@ ai_instructions:
 
 ## Status
 
-`proposed` - drafted with [`../specs/install.md`](../specs/install.md) on 2026-10-12, from the owner's decisions of the same day.
+`active` (approved 2026-10-12) - drafted with [`../specs/install.md`](../specs/install.md) on 2026-10-12, from the owner's decisions of the same day.
 
 ## Context
 

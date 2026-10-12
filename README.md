@@ -34,7 +34,7 @@ when only those remain, 10 when a command can fix something). The first column i
 | `gtk.libsecret` | libsecret typelib, stores keys in the GNOME Keyring | blocks | `sudo dnf install libsecret` |
 | `gtk.gstreamer` | `gstreamer1-plugins-good`, plays the voice samples | optional | `sudo dnf install gstreamer1-plugins-good` |
 | `tool.secret-tool` | `secret-tool`, stores a key from a terminal | optional | `sudo dnf install libsecret` |
-| `gpu.driver` | The NVIDIA driver: `nvidia-smi` lists a GPU (transcription and diarization run on the local GPU, there is no CPU or cloud mode) | human, blocks | Install the NVIDIA driver (for example from RPM Fusion), reboot, run `nvidia-smi` |
+| `gpu.driver` | The NVIDIA driver: `nvidia-smi` lists a GPU (transcription and diarization run on the local GPU, there is no automatic CPU fallback) | human, blocks | Install the NVIDIA driver (for example from RPM Fusion), reboot, run `nvidia-smi` |
 | `gpu.vram` | At least 8000 MiB of VRAM (an "8 GB" card reports 8151 to 8192 MiB) | human, blocks | No command: this GPU cannot run the local models |
 | `disk.space` | Free space per filesystem: 8 GiB for one new service environment (an upgrade needs no more: the old version is pruned after the new one runs) and 2 GiB for the models when they are not cached | blocks | Free space on the named filesystem; `du -xsh ~/.cache ~/.local/share` shows what is large |
 | `ollama.installed` | Ollama, for local summaries (the install stops without it, also with the cloud provider) | blocks | Install it from <https://ollama.com/download> (its script asks for administrator rights: read it first) |
@@ -66,7 +66,7 @@ id with its fix and troubleshooting: [`docs/runbooks/install.md`](docs/runbooks/
 
 ```bash
 ./install.sh --check   # read-only preflight: what is missing, why, and the exact command to fix it (add --json for agents)
-./install.sh           # everything: service, systemd user unit, D-Bus activation, GNOME extension (alias: make install)
+./install.sh           # everything: service, systemd user unit, D-Bus activation, review app, GNOME extension (alias: make install)
 ./uninstall.sh         # reverse it (keeps your meetings, `.env`, `settings.json`, the keyring items and the downloaded models)
 ```
 
@@ -115,8 +115,10 @@ Upgrading from an install made before versioned installs (the service ran from `
 directory; a hand-edited unit is left alone). If the restart was skipped (recording), the old tool stays and the
 summary says how to remove it later. `make uninstall` removes the whole `meeting-scribe/` versions tree.
 
-Configure by creating `~/.config/meeting-scribe/.env` (or `$XDG_CONFIG_HOME/meeting-scribe/.env`; template:
-`.env.example`) (every variable and its default is listed in [`ARCHITECTURE.md`](ARCHITECTURE.md) section 7), then `systemctl --user restart meeting-scribe.service`.
+Configure through Preferences (open it from the Meeting Scribe menu; the settings are saved in
+`~/.config/meeting-scribe/settings.json`). A `~/.config/meeting-scribe/.env` (or `$XDG_CONFIG_HOME/meeting-scribe/.env`;
+template: `.env.example`) is an optional developer override that wins over Preferences (every variable and its default is
+listed in [`ARCHITECTURE.md`](ARCHITECTURE.md) section 7); restart with `systemctl --user restart meeting-scribe.service`.
 
 Development: `make setup` (dev and ML dependencies: faster-whisper and the NVIDIA wheels come from the `ml` extra), `make check` (ruff, pyrefly, import-linter, pytest, wheel packaging test, extension tests),
 `make run` (foreground service on your session bus, stop the installed one first). `make help` lists all targets.

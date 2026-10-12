@@ -137,7 +137,7 @@ AND the same input always yields the same code
 ```gherkin
 GIVEN --json
 WHEN the preflight runs
-THEN stdout holds exactly one JSON document with schema_version 1, result, exit_code and a checks array whose items have id, status, summary, why, fix, human
+THEN stdout holds exactly one JSON document with schema_version 1, result, exit_code and a checks array whose items have id, status, human, summary, why, fix, steps, detail
 AND nothing else is written to stdout, and the document parses with a strict JSON parser even when a value holds a quote or a backslash
 AND every id in the document is one of the documented check ids
 ```
@@ -376,7 +376,7 @@ Only what could not be decided from the code and the owner decisions of 2026-10-
 
 ## Technical design
 
-### 1. What exists today (baseline, read from the code on 2026-10-12)
+### 1. Before F6 (historical baseline, read from the code on 2026-10-12)
 
 | Piece | Today |
 |---|---|
@@ -466,11 +466,11 @@ The preflight lives in a new `scripts/preflight.sh`, sourced by `scripts/install
 | `gtk.libsecret` | `gi.require_version("Secret", "1")` | FIX | Stores the cloud key and the Hugging Face token in the GNOME Keyring | `sudo dnf install libsecret` |
 | `gtk.gstreamer` | the `gstreamer1-plugins-good` package is present (`rpm -q`) or a `GStreamer` plugin probe | WARN | Voice sample playback | `sudo dnf install gstreamer1-plugins-good` |
 | `tool.secret-tool` | `command -v secret-tool` | WARN | Optional: store a key from a terminal (runbook) | `sudo dnf install libsecret` |
-| `gpu.driver` | `nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader` lists a GPU (10 s timeout) | HUMAN | Transcription and diarization run on the local NVIDIA GPU; there is no CPU or cloud mode | Install the NVIDIA driver (for example from RPM Fusion), reboot, run `nvidia-smi` |
+| `gpu.driver` | `nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader` lists a GPU (10 s timeout) | HUMAN | Transcription and diarization run on the local NVIDIA GPU; there is no automatic CPU fallback | Install the NVIDIA driver (for example from RPM Fusion), reboot, run `nvidia-smi` |
 | `gpu.vram` | the largest `memory.total` is at least 8000 MiB | HUMAN | The models and the summary model have to fit in 8 GB (the summary model peaks near 5 GB; Whisper and pyannote never share the GPU) | None: this GPU cannot run the local models |
 | `disk.space` | `df` on the data directory and the Hugging Face cache directory against section 2 | FIX | The environment is 7.1 GiB, the models 1.65 GiB | Free space on the named filesystem; to see what is large: `du -xsh ~/.cache ~/.local/share` |
 | `ollama.installed` | `command -v ollama` | FIX | Local summaries (and the install stops without it, owner decision) | Install from <https://ollama.com/download> (its own script asks for `sudo`: read it first, run it yourself) |
-| `ollama.reachable` | `curl -s --max-time 3 http://127.0.0.1:11434/api/tags` succeeds | FIX | Summaries talk to the local Ollama API | `systemctl start ollama` (or `ollama serve` in a terminal) |
+| `ollama.reachable` | `curl -s --max-time 3 http://127.0.0.1:11434/api/tags` succeeds | FIX | Summaries talk to the local Ollama API | `sudo systemctl start ollama` when `ollama.service` exists (a system service), otherwise `ollama serve` in a terminal |
 | `ollama.model` | the configured local model is in `/api/tags` (precedence: environment, `.env`, `settings.json`, default `qwen3:4b-instruct-2507-q4_K_M`, the logic `install.sh` has today) | FIX | The summary needs it; the install never pulls | `ollama pull <model>` (about 2.5 GB) |
 
 The check for models in the cache is not a blocker: it belongs to the install summary (section 5).
@@ -502,7 +502,7 @@ The status tags and ids are stable and one item starts at column 0 with a `[` ta
     {"id": "gtk.libadwaita", "status": "FIX", "human": false,
      "summary": "libadwaita (Gtk/Adw typelib) is missing for /usr/bin/python3",
      "why": "the review app is built on libadwaita",
-     "fix": ["sudo dnf install libadwaita"], "detail": ""}
+     "fix": ["sudo dnf install libadwaita"], "steps": [], "detail": ""}
   ]
 }
 ```
@@ -598,15 +598,15 @@ Two ADRs are needed and are written with this spec as drafts (status `proposed`;
 
 ADR table in `docs/README.md` and the "ADR 001-0NN" range in `AGENTS.md` are updated in the same commit (the drift tests check both).
 
-### 11. Owner scope added 2026-10-12: preparing the repository to become public
+### 11. Owner scope added 2026-10-12: preparing the repository to become public (done)
 
-Planned only. It runs with the README task (F6.10 in `odd/tasks/meeting-scribe.md`, after F6.9) and the repository stays private until it is done.
+Done in F6.10 (see `odd/tasks/meeting-scribe.md`). The owner may make the repository public after the F6 merge.
 
-- **(a) License.** Add the `LICENSE` file (GPL-2.0-or-later) and declare it in `pyproject.toml` (`license` and the matching classifier) and, if the format allows it, in the extension `metadata.json`. The owner chose **GPL-2.0-or-later** (decided 2026-10-12, not an open question); the `LICENSE` file carries the GPL-2.0 text and the files declare "or later".
-- **(b) Author email.** Change the author email in `pyproject.toml` to `richard.romero@hotmail.cl`, and commit from then on with that address (repository `user.email`). **Owner decision 2026-10-12: the history is not rewritten.** GitHub keeps `refs/pull/*` for every pull request pointing at the original commits and a force-push cannot remove them, so a rewrite in this repository would not hide the previous work email; the owner accepts that it stays in the existing history.
-- **(c) Private repository references.** Remove the references to two private repositories of earlier internal projects (they were in `odd/tasks/meeting-scribe.md`, the "Accepted deviations from HANDOFF" section and the task list, and in `docs/_templates/README.md` line 4; done in F6.10), keeping the facts that still matter (for example that the templates are English and the per-domain settings convention is new here).
+- **(a) License (done).** Add the `LICENSE` file (GPL-2.0-or-later) and declare it in `pyproject.toml` (`license` and the matching classifier) and, if the format allows it, in the extension `metadata.json`. The owner chose **GPL-2.0-or-later** (decided 2026-10-12, not an open question); the `LICENSE` file carries the GPL-2.0 text and the files declare "or later".
+- **(b) Author email (done for future commits; the history is not rewritten, by owner decision).** Change the author email in `pyproject.toml` to `richard.romero@hotmail.cl`, and commit from then on with that address (repository `user.email`). **Owner decision 2026-10-12: the history is not rewritten.** GitHub keeps `refs/pull/*` for every pull request pointing at the original commits and a force-push cannot remove them, so a rewrite in this repository would not hide the previous work email; the owner accepts that it stays in the existing history.
+- **(c) Private repository references (removed).** Remove the references to two private repositories of earlier internal projects (they were in `odd/tasks/meeting-scribe.md`, the "Accepted deviations from HANDOFF" section and the task list, and in `docs/_templates/README.md` line 4; done in F6.10), keeping the facts that still matter (for example that the templates are English and the per-domain settings convention is new here).
 
-None of these steps is performed by the F6.0 documentation task.
+The F6.0 documentation task itself did not perform these steps; F6.10 did.
 
 #### Future note: extensions.gnome.org
 
@@ -654,7 +654,7 @@ About 400 authored changed lines per task (advisory, counting additions plus del
 - 2026-10-12: one machine-readable format, `--json`, plus a stable tagged human format, instead of a second line protocol.
 - 2026-10-12: the keyring token wins over the ambient login, with the login as a fall back only when no keyring token exists.
 - 2026-10-12: the service (not the app) downloads, so the token never crosses D-Bus and both clients stay thin.
-- 2026-10-12: the owner chose GPL-2.0-or-later for the public repository (the `LICENSE` file and metadata are added in F6.10, not before).
+- 2026-10-12: the owner chose GPL-2.0-or-later for the public repository (the `LICENSE` file and metadata were added in F6.10).
 - 2026-10-12: a missing default Ollama model stops the install with `ollama pull <model>` as the fix, consistent with "nothing missing".
 - 2026-10-12: spec approved under the owner's delegation (decide what follows from recorded decisions, ask only real forks); OQ-1 to OQ-3 answered with their recommendations.
 - 2026-10-12 (F6.1 to F6.3, implementation): `--json` is only valid together with `--check` (alone it is a usage error, exit 2), because an install prints a lot of prose and the one-document guarantee needs a read-only run; with `--json` the same text report goes to stderr.

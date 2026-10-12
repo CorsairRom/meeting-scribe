@@ -686,7 +686,9 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
         `record-via-gdbus`), `ARCHITECTURE.md`, D-Bus names frozen (OQ-3: api-contracts, error catalog, CR-011, ADR-001 note), FR-7 traceability row, backlog (F6 epic checked,
         five F6-review follow-ups added to the post-F6 epic), spec and its README row `in-progress`, Definition of Done ticked except the docs gate.
         Evidence: `make check` 2275 python passed, packaging 1 passed, gjs 163 passed, lint and 16 import contracts clean. Commit `e5ae89b` `docs(install): add the install runbook and the agent-friendly readme section`.
-  - [ ] Still open: the docs gate (read-only audit plus language scan) and the validation with consent on the real machine (no recording, no audio).
+  - [x] Docs gate (2026-10-12): the read-only audit found P1 5 / P2 10 / P3 7, all fixed on branch `f6/docs-gate`. Evidence: `make check` green (2275 python passed, packaging 1 passed, gjs 163 passed, lint and import contracts clean); `uv run pytest -q tests/unit/test_docs_sync.py tests/unit/test_readme_prerequisites.py` passed; `rg -n '[áéíóúñ¿¡]' docs README.md AGENTS.md ARCHITECTURE.md PRD.md` hits only the two known lines in `docs/project/doc-sync-protocol.md`; `rg -n -i 'qforest|donde-compro' .` finds nothing.
+  - [x] Manual validation with the owner's go (2026-10-12): `make install` ran, version `20261012132139-1807266`. The summary showed the service active, the extension enabled, `review app: ready`, `models: ready (cached)` and `ollama: reachable at preflight`. `Models1.GetStatus` returned `READY`, whisper and pipeline cached, `token_stored` false.
+  - [ ] Still open (owner's UI check): the Speech models group in Preferences, the token, and reprocessing the test meeting without any token.
 - [ ] F6.10 Prepare the repo to become public (owner scope added 2026-10-12; planned only, runs with the README task F6.9,
       the repo stays private until it is done; see `docs/specs/install.md` section 11):
   - [x] (a) `LICENSE` added (GPL-2.0 text copied from a local system copy, `/usr/share/licenses/desktop-file-utils/COPYING`; no network) and declared in `pyproject.toml`

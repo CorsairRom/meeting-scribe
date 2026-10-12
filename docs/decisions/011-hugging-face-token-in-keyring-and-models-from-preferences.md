@@ -16,7 +16,7 @@ ai_instructions:
 
 ## Status
 
-`proposed` - drafted with [`../specs/install.md`](../specs/install.md) on 2026-10-12, from the owner's decisions of the same day. It follows [ADR-009](009-cloud-summaries-through-opencode-go.md) (a secret lives in the GNOME Keyring) and refines the install-time model fetch of the F3 spec (rules-registry GO-047).
+`active` (approved 2026-10-12) - drafted with [`../specs/install.md`](../specs/install.md) on 2026-10-12, from the owner's decisions of the same day. It follows [ADR-009](009-cloud-summaries-through-opencode-go.md) (a secret lives in the GNOME Keyring) and refines the install-time model fetch of the F3 spec (rules-registry GO-047).
 
 ## Context
 

@@ -16,7 +16,7 @@ verifiable_by:
   - tests/unit/speakers/
   - tests/e2e/meetings/test_meetings_over_dbus.py
   - tests/gpu/ (opt-in, @pytest.mark.gpu)
-last_updated: 2026-10-09
+last_updated: 2026-10-12
 ai_instructions:
   - "This spec is a contract. Do NOT implement anything that is not in it."
   - "If you need to change the spec, update this doc FIRST and ask for confirmation."
@@ -210,10 +210,12 @@ THEN the worker gets SIGTERM, then SIGKILL after the grace period, and the job i
 ### AC-14: Missing access to the diarization model is actionable
 
 ```gherkin
-GIVEN no Hugging Face login, or the community-1 terms not accepted
+GIVEN the community-1 terms are not accepted, or the models were never downloaded with a token
+(superseded by F6: the worker loads the cache with `token=None` and `HF_HUB_DISABLE_IMPLICIT_TOKEN=1`, so no
+login is read; see [install.md](install.md), GO-066 and GO-067)
 WHEN the diarization stage loads the pipeline
-THEN the job is FAILED with DIARIZATION_MODEL_ACCESS_DENIED and a message naming the model page and "hf auth login"
-AND words.json is kept, so Reprocess after fixing the login skips transcription
+THEN the job is FAILED with DIARIZATION_MODEL_ACCESS_DENIED and a message naming the model page, "Preferences (Speech models)" and "Download models"
+AND words.json is kept, so Reprocess after downloading the models skips transcription
 AND the token is never read, logged or printed
 ```
 
@@ -744,10 +746,12 @@ Logic goes in pure `lib/` modules with `gjs -m` tests (CR-012).
   `make install` builds a fresh `versions/<id>/` environment; uv hardlinks from its cache when the cache is on the
   same filesystem, otherwise each version copies the full set, and two versions coexist until the new one is
   verified. The first install downloads everything; later installs reuse the uv cache.
-- **Models**: `large-v3-turbo` (1.6 GB) and community-1 (32 MB) are downloaded into the Hugging Face cache by
-  `meeting-scribe prefetch-models` during `make install`, so the worker runs offline (see OQ-7). community-1 is **gated**: the user must accept its terms at
-  `https://hf.co/pyannote/speaker-diarization-community-1` and run `hf auth login` once in a real terminal (GO-004,
-  GO-008). Without it the first job fails with `DIARIZATION_MODEL_ACCESS_DENIED` and that instruction; transcription
+- **Models** (superseded by [install.md](install.md), GO-066 and GO-067: `make install` downloads nothing; the
+  user downloads the models from Preferences > Speech models > Download models, and the install only reports
+  `models: ready (cached)` or `PENDING`): `large-v3-turbo` (1.6 GB) and community-1 (32 MB) live in the Hugging
+  Face cache, so the worker runs offline (see OQ-7). community-1 is **gated**: the user must accept its terms at
+  `https://hf.co/pyannote/speaker-diarization-community-1` and add a token in Preferences (the old `hf auth login`
+  step is superseded by GO-067; GO-004, GO-008 keep the history). Without it the first job fails with `DIARIZATION_MODEL_ACCESS_DENIED` and that instruction; transcription
   is kept and Reprocess resumes after the fix.
 - **Install script**: `make install` keeps refusing while recording. It does not refuse while processing: the
   restart terminates the worker and the job resumes (one stage of work is lost at most). The summary line mentions an
@@ -809,7 +813,7 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
 | A-2 | CTranslate2 memory is outside torch's allocator, so `empty_cache()` cannot free Whisper, and `del model` may leave cached blocks | F3.2. **Not measured directly**: torch is not in this process; the design never depends on it because the process exit returns everything (GO-037) |
 | A-3 | Worker start plus CUDA init costs a few seconds per stage | F3.2 / F3.3. **Confirmed for transcribe (2026-10-09)**: 4.2 s wall for an 11 s synthetic session, of which the model load is 2.5 s (includes CUDA init) and decoding 0.1 s; a cache hit costs 0.2 s |
 | A-4 | Whisper `large-v3-turbo` float16 and community-1 each fit comfortably in 8 GB on their own | F3.2 / F3.3 (GPU test). **Whisper confirmed (2026-10-09)**: peak about 2.1 GB above the 457 MiB desktop baseline on an 8 GB card. **community-1 confirmed (2026-10-09)**: peak about 0.5 GB over a 13 MiB baseline for 20 s of synthetic audio, pipeline load 4.0 s on cuda, VRAM back to baseline after the worker exits |
-| A-5 | The ambient Hugging Face login works without passing `token` (prototype behaviour) or with `token=True` | F3.3. The adapter passes `token=True`, which makes `huggingface_hub` read the stored login and raise `LocalTokenNotFoundError` when there is none (read from source, GO-042). **Confirmed (2026-10-09)**: with the user's consent, `make install` downloaded community-1 with the stored login and the GPU test loaded it offline |
+| A-5 | The ambient Hugging Face login works without passing `token` (prototype behaviour) or with `token=True` | F3.3. The adapter passed `token=True` (superseded by F6, GO-067: it now loads with `token=None` and `HF_HUB_DISABLE_IMPLICIT_TOKEN=1`, offline), which made `huggingface_hub` read the stored login and raise `LocalTokenNotFoundError` when there is none (read from source, GO-042). **Confirmed (2026-10-09, historical; superseded by F6)**: with the user's consent, `make install` downloaded community-1 with the stored login and the GPU test loaded it offline |
 | A-6 | Averaging the channels (-6 dB) does not hurt Whisper accuracy | F3.5 validation. **Partially answered (2026-10-09)**: one real recording processed to DONE with the defaults; mono averaging and headset vs loudspeaker setups not compared yet, kept as defaults |
 | A-7 | "Me" defaults (6 dB dominance, 10 dB noise margin, 0.5 s) work on headset and loudspeaker setups | F3.5 validation with consent. **Partially answered (2026-10-09)**: one real recording processed to DONE with the defaults; mono averaging and headset vs loudspeaker setups not compared yet, kept as defaults |
 | A-8 | pyannote telemetry is off by default; the opt-out variable name | F3.3 (read pyannote source). **Answered (2026-10-09, pyannote.audio 4.0.7)**: the assumption was wrong, telemetry is ON by default (`metrics_enabled: true` in the package config). The opt-out is `PYANNOTE_METRICS_ENABLED=false`; the service sets it in the worker environment and the backend forces it again before the first import (GO-042) |
@@ -834,7 +838,7 @@ Advisory size: about 400 authored lines per work unit (not a cap). Order is the 
    example missing Hugging Face login, cannot be retried.]
 7. **OQ-7** When do models download: during `make install` (explicit, needs network at install) or on the first job
    (silent wait, needs network then)? And should the worker run with `HF_HUB_OFFLINE=1` once models are cached, so
-   no processing ever touches the network? [Download during `make install` with a visible step; offline afterwards.]
+   no processing ever touches the network? [Download during `make install` with a visible step; offline afterwards.] **Superseded by F6 (install.md, GO-066/067)**: the install downloads nothing; the download is an explicit Preferences action; the worker stays offline.
 8. **OQ-8** The "Unknown" label for ambiguous mic speech (ADR-002 trade-off): keep it, or always fall back to the
    nearest diarized speaker? [Keep it; F4 can merge it.]
 
