@@ -571,9 +571,20 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
       (key stored but UI says none); attempt-token path untested; re-confirm completion untested; comment the
       on_processing_finished alias and the skip code 77; assert the summary thread is a daemon; e2e exit-4
       test should assert the summary log.
-- [ ] F5.7 extension "Open last summary (date)" (~250)
-- [ ] F5.8 install Ollama/model check (warn only), runbook (~250)
-- [ ] F5.9 validation with consent (local run; cloud only on explicit go), docs gate
+- [x] F5.7 extension "Open last summary (<date>)" opening summary.md in the default app (GO-058). Integrated #113.
+- [x] F5.8 install Ollama/model check (warn only, never pulls), runbook summaries.md. Reviews
+      review-cf9c592be9440044 (4 lenses), review-b60625c75c655385, review-121fd6b875ca5159 approved; my follow-up
+      instruction on late keyring stores was incomplete and the review caught it (fixed `7638d2c`, `08ba207`).
+      Integrated #114. GREEN 1548 python / 145 gjs / 14 contracts. Follow-ups (stopped the review loop here):
+      a stale success arriving after a newer attempt already failed replaces that failure text with the
+      stored-key note; misplaced comment and duplicated reset in api_key.py; the gjs hold test waits 100 ms.
+- [ ] F5.10 Preferences window (owner request 2026-10-11: no .env, no console; no separate cloud switch,
+      Provider=Cloud is the opt-in). Spec `docs/specs/preferences.md` approved (`b755136`): Settings1 D-Bus,
+      settings.json (0600) with env/.env as developer override, live vs restart fields, prefs.js launcher +
+      menu item, key stays in libsecret. Tasks P1-P7 (P8 optional model picker, not planned).
+- [ ] F5.9 validation with consent (local run; cloud only on explicit go), docs gate.
+      make install done 2026-10-11 (version 20261011195308-2317253; ollama reachable, qwen3.5:9b present);
+      owner to test a local summary.
 ### F6 Install — pending
 
 ## Route log

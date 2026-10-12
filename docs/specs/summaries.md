@@ -13,6 +13,7 @@ depends_on:
   - decisions/004-folder-per-meeting-json-storage.md (meeting.json, atomic writes, null object repository)
   - decisions/005-review-ui-native-gtk-app.md (the app shows the "cloud" label)
   - specs/review-app.md (the effective transcript and speaker names F5 summarizes; the app that hosts the button)
+  - specs/preferences.md (the Preferences window and Settings1; product decision 9 removes SUMMARIES_CLOUD_ENABLED)
   - specs/processing.md (processing states, GPU policy, settings conventions)
   - architecture/api-contracts.md (Meetings1 today; Summaries1 is added to it)
 verifiable_by:
@@ -22,7 +23,7 @@ verifiable_by:
   - tests/unit/review_app/test_summary_presenter.py
   - tests/unit/test_install_scripts.py
   - gnome-extension/tests/
-last_updated: 2026-10-11
+last_updated: 2026-10-12
 ai_instructions:
   - "This spec is a contract. Do NOT implement anything that is not in it."
   - "If you need to change the spec, update this doc FIRST and ask for confirmation."
@@ -123,17 +124,17 @@ THEN exactly one request is made
 
 **Test**: `tests/unit/summaries/test_chunker.py`, `tests/unit/summaries/test_generate_summary.py::test_map_reduce_steps`, `::test_single_pass_when_it_fits`
 
-### AC-5: Cloud is opt-in, enabled, keyed and confirmed
+### AC-5: Cloud is opt-in (the provider choice), keyed and confirmed
 
 ```gherkin
-GIVEN SUMMARIES_CLOUD_ENABLED is false
+GIVEN the configured provider is local (the cloud is opted into only by choosing it as the provider)
 WHEN a client calls Summarize(meeting, "cloud", true)
 THEN it fails with SUMMARY_CLOUD_DISABLED and no request is made
-GIVEN cloud is enabled but the keyring holds no API key
+GIVEN the configured provider is cloud but the keyring holds no API key
 THEN it fails with SUMMARY_CLOUD_KEY_MISSING
 GIVEN the keyring is locked
 THEN it fails with SUMMARY_CLOUD_KEY_LOCKED and the service never prompts
-GIVEN cloud is enabled and keyed
+GIVEN the configured provider is cloud and keyed
 WHEN cloud_confirmed is false
 THEN it fails with SUMMARY_CLOUD_NOT_CONFIRMED and no request is made
 GIVEN an unknown provider id
@@ -148,7 +149,7 @@ THEN it fails with INVALID_VALUE
 WHEN a client calls Providers
 THEN it gets one row per configured provider with id, label, cloud, model, available and reason
 AND the cloud row's label contains the word "cloud" and its available is false with a reason code when the
-    cloud is disabled or has no key
+    the configured provider is local (SUMMARY_CLOUD_DISABLED)
 AND no row contains the API key or the base URL of the cloud provider
 ```
 
@@ -449,7 +450,7 @@ AND no Spanish text exists in code or tests: only in the Spanish catalog file
 | `summary.md` deleted by the user | `GetSummary` and `LastSummary` skip it (state NONE) and the stale `summary` section is ignored; Generate works again |
 | `summary.md` edited by the user, then Generate again | The edited file becomes `summary.previous.md`; nothing is lost (product decision 5) |
 | `meeting.json` from a newer schema | Listed `UNSUPPORTED`; no summary call works; the file is never rewritten |
-| Cloud enabled, key present, no network | `SUMMARY_PROVIDER_UNAVAILABLE`; nothing is queued for later |
+| Cloud selected, key present, no network | `SUMMARY_PROVIDER_UNAVAILABLE`; nothing is queued for later |
 | Cloud returns an auth or balance error | `SUMMARY_AUTH_FAILED` for 401 and 403; any other 4xx is `SUMMARY_PROVIDER_REJECTED` with the HTTP status only |
 | Storage moves to the XDG layout (backlog) | No client change: clients get data or a path from the service, never build one |
 | Language setting is not an ISO code | Rejected at settings load |
@@ -483,7 +484,7 @@ Decisions in one line each (details in the sections that follow):
 1. **The service calls the provider, never a client** (ADR-001, thin clients). The API key lives only in the GNOME Keyring and is read by the service on demand (ADR-009).
 2. **One manual action per summary**: a button in the review app; nothing runs automatically (product decision 2). The menu only opens the result.
 3. **`summaries` is a pure domain plus one adapter**: the port, chunking, prompts, rendering and fingerprint are pure; `meetings` owns meeting state, the lock and the files, and hands `summaries` plain data (CR-001, CR-003).
-4. **One button, one configured provider, the cloud gated four times**: the button uses `SUMMARIES_PROVIDER` (default local); the cloud needs the setting enabled, a key, the `cloud_confirmed` argument and a confirmation dialog on every request (ADR-006, BR-003, BR-004). Names go to the cloud as written. The "cloud" label comes from the service (`Providers`) and is on the button, so no client can forget it.
+4. **One button, one configured provider, the cloud gated four times**: the button uses `SUMMARIES_PROVIDER` (default local); the cloud needs the provider choice (the opt-in, decision 9), a key, the `cloud_confirmed` argument and a confirmation dialog on every request (ADR-006, BR-003, BR-004). Names go to the cloud as written. The "cloud" label comes from the service (`Providers`) and is on the button, so no client can forget it.
 5. **Local and GPU**: a local summary never runs while recording or processing, blocks the next worker while it runs, and releases the model afterwards (ADR-003, NFR-3).
 6. **Staleness is computed, not stored**: the summary stores a fingerprint of the transcript it used; Reprocess and renames never touch `summary.md`.
 
@@ -652,12 +653,12 @@ setting**: it is read from the GNOME Keyring through the `CloudKeyStore` port (s
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `SUMMARIES_PROVIDER` | `local` | The provider the "Generate summary" button uses, `local` or `cloud` (product decision 8); `cloud` also needs `SUMMARIES_CLOUD_ENABLED` and a key |
+| `SUMMARIES_PROVIDER` | `local` | The provider the "Generate summary" button uses, `local` or `cloud` (product decision 8). Choosing `cloud` is the cloud opt-in (product decision 9); it also needs a key |
 | `SUMMARIES_LOCAL_BASE_URL` | `http://127.0.0.1:11434/v1` | Ollama's OpenAI-compatible endpoint; the host must be loopback (AC-8) |
 | `SUMMARIES_LOCAL_MODEL` | `qwen3.5:9b` | Ollama model name (installed on the owner's machine; install only checks it exists) |
 | `SUMMARIES_LOCAL_CONTEXT_TOKENS` | `4096` | The window the service plans against; raise it together with Ollama's context (section 4) |
 | `SUMMARIES_UNLOAD_LOCAL_MODEL` | `true` | Ask Ollama to unload the model after a local summary (AC-12) |
-| `SUMMARIES_CLOUD_ENABLED` | `false` | The cloud provider is off until this is true (ADR-006) |
+| `SUMMARIES_CLOUD_ENABLED` | removed | Removed by product decision 9: the cloud is on only when `SUMMARIES_PROVIDER=cloud`. The migration rule is in [`preferences.md`](preferences.md) section 7 |
 | `SUMMARIES_CLOUD_BASE_URL` | `https://opencode.ai/zen/go/v1` | OpenAI-compatible cloud gateway (default OpenCode Go, ADR-009); must be https |
 | `SUMMARIES_CLOUD_MODEL` | `deepseek-v4-pro` | Any model the gateway serves on `/chat/completions`; not those on `/responses` or `/messages` (assumption A-1) |
 | `SUMMARIES_CLOUD_CONTEXT_TOKENS` | `100000` | Conservative budget (the published figures disagree, A-2) |
@@ -700,9 +701,9 @@ New classes derive from `MeetingScribeError`; each is registered in `error-codes
 | `error_code` | Meaning | Next step in the message |
 |---|---|---|
 | `SUMMARY_NO_SPEECH` | The meeting has no utterances | Nothing to summarize |
-| `SUMMARY_CLOUD_DISABLED` | Cloud requested while `SUMMARIES_CLOUD_ENABLED` is false | Enable it in the settings |
+| `SUMMARY_CLOUD_DISABLED` | Cloud requested while the configured provider is local (the code keeps its name; its meaning follows product decision 9) | Choose Cloud in Preferences |
 | `SUMMARY_CLOUD_KEY_UNAVAILABLE` | The Secret Service is not reachable (no service, D-Bus error or timeout); the cause is logged by exception type only | Check that gnome-keyring is running |
-| `SUMMARY_CLOUD_KEY_MISSING` | Cloud enabled, no key in the keyring | Store the key with `secret-tool` (runbook `store-cloud-api-key.md`) |
+| `SUMMARY_CLOUD_KEY_MISSING` | Cloud selected, no key in the keyring | Store the key with `secret-tool` (runbook `store-cloud-api-key.md`) |
 | `SUMMARY_CLOUD_KEY_LOCKED` | The keyring holds the key but is locked | Unlock the login keyring and try again; the service never prompts |
 | `SUMMARY_CLOUD_NOT_CONFIRMED` | Cloud requested without `cloud_confirmed` | Confirm in the app |
 | `SUMMARY_ALREADY_RUNNING` / `SUMMARY_BUSY` | A summary is running for this meeting / another meeting | Wait or cancel |
@@ -905,6 +906,11 @@ The owner answered all eight questions on 2026-10-11.
    (option a, `SUMMARIES_PROVIDER`). Safety requirement 3 still applies: when the configured provider is the cloud, the
    button label carries the service-provided "cloud" label (for example "Generate summary (cloud)") and every cloud
    request asks for confirmation before sending (`cloud_confirmed` stays). There is no separate per-request cloud entry.
+9. **Decision 9 (2026-10-11, owner)** Cloud opt-in: **there is no separate "Enable cloud" switch.** Choosing the cloud as the
+   provider (`SUMMARIES_PROVIDER=cloud`, set from the Preferences window) IS the opt-in, and `SUMMARIES_CLOUD_ENABLED` is
+   removed as a separate concept (migration in [`preferences.md`](preferences.md) section 7). Safety requirement 3 is
+   unchanged: the cloud is labelled "cloud" everywhere it can be triggered and every cloud request still asks for
+   confirmation (`cloud_confirmed`). The cloud fields of the Preferences window appear only when Cloud is selected.
 
 ---
 
