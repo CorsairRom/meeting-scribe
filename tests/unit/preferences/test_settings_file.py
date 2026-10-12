@@ -118,6 +118,7 @@ def test_the_next_write_moves_a_bad_file_aside(path: Path) -> None:
     assert store.read() == Success({"summaries.language": "es"})
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
 def test_an_unwritable_folder_is_a_storage_failure(path: Path) -> None:
     path.parent.mkdir(parents=True)
     path.parent.chmod(0o500)
@@ -128,3 +129,49 @@ def test_an_unwritable_folder_is_a_storage_failure(path: Path) -> None:
 
     assert isinstance(result, Failure)
     assert result.failure().error_code == "SETTINGS_STORAGE_FAILED"
+
+
+def test_an_older_invalid_backup_is_never_overwritten(path: Path) -> None:
+    path.parent.mkdir(parents=True)
+    store = JsonSettingsStore(path)
+    path.write_text("first broken", encoding="utf-8")
+    store.write({"summaries.language": "es"}).unwrap()
+    path.write_text("second broken", encoding="utf-8")
+
+    store.write({"summaries.language": "fr"}).unwrap()
+
+    backups = sorted(p.name for p in path.parent.iterdir() if "invalid" in p.name)
+    assert backups == ["settings.json.invalid", "settings.json.invalid.1"]
+    contents = {(path.parent / name).read_text(encoding="utf-8") for name in backups}
+    assert contents == {"first broken", "second broken"}
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permissions")
+def test_an_unreadable_file_is_kept_and_the_write_fails(
+    path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    store = JsonSettingsStore(path)
+    store.write({"summaries.language": "es"}).unwrap()
+    path.chmod(0o000)
+    try:
+        with caplog.at_level(logging.ERROR):
+            result = store.write({"summaries.language": "fr"})
+    finally:
+        path.chmod(0o600)
+
+    assert isinstance(result, Failure)
+    assert result.failure().error_code == "SETTINGS_STORAGE_FAILED"
+    assert [p.name for p in path.parent.iterdir()] == ["settings.json"]  # nothing set aside
+    assert store.read() == Success({"summaries.language": "es"})
+    assert "errno" in caplog.text
+
+
+def test_a_directory_in_place_of_the_file_is_a_storage_failure(path: Path) -> None:
+    path.mkdir(parents=True)
+
+    result = JsonSettingsStore(path).write({"summaries.language": "es"})
+
+    assert isinstance(result, Failure)
+    assert result.failure().error_code == "SETTINGS_STORAGE_FAILED"
+    assert path.is_dir()
+    assert [p.name for p in path.parent.iterdir()] == ["settings.json"]
