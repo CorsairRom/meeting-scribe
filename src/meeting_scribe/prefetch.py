@@ -135,8 +135,14 @@ def prefetch_models(
     *,
     token: str | None = None,
     progress_json: bool = False,
+    discard_whisper: Fetcher | None = None,
+    discard_pipeline: Fetcher | None = None,
 ) -> int:
     """Fetch both models; 0 when both are cached afterwards, 1 otherwise.
+
+    When both succeeded, ``discard_*`` remove the leftover ``*.incomplete`` blobs of each
+    repository: a run that completed every file leaves only orphans (best effort, never fails the
+    download). Nothing is discarded after a failure, when a blob may be a stalled current one.
 
     ``token`` goes to the gated pipeline only (the Whisper model is public). With
     ``progress_json`` stdout is one JSON object per line and nothing else: a ``step`` event before
@@ -174,8 +180,20 @@ def prefetch_models(
         else:
             report.ok()
             ready += 1
+    if ready == len(steps):
+        _discard(discard_pipeline, pipeline)
+        _discard(discard_whisper, whisper_model)
     report.done(ready, len(steps))
     return 0 if ready == len(steps) else 1
+
+
+def _discard(discard: Fetcher | None, name: str) -> None:
+    if discard is None:
+        return
+    try:
+        discard(name)
+    except Exception:  # best effort: a read-only cache must not fail a complete download
+        return
 
 
 def check_models(

@@ -21,6 +21,7 @@ from meeting_scribe.model_setup.domain.errors import (
 from meeting_scribe.model_setup.infrastructure.subprocess_download_runner import (
     DEFAULT_COMMAND,
     SubprocessDownloadRunner,
+    _Tail,
 )
 from tests.unit.model_setup.fakes import SENTINEL
 
@@ -161,13 +162,7 @@ def test_the_child_is_gone_after_a_cancel(tmp_path: Path) -> None:
     cancel = threading.Event()
     done = threading.Thread(target=_run, args=(_runner(tmp_path, "hang"), SENTINEL, 60.0, cancel))
     done.start()
-    report = tmp_path / "report.json"
-    deadline = time.monotonic() + 10
-    while not (report.exists() and report.stat().st_size) and time.monotonic() < deadline:
-        time.sleep(0.02)  # bounded wait: the child writes its pid before it hangs
-    assert report.exists(), "the child never wrote its report"
-    time.sleep(0.1)
-    pid = _report(tmp_path)["pid"]
+    pid = _wait_for_pid(tmp_path)
 
     cancel.set()
     done.join(10)
@@ -216,3 +211,86 @@ def test_a_token_straddling_the_logged_tail_is_never_logged_even_in_part(
     for start in range(len(SENTINEL) - 5):
         assert SENTINEL[start : start + 6] not in caplog.text  # no 6-character piece survives
     assert "hf_***" in caplog.text
+
+
+def test_a_huge_carriage_return_only_stream_is_split_scrubbed_and_bounded(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.DEBUG):
+        result, _ = _run(_runner(tmp_path, "progress_bar"), SENTINEL)
+
+    assert isinstance(result, Failure)
+    for start in range(len(SENTINEL) - 5):
+        assert SENTINEL[start : start + 6] not in caplog.text
+    assert "hf_***" in caplog.text
+    assert len(caplog.text) < 3000  # the tail is bounded by characters, not by line count
+
+
+def test_one_endless_segment_is_dropped_whole_so_no_part_of_a_token_is_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.DEBUG):
+        result, _ = _run(_runner(tmp_path, "endless_segment"), SENTINEL)
+
+    assert isinstance(result, Failure)
+    for start in range(len(SENTINEL) - 5):
+        assert SENTINEL[start : start + 6] not in caplog.text
+    assert len(caplog.text) < 3000
+
+
+def test_the_child_is_gone_after_a_timeout(tmp_path: Path) -> None:
+    done = threading.Thread(target=_run, args=(_runner(tmp_path, "hang"), SENTINEL, 3.0))
+    done.start()
+    pid = _wait_for_pid(tmp_path)  # bounded wait: the child writes it before it hangs
+
+    done.join(15)  # the 3 s timeout stops the child
+
+    assert not done.is_alive()
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+
+def _wait_for_pid(tmp_path: Path) -> int:
+    report = tmp_path / "report.json"
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            return json.loads(report.read_text(encoding="utf-8"))["pid"]
+        except (OSError, ValueError):
+            time.sleep(0.02)
+    raise AssertionError("the child never wrote its report")
+
+
+# -- the stderr tail itself ---------------------------------------------------------------------
+
+
+def test_the_tail_keeps_a_bounded_number_of_characters_whatever_the_stream() -> None:
+    tail = _Tail(SENTINEL)
+
+    for _ in range(300):  # 300 x 20,000 carriage-return separated redraws
+        tail.feed(("download 99%\r" * 1500).encode())
+    tail.feed(b"x" * 2_000_000)  # one segment with no separator at all
+    tail.close()
+
+    assert tail.stored_chars < 400_000
+    assert len(tail.render()) <= 1000
+
+
+def test_the_tail_splits_on_both_separators_and_scrubs_each_segment() -> None:
+    tail = _Tail(None)
+
+    tail.feed(b"one\rtwo hf_ABCdef123456\nthree")
+    tail.close()
+
+    assert tail.render().split("\n") == ["one", "two hf_***", "three"]
+
+
+def test_a_token_split_across_two_reads_is_scrubbed() -> None:
+    tail = _Tail(SENTINEL)
+
+    tail.feed(f"boom {SENTINEL[:10]}".encode())
+    tail.feed(f"{SENTINEL[10:]} end\n".encode())
+    tail.close()
+
+    assert SENTINEL[:6] not in tail.render()
+    assert "hf_***" in tail.render()

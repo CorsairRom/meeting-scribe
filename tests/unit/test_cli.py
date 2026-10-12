@@ -82,7 +82,7 @@ def test_prefetch_models_without_options_uses_no_token_and_prints_prose(
 
     cli.run(["prefetch-models"], stdin=io.StringIO("never read\n"))
 
-    assert seen == [{"token": None, "progress_json": False}]
+    assert [(o["token"], o["progress_json"]) for o in seen] == [(None, False)]
 
 
 def test_token_stdin_reads_one_line_and_never_takes_the_token_from_argv(
@@ -94,7 +94,7 @@ def test_token_stdin_reads_one_line_and_never_takes_the_token_from_argv(
     code = cli.run(["prefetch-models", "--token-stdin", "--progress-json"], stdin=stdin)
 
     assert code == 0
-    assert seen == [{"token": "hf_FromStdin123", "progress_json": True}]
+    assert [(o["token"], o["progress_json"]) for o in seen] == [("hf_FromStdin123", True)]
     with pytest.raises(SystemExit):  # there is no way to pass the token as an argument
         cli.run(["prefetch-models", "--token", "hf_x"])
 
@@ -167,3 +167,23 @@ def test_the_module_can_be_run_with_python_dash_m() -> None:
     assert "--token-stdin" in out
     assert "--progress-json" in out
     assert "--check" in out
+
+
+def test_a_download_passes_the_orphan_cleanup_of_both_backends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from meeting_scribe.speakers.infrastructure.pyannote_backend import (  # noqa: PLC0415
+        RealPyannoteBackend,
+    )
+    from meeting_scribe.transcription.infrastructure.faster_whisper_backend import (  # noqa: PLC0415
+        FasterWhisperBackend,
+    )
+
+    seen = _capture_prefetch(monkeypatch)
+
+    cli.run(["prefetch-models"])
+
+    (options,) = seen
+    whisper, pipeline = options["discard_whisper"], options["discard_pipeline"]
+    assert getattr(whisper, "__func__", None) is FasterWhisperBackend.discard_incomplete
+    assert getattr(pipeline, "__func__", None) is RealPyannoteBackend.discard_incomplete

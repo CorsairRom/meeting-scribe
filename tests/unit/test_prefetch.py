@@ -384,3 +384,81 @@ def test_a_whisper_model_without_a_preprocessor_config_is_cached(
     _fake_module(monkeypatch, "faster_whisper", utils=utils)
 
     assert FasterWhisperBackend().is_model_cached("large-v3-turbo") is True
+
+
+def test_leftover_incomplete_blobs_are_discarded_only_after_both_models_succeed() -> None:
+    calls = Calls()
+    seen: list[str] = []
+
+    code = prefetch_models(
+        WHISPER,
+        PIPELINE,
+        calls.whisper,
+        calls.pipeline,
+        out=io.StringIO(),
+        discard_whisper=lambda name: seen.append(f"whisper:{name}"),
+        discard_pipeline=lambda name: seen.append(f"pipeline:{name}"),
+    )
+
+    assert code == 0
+    assert sorted(seen) == [f"pipeline:{PIPELINE}", f"whisper:{WHISPER}"]
+
+
+def test_nothing_is_discarded_when_a_model_failed() -> None:
+    calls = Calls(whisper_error=_hub_error("LocalEntryNotFoundError"))
+    seen: list[str] = []
+
+    code = prefetch_models(
+        WHISPER,
+        PIPELINE,
+        calls.whisper,
+        calls.pipeline,
+        out=io.StringIO(),
+        discard_whisper=seen.append,
+        discard_pipeline=seen.append,
+    )
+
+    assert code == 1
+    assert seen == []  # a stalled blob of a failed run is not an orphan
+
+
+def test_a_failing_discard_never_fails_the_download() -> None:
+    calls = Calls()
+
+    def boom(_: str) -> None:
+        raise OSError("read-only cache")
+
+    code = prefetch_models(
+        WHISPER,
+        PIPELINE,
+        calls.whisper,
+        calls.pipeline,
+        out=io.StringIO(),
+        discard_whisper=boom,
+        discard_pipeline=boom,
+    )
+
+    assert code == 0
+
+
+def test_the_whisper_backend_discards_the_leftovers_of_its_repo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    from meeting_scribe.transcription.infrastructure.faster_whisper_backend import (  # noqa: PLC0415
+        FasterWhisperBackend,
+    )
+
+    snapshot = make_snapshot(tmp_path, dict.fromkeys(WHISPER_FILES, b"x"), repo="x--y")
+    orphan = snapshot.parents[1] / "blobs" / "old.incomplete"
+    orphan.write_bytes(b"half")
+
+    def download_model(*_: object, **__: object) -> str:
+        return str(snapshot)
+
+    utils = _fake_module(monkeypatch, "faster_whisper.utils", download_model=download_model)
+    _fake_module(monkeypatch, "faster_whisper", utils=utils)
+
+    FasterWhisperBackend().discard_incomplete("large-v3-turbo")
+
+    assert not orphan.exists()
+    assert FasterWhisperBackend().is_model_cached("large-v3-turbo") is True

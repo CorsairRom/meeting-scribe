@@ -12,10 +12,12 @@ known events, its stderr tail is logged only after the token and anything shaped
 scrubbed, and errors carry fixed texts and codes.
 """
 
+import codecs
 import collections
 import json
 import logging
 import queue
+import re
 import subprocess
 import threading
 import time
@@ -45,8 +47,12 @@ logger = logging.getLogger(__name__)
 __all__ = ["DEFAULT_COMMAND", "SubprocessDownloadRunner"]
 
 _POLL_SECONDS = 0.05
-_STDERR_TAIL_CHARS = 1000
-_STDERR_TAIL_LINES = 50
+_STDERR_TAIL_CHARS = 1000  # what is logged
+_TAIL_SEGMENTS = 50
+_TAIL_CHARS = 20_000  # what is kept while the child runs
+_SEGMENT_CHARS = 4096
+_READ_BYTES = 65536
+_SEPARATORS = re.compile(r"[\r\n]")
 
 
 class _Seen:
@@ -84,10 +90,10 @@ class SubprocessDownloadRunner:
             return spawned
         process = spawned.unwrap()
         lines: queue.Queue[str | None] = queue.Queue()
-        tail: collections.deque[str] = collections.deque(maxlen=_STDERR_TAIL_LINES)
+        tail = _Tail(secret)
         readers = (
             threading.Thread(target=_read_lines, args=(process.stdout, lines), daemon=True),
-            threading.Thread(target=_read_tail, args=(process.stderr, tail, secret), daemon=True),
+            threading.Thread(target=_read_tail, args=(process.stderr, tail), daemon=True),
         )
         for reader in readers:
             reader.start()
@@ -100,7 +106,7 @@ class SubprocessDownloadRunner:
             for reader in readers:
                 reader.join(timeout=1.0)
         if isinstance(outcome, Failure):
-            _log_tail(tail)
+            _log_tail(tail.render())
         return outcome
 
     def _spawn(self, secret: str | None) -> Result[subprocess.Popen[bytes], MeetingScribeError]:
@@ -220,29 +226,94 @@ def _read_lines(stream: IO[bytes] | None, lines: "queue.Queue[str | None]") -> N
         lines.put(None)
 
 
-def _read_tail(
-    stream: IO[bytes] | None, tail: "collections.deque[str]", secret: str | None
-) -> None:
-    """Keep the last stderr lines, each scrubbed as it arrives.
-
-    Scrubbing happens per whole line, before any truncation, so a token can never be cut in two
-    and have its tail escape the scrub. The pipe is drained so the child never blocks on it.
-    """
+def _read_tail(stream: IO[bytes] | None, tail: "_Tail") -> None:
+    """Drain stderr (so the child never blocks on a full pipe) into the bounded tail."""
     if stream is None:
         return
-    for raw in stream:
-        tail.append(scrub(raw.decode("utf-8", errors="replace"), secret))
+    try:
+        while chunk := stream.read1(_READ_BYTES):  # type: ignore[attr-defined]
+            tail.feed(chunk)
+    finally:
+        tail.close()
 
 
-def _log_tail(tail: "collections.deque[str]") -> None:
-    """Log the end of the (already scrubbed) output, cut on a line boundary."""
-    kept: list[str] = []
-    size = 0
-    for line in reversed(tail):
-        if kept and size + len(line) > _STDERR_TAIL_CHARS:
-            break
-        kept.append(line)
-        size += len(line)
-    text = "".join(reversed(kept)).strip()[-_STDERR_TAIL_CHARS:]
+class _Tail:
+    """The end of the child's stderr, scrubbed and bounded in characters.
+
+    tqdm redraws with ``\\r`` and never writes ``\\n``, so one "line" can be megabytes: the stream
+    is split on both separators. Each complete segment is scrubbed whole, so a token can never be
+    cut in two and have its tail escape the scrub. A segment longer than ``_SEGMENT_CHARS`` is
+    dropped as a whole (never truncated: a cut could leave the end of a token). At most
+    ``_TAIL_SEGMENTS`` segments and ``_TAIL_CHARS`` characters are kept.
+    """
+
+    def __init__(self, secret: str | None) -> None:
+        self._secret = secret
+        self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        self._segments: collections.deque[str] = collections.deque()
+        self._stored = 0
+        self._pending: list[str] = []
+        self._pending_chars = 0
+        self._overflow = False
+        self._lock = threading.Lock()
+
+    @property
+    def stored_chars(self) -> int:
+        return self._stored + self._pending_chars
+
+    def feed(self, chunk: bytes) -> None:
+        with self._lock:
+            parts = _SEPARATORS.split(self._decoder.decode(chunk))
+            for index, part in enumerate(parts):
+                self._add(part)
+                if index < len(parts) - 1:
+                    self._close_segment()
+
+    def close(self) -> None:
+        with self._lock:
+            self._add(self._decoder.decode(b"", final=True))
+            self._close_segment()
+
+    def render(self) -> str:
+        """The kept segments, one per line; the cut to the final length is on a segment edge."""
+        with self._lock:
+            kept: list[str] = []
+            size = 0
+            for segment in reversed(self._segments):
+                if kept and size + len(segment) + 1 > _STDERR_TAIL_CHARS:
+                    break
+                kept.append(segment)
+                size += len(segment) + 1
+            text = "\n".join(reversed(kept))
+            return text[-_STDERR_TAIL_CHARS:]
+
+    def _add(self, part: str) -> None:
+        if self._overflow or not part:
+            return
+        self._pending.append(part)
+        self._pending_chars += len(part)
+        if self._pending_chars > _SEGMENT_CHARS:
+            self._pending.clear()
+            self._pending_chars = 0
+            self._overflow = True
+
+    def _close_segment(self) -> None:
+        text = (
+            "[an output segment was too long and was dropped]"
+            if self._overflow
+            else scrub("".join(self._pending), self._secret).strip()
+        )
+        self._pending.clear()
+        self._pending_chars = 0
+        self._overflow = False
+        if not text:
+            return
+        self._segments.append(text)
+        self._stored += len(text)
+        while len(self._segments) > _TAIL_SEGMENTS or self._stored > _TAIL_CHARS:
+            self._stored -= len(self._segments.popleft())
+
+
+def _log_tail(text: str) -> None:
     if text:
         logger.warning("Download process output (scrubbed): %s", text)

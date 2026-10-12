@@ -65,5 +65,16 @@ elif mode == "straddle":
     # One line whose last 1000 characters begin inside the token (token is 26 characters long).
     print("a" * 5 + str(stdin_line) + "b" * 984, file=sys.stderr, flush=True)
     sys.exit(2)
+elif mode == "progress_bar":
+    # tqdm redraws with \r and never writes \n: millions of characters in one "line".
+    for percent in range(200_000):
+        sys.stderr.write(f"download {percent}%\r")
+    sys.stderr.write(f"token {stdin_line}\r")
+    sys.stderr.flush()
+    sys.exit(2)
+elif mode == "endless_segment":
+    sys.stderr.write("x" * 3_000_000 + str(stdin_line) + "y" * 10)  # no separator at all
+    sys.stderr.flush()
+    sys.exit(2)
 elif mode == "hang":
     time.sleep(120)

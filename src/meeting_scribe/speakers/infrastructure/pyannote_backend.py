@@ -12,7 +12,10 @@ from pathlib import Path
 from typing import cast
 
 from meeting_scribe.base.domain.audio import SAMPLE_RATE, Samples
-from meeting_scribe.base.infrastructure.hf_cache import snapshot_is_complete
+from meeting_scribe.base.infrastructure.hf_cache import (
+    remove_incomplete_blobs,
+    snapshot_is_complete,
+)
 from meeting_scribe.speakers.domain.diarization import Device
 from meeting_scribe.speakers.infrastructure.pyannote_diarizer import PipelineLike
 
@@ -75,6 +78,15 @@ class RealPyannoteBackend:
             return False
         required = ["config.yaml", *_MODEL_REFERENCE.findall(config)]
         return snapshot_is_complete(snapshot, required)
+
+    def discard_incomplete(self, pipeline: str) -> None:
+        """Remove the orphaned ``*.incomplete`` blobs of the pipeline's repository.
+
+        Only after a download that completed: nothing of the current revision is unfinished then.
+        """
+        from huggingface_hub import snapshot_download  # noqa: PLC0415 - lazy by design
+
+        remove_incomplete_blobs(Path(snapshot_download(pipeline, local_files_only=True)))
 
     def make_input(self, audio: Samples) -> Mapping[str, object]:
         import torch  # noqa: PLC0415 - lazy by design

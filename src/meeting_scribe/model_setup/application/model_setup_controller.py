@@ -62,6 +62,7 @@ class ModelSetupController:
         self._observers: tuple[DownloadEvents, ...] = ()
         self._cache: CacheStatus | None = None  # remembered until a download ends
         self._active = False
+        self._stopping = False  # shutdown began: no child may start any more
         self._started = False  # the job is announced: only then is there something to cancel
         self._flight: _Flight | None = None
         self._cancel = threading.Event()
@@ -98,6 +99,8 @@ class ModelSetupController:
         a processing job that reads it.
         """
         with self._lock:
+            if self._stopping:
+                return Failure(ModelsDownloadCancelledError("The service is shutting down."))
             if self._active:
                 return Failure(ModelsDownloadActiveError("A download is already running."))
             self._active = True
@@ -110,6 +113,9 @@ class ModelSetupController:
                 self._active = False
             return Success("READY")
         with self._lock:
+            if self._stopping:  # shutdown began during the check: start nothing
+                self._active = False
+                return Failure(ModelsDownloadCancelledError("The service is shutting down."))
             self._failure_code = ""
             self._step, self._total = 0, TOTAL_STEPS
             self._started = True
@@ -136,6 +142,7 @@ class ModelSetupController:
     def shutdown(self, wait_seconds: float) -> bool:
         """Cancel a running download and wait for its thread, bounded; True when it ended."""
         with self._lock:
+            self._stopping = True
             thread = self._thread
             if self._active:
                 self._cancel.set()
@@ -156,23 +163,32 @@ class ModelSetupController:
         self._finish(state, code)
 
     def _run(self, cancel: threading.Event) -> tuple[Outcome, str]:
+        if cancel.is_set():  # shutdown or a cancel arrived before the child could start
+            return self._cancelled()
         token = self._tokens.read_token()
         if isinstance(token, Failure):
             return self._failed(self._policy.code_for(token.failure()))
         ran = self._runner.run(token.unwrap(), self._timeout, self._on_progress, cancel)
+        return self._after_run(ran, cancel)
+
+    def _after_run(
+        self, ran: Result[None, MeetingScribeError], cancel: threading.Event
+    ) -> tuple[Outcome, str]:
         if isinstance(ran, Failure):
             error = ran.failure()
             if isinstance(error, ModelsDownloadCancelledError):
-                self._forget_cache()
-                return "CANCELLED", ""
+                return self._cancelled()
             return self._failed(self._policy.code_for(error))
         cache = self._probe_and_remember()  # nothing partial is ever reported as ready
         if cancel.is_set():  # a true CancelDownload always ends as CANCELLED, even if it lost
-            self._forget_cache()
-            return "CANCELLED", ""
+            return self._cancelled()
         if cache.ready:
             return "READY", ""
         return "FAILED", ModelsDownloadFailedError.error_code
+
+    def _cancelled(self) -> tuple[Outcome, str]:
+        self._forget_cache()
+        return "CANCELLED", ""
 
     def _failed(self, code: str) -> tuple[Outcome, str]:
         self._forget_cache()

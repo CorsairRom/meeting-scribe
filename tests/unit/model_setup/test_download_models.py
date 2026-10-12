@@ -352,3 +352,35 @@ def test_a_true_cancel_always_ends_with_cancelled_even_when_the_models_turn_out_
 
     events.wait_finished()
     assert events.events[-1] == ("finished", ("CANCELLED", ""))
+
+
+def test_a_download_after_shutdown_is_refused_and_starts_no_child() -> None:
+    controller, _, runner, _, _ = _controller()
+    controller.shutdown(1)
+
+    reply = controller.download()
+
+    assert isinstance(reply, Failure)
+    assert reply.failure().error_code == "MODELS_DOWNLOAD_CANCELLED"
+    assert runner.runs == []
+    assert not controller.active
+
+
+def test_a_shutdown_during_the_fresh_check_stops_the_download_before_any_child() -> None:
+    gate = threading.Event()
+    probe = FakeCacheProbe(NONE, gate=gate)
+    controller, events, runner, tokens, _ = _controller(probe=probe)
+    replies: list[object] = []
+    caller = threading.Thread(target=lambda: replies.append(controller.download()))
+    caller.start()
+    assert probe.entered.wait(5)
+
+    controller.shutdown(0.1)
+    gate.set()
+    caller.join(5)
+
+    assert isinstance(replies[0], Failure)
+    assert runner.runs == []
+    assert tokens.reads == 0
+    assert events.events == []
+    assert not controller.active
