@@ -135,7 +135,7 @@ ai_instructions:
 ### CR-011 — D-Bus names and error mapping
 - **Date**: 2026-10-09
 - **Status**: active
-- **Rule**: The bus name is `dev.meetingscribe.Service`, the object path `/dev/meetingscribe/Service`, interfaces are `dev.meetingscribe.<Name>1`, and domain errors are raised as `DBusError("dev.meetingscribe.Error.<ERROR_CODE>", message)`. Names are renamable until F6.
+- **Rule**: The bus name is `dev.meetingscribe.Service`, the object path `/dev/meetingscribe/Service`, interfaces are `dev.meetingscribe.<Name>1`, and domain errors are raised as `DBusError("dev.meetingscribe.Error.<ERROR_CODE>", message)`. Names are stable since F6 closed (decided 2026-10-12, install spec OQ-3): a later rename needs an ADR.
 - **Source**: [ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md); [`error-codes-catalog.md`](../architecture/error-codes-catalog.md)
 - **Verifiable in**: `docs/architecture/api-contracts.md`; `tests/e2e/recording/` (private `dbus-daemon`)
 
@@ -580,7 +580,7 @@ with `Supersedes: <ID>`. Never delete rules.
 - **Date**: 2026-10-12
 - **Status**: active
 - **Supersedes**: GO-047 (the install-time download)
-- **Detail**: `./install.sh` (alias `make install`) does no network step: recording needs no model, so a missing network, login or terms acceptance can never block or fail the install. After the switch it runs `current/bin/meeting-scribe prefetch-models --check` (offline) and prints `models: ready (cached)` or `models: PENDING: add your Hugging Face token in Preferences and press Download models; recording works meanwhile`, followed until F6.7 by `(until then: meeting-scribe prefetch-models)`. A missing, failing or timed out check is reported as PENDING, never as a failure. The check is bounded by `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT` seconds (default 30; an invalid value falls back to 30). `--check` exists since F6.4 (GO-067), so the line is truthful. Unchanged from GO-047: the worker always runs with `HF_HUB_OFFLINE=1`, a cache miss becomes `MODEL_UNAVAILABLE`, and `uv tool install` takes the extra as `meeting-scribe[ml] @ <repo>`.
+- **Detail**: `./install.sh` (alias `make install`) does no network step: recording needs no model, so a missing network, login or terms acceptance can never block or fail the install. After the switch it runs `current/bin/meeting-scribe prefetch-models --check` (offline) and prints `models: ready (cached)` or `models: PENDING: add your Hugging Face token in Preferences and press Download models; recording works meanwhile`. A missing, failing or timed out check is reported as PENDING, never as a failure. The check is bounded by `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT` seconds (default 30; an invalid value falls back to 30). `--check` exists since F6.4 (GO-067), so the line is truthful. Unchanged from GO-047: the worker always runs with `HF_HUB_OFFLINE=1`, a cache miss becomes `MODEL_UNAVAILABLE`, and `uv tool install` takes the extra as `meeting-scribe[ml] @ <repo>`.
 - **Source**: [install spec](../specs/install.md) section 5 and OQ-2
 - **Verifiable in**: `tests/unit/test_install_scripts.py`
 

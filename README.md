@@ -41,12 +41,33 @@ when only those remain, 10 when a command can fix something). The first column i
 | `ollama.reachable` | Ollama answers at `http://127.0.0.1:11434` (`SUMMARIES_LOCAL_BASE_URL` is honoured) | blocks | `sudo systemctl start ollama` when it is a system service, else `ollama serve` |
 | `ollama.model` | The configured local model is pulled (default `qwen3:4b-instruct-2507-q4_K_M`) | blocks | `ollama pull <model>` (about 2.5 GB); the installer never pulls it |
 
+## Install (humans and AI agents)
+
+```bash
+git clone <this repository> meeting-scribe && cd meeting-scribe
+./install.sh --check          # read-only: changes nothing (add --json for a machine-readable report)
+```
+
+1. Read what `--check` prints. Each blocker says what is missing, why it is needed and the exact command to fix it. An item
+   tagged `FIX` is fixed by a command (exit 10); an item tagged `HUMAN` has no command, only you can do it: the GNOME
+   session, the NVIDIA driver and reboot, the GPU itself (exit 11 when only those remain). An AI agent may run
+   `--check`, but it runs a `sudo` fix only with your consent and hands every `HUMAN` item back to you.
+2. Run the fixes, then `./install.sh --check` again until it says `Summary: nothing blocks the install.`
+3. `./install.sh` installs the service, the review app and the GNOME extension (it repeats the check and never asks
+   anything). Log out and back in once if it says the extension needs it.
+4. Open **Preferences** from the Meeting Scribe menu in the top bar, then **Speech models**: accept the pyannote terms,
+   paste your Hugging Face token (it goes to the GNOME Keyring) and press **Download models**. Recording works before
+   this; processing needs the models.
+
+Update with `git pull && ./install.sh`; remove with `./uninstall.sh` (it prints what it keeps). Exit codes, every check
+id with its fix and troubleshooting: [`docs/runbooks/install.md`](docs/runbooks/install.md).
+
 ## Quickstart
 
 ```bash
 ./install.sh --check   # read-only preflight: what is missing, why, and the exact command to fix it (add --json for agents)
 ./install.sh           # everything: service, systemd user unit, D-Bus activation, GNOME extension (alias: make install)
-./uninstall.sh         # reverse it (keeps your meetings, your `.env`, your `settings.json` and the API key in the keyring)
+./uninstall.sh         # reverse it (keeps your meetings, `.env`, `settings.json`, the keyring items and the downloaded models)
 ```
 
 `make install` and `make uninstall` are aliases and take `ARGS` (for example `make install ARGS=--check`). The installer
@@ -73,8 +94,9 @@ as NOT active and exits non-zero. A failing extension step is reported in the su
    (on upgrade it restarts it).
 3. Does not download the speech models: recording needs none of them. The summary says `models: ready (cached)` or
    `models: PENDING: add your Hugging Face token in Preferences and press Download models` (an offline check, never a
-   failure; the Download models action arrives with F6.5 to F6.7, until then `meeting-scribe prefetch-models` fetches
-   them, see [`processing.md`](docs/runbooks/processing.md)). Processing runs offline (`HF_HUB_OFFLINE=1`).
+   failure). The models arrive from Preferences, **Speech models**, **Download models** (see
+   [`install.md`](docs/runbooks/install.md) and [`processing.md`](docs/runbooks/processing.md)). Processing runs offline
+   (`HF_HUB_OFFLINE=1`) and needs no token.
 4. Packs, installs and enables the GNOME extension. On Wayland a brand-new extension is discovered only after you
    log out and back in once; the installer tells you when that is needed.
 5. Installs the review app (F4) into the same version directory (`app/` and the `bin/meeting-scribe-review` launcher, which
@@ -123,7 +145,8 @@ stops the recording first.
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | System context, bounded contexts, layering, GPU policy, configuration |
 | [`AGENTS.md`](AGENTS.md) | Conventions and workflow for AI agents and contributors (`CLAUDE.md` links to it) |
 | [`docs/runbooks/record-via-gdbus.md`](docs/runbooks/record-via-gdbus.md) | Record and stop a meeting by hand over D-Bus (records real audio) |
-| [`docs/runbooks/processing.md`](docs/runbooks/processing.md) | Hugging Face login, models downloaded by `make install`, first run, troubleshooting by error code |
+| [`docs/runbooks/install.md`](docs/runbooks/install.md) | Install, update, uninstall and troubleshoot: `--check`, exit codes, every check id with its fix |
+| [`docs/runbooks/processing.md`](docs/runbooks/processing.md) | The speech models and the Hugging Face token, first run, troubleshooting by error code |
 | [`docs/runbooks/review-app.md`](docs/runbooks/review-app.md) | Install, open and troubleshoot the review app (system GTK 4 and libadwaita) |
 | [`docs/runbooks/summaries.md`](docs/runbooks/summaries.md) | Set up and troubleshoot summaries: Ollama, context size, model choice, the cloud and its key |
 | [`docs/runbooks/preferences.md`](docs/runbooks/preferences.md) | The Preferences window: settings precedence, locked fields, restarting the service, the settings file |

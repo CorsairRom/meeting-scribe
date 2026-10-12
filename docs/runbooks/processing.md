@@ -1,7 +1,7 @@
 ---
 type: runbook
 status: active
-last_updated: 2026-10-09
+last_updated: 2026-10-12
 phase: F3
 verifiable_by:
   - scripts/install.sh
@@ -12,7 +12,7 @@ verifiable_by:
   - tests/unit/test_prefetch.py
 ai_instructions:
   - "Processing reads real meeting audio. An agent must NEVER open the meetings directory or run a real job on its own."
-  - "Never read or print the Hugging Face token; the login is the user's one-time manual step."
+  - "Never read or print the Hugging Face token, and never press Download models or run prefetch-models without the user's explicit go: accepting the terms and creating the token are the user's manual steps."
 ---
 
 # Set up and troubleshoot processing
@@ -28,15 +28,15 @@ the first run, and what each failure code means. Design: [`../specs/processing.m
   driver is the only system part. Without it, jobs fail with `GPU_UNAVAILABLE` (never a silent CPU fallback).
 - A Hugging Face account with the community-1 terms accepted. The diarization model is **gated**:
   1. Accept the terms at <https://hf.co/pyannote/speaker-diarization-community-1> while logged in.
-  2. Give the download a token: add it in Preferences (Speech models), or log in once in a real terminal with
-     `hf auth login` (the CLI comes with `huggingface_hub`). The download uses the Preferences token when there is one
-     and the `hf auth login` login otherwise. This program never prints either.
+  2. Create a read token (Hugging Face, Settings, Access Tokens) and add it in Preferences, Speech models: it is stored in
+     the GNOME Keyring. The download uses that token when there is one and an existing `hf auth login` login otherwise
+     (no need to log in if you have a token in Preferences). This program never prints either.
 - Network access only while the models are downloaded. Processing itself runs offline (`HF_HUB_OFFLINE=1`) and needs
   neither a token nor a login: a cached model loads without them.
 
 ## Steps
 
-1. `./install.sh` (alias `make install`). It runs the preflight, installs the service with the `ml` extra
+1. `./install.sh` (alias `make install`; see [`install.md`](install.md)). It runs the preflight, installs the service with the `ml` extra
    (faster-whisper, torch, pyannote.audio) and does **not** download the models: recording never needs them. The
    models live in the Hugging Face cache (`~/.cache/huggingface`, or `$HF_HOME`):
    - the diarization pipeline `pyannote/speaker-diarization-community-1` (`SPEAKERS_PIPELINE`) with the models it names,
@@ -48,14 +48,15 @@ the first run, and what each failure code means. Design: [`../specs/processing.m
 2. Read the summary. The `models:` line says `ready (cached)`, or `PENDING: add your Hugging Face token in Preferences
    and press Download models` (an offline check, bounded by `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT` seconds, default 30).
    Pending is not a failure: recording works, processing does not until the models are cached.
-3. Fetch the models. The service exposes `dev.meetingscribe.Models1` (F6.5: `GetStatus`, `Download`, `CancelDownload`, signals
-   `ModelsProgress` and `ModelsFinished`, see [`../architecture/api-contracts.md`](../architecture/api-contracts.md)); the Download
-   models action in Preferences that drives it arrives with F6.6 and F6.7. From a terminal today:
-   `gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service --method dev.meetingscribe.Models1.GetStatus`
-   (and `...Models1.Download`; the service runs the download itself with the keyring token, else your `hf auth login` login, and
-   stops it after `MODEL_SETUP_DOWNLOAD_TIMEOUT_SECONDS`, default 3600). Or run
+3. Fetch the models from Preferences: open it from the Meeting Scribe menu, then **Speech models**: **Accept the pyannote
+   terms**, paste the token, press **Download models** (steps and statuses in [`preferences.md`](preferences.md)). The
+   service runs the download itself (`dev.meetingscribe.Models1`: `GetStatus`, `Download`, `CancelDownload`, signals
+   `ModelsProgress` and `ModelsFinished`, see [`../architecture/api-contracts.md`](../architecture/api-contracts.md)) with the
+   keyring token, else your `hf auth login` login, and stops it after `MODEL_SETUP_DOWNLOAD_TIMEOUT_SECONDS`
+   (default 3600). From a terminal, `gdbus call --session --dest dev.meetingscribe.Service --object-path
+   /dev/meetingscribe/Service --method dev.meetingscribe.Models1.GetStatus` shows the status. For development,
    `meeting-scribe prefetch-models` (installed path: `~/.local/share/meeting-scribe/current/bin/meeting-scribe
-   prefetch-models`) after the login and the terms above. Developer options of the same command:
+   prefetch-models`) downloads with the ambient login (it never reads the keyring). Developer options of the same command:
    `--check` (offline; prints `{"whisper": true, "pipeline": false}` and exits 0 only when both are cached, a partial
    download never counts), `--token-stdin` (the token is the first line of standard input, never an argument) and
    `--progress-json` (one JSON object per line: `step`, `error`, `finished`). The service runs it that way.
@@ -92,7 +93,7 @@ Unfinished meetings resume by themselves when the service starts.
 | `MODEL_UNAVAILABLE` | A model is not in the cache (the worker is offline) | Open Preferences and press Download models (or run `meeting-scribe prefetch-models`; the install only reports `models: PENDING`), or check `TRANSCRIPTION_MODEL` / `SPEAKERS_PIPELINE`, then Reprocess. |
 | `WORKER_TIMEOUT` | A worker exceeded its stage timeout | Reprocess. For very long meetings raise `PROCESSING_WORKER_TIMEOUT_FACTOR` or `PROCESSING_WORKER_MIN_TIMEOUT_SECONDS`. |
 | `WORKER_CRASHED` | A worker exited abnormally | Read the end of `processing.log` in the meeting folder (yourself, privately), then Reprocess. |
-| `WORKER_PROTOCOL_ERROR` | A worker spoke an unexpected protocol | Reinstall with `make install` (service and worker must be the same version). |
+| `WORKER_PROTOCOL_ERROR` | A worker spoke an unexpected protocol | Reinstall with `./install.sh` (service and worker must be the same version). |
 | `MEETING_AUDIO_MISSING` | The recording has no audio chunk with frames | Nothing to process; the recording itself failed. |
 | `MEETING_CORRUPT` / `MEETING_SCHEMA_UNSUPPORTED` | `meeting.json` is damaged or from a newer version | The meeting is never processed or rewritten; restore the file or upgrade the service. |
 | `MEETING_STORAGE_FAILED` | The meetings folder could not be read or written | Check disk space and permissions; the job is retried a few times and can be Reprocessed. |

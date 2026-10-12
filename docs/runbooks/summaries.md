@@ -128,5 +128,5 @@ A finished summary appears in the Summary tab and as `summary.md` next to the me
 | "Open last summary" does nothing | No app is set for Markdown files. `xdg-mime default <app>.desktop text/markdown`. |
 
 Codes are listed in [`../architecture/error-codes-catalog.md`](../architecture/error-codes-catalog.md). To go back to
-no summaries at all, leave the cloud off and stop Ollama; recording and processing never need either. `make uninstall`
-leaves meetings, summaries and the settings file untouched.
+no summaries at all, leave the cloud off and stop Ollama; recording and processing never need either. `./uninstall.sh`
+leaves meetings, summaries, the settings file, the keyring items and the downloaded models untouched.

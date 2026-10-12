@@ -1,7 +1,7 @@
 ---
 type: spec
 feature: install
-status: approved  # draft | approved | in-progress | done | blocked
+status: in-progress  # draft | approved | in-progress | done | blocked
 mvp: true
 prd_ref: FR-7, NFR-1, NFR-3, NFR-6, safety requirements 1-3
 depends_on:
@@ -33,7 +33,7 @@ last_updated: 2026-10-12
 ai_instructions:
   - "This spec is a contract. Do NOT implement anything that is not in it."
   - "If you need to change the spec, update this doc FIRST and ask for confirmation."
-  - "Every acceptance criterion must have a test that verifies it. Test names marked (planned) do not exist yet."
+  - "Every acceptance criterion must have a test that verifies it. Test names marked (planned) do not exist yet (none remain)."
   - "The installer never runs sudo and never prompts. It prints commands; a human, or an AI with the human's consent, runs them."
   - "The Hugging Face token is never an argument, never in a D-Bus reply, never logged and never a setting (BR-005 applies to it as to the cloud API key)."
   - "Tests never touch the real HOME, keyring, Hugging Face cache, GPU, Ollama, meetings folder or an audio device; they use a sandbox HOME, fake tools on PATH, a fake key store and a private bus."
@@ -88,7 +88,7 @@ THEN no file or directory is created under HOME, no systemctl enable/start/resta
 AND the exit code is 0 when nothing blocks and 10 or 11 otherwise
 ```
 
-**Test**: `tests/unit/test_preflight.py::test_check_changes_nothing` (planned)
+**Test**: `tests/unit/test_preflight.py::test_check_changes_nothing`
 
 ### AC-2: A missing prerequisite stops the install with zero changes
 
@@ -99,7 +99,7 @@ THEN the preflight report is printed, the exit code is 10 or 11, and the sandbox
 AND uv, systemctl and gnome-extensions were never called for a write
 ```
 
-**Test**: `tests/unit/test_install_scripts.py::test_install_stops_with_zero_changes_when_a_prerequisite_is_missing` (planned)
+**Test**: `tests/unit/test_install_scripts.py::test_install_stops_with_zero_changes_when_a_prerequisite_is_missing`
 
 ### AC-3: Every item says what, why and how to fix it
 
@@ -109,7 +109,7 @@ THEN the report gives its stable id, what is missing, why meeting-scribe needs i
 AND a human-only item gives the manual steps instead and is labelled HUMAN, not FIX
 ```
 
-**Test**: `tests/unit/test_preflight.py::test_every_blocking_item_has_what_why_and_fix` (planned)
+**Test**: `tests/unit/test_preflight.py::test_every_blocking_item_has_what_why_and_fix`
 
 ### AC-4: The installer never runs sudo and never prompts
 
@@ -120,7 +120,7 @@ THEN sudo is never called, no read from the terminal happens, and the run ends w
 AND "sudo" appears in the output only inside printed fix commands
 ```
 
-**Test**: `tests/unit/test_preflight.py::test_sudo_is_never_called_and_nothing_prompts` (planned)
+**Test**: `tests/unit/test_preflight.py::test_sudo_is_never_called_and_nothing_prompts`
 
 ### AC-5: Exit codes are stable
 
@@ -130,7 +130,7 @@ THEN 0 is success (install done, or --check with nothing blocking), 1 is an inst
 AND the same input always yields the same code
 ```
 
-**Test**: `tests/unit/test_preflight.py::test_exit_codes_match_the_contract` (planned)
+**Test**: `tests/unit/test_preflight.py::test_exit_codes_match_the_contract`
 
 ### AC-6: The JSON report is stable and alone on stdout
 
@@ -142,7 +142,7 @@ AND nothing else is written to stdout, and the document parses with a strict JSO
 AND every id in the document is one of the documented check ids
 ```
 
-**Test**: `tests/unit/test_preflight.py::test_json_report_is_one_valid_document` (planned)
+**Test**: `tests/unit/test_preflight.py::test_json_report_is_one_valid_document`
 
 ### AC-7: Human-only steps are labelled apart
 
@@ -153,7 +153,7 @@ GIVEN a missing package (for example libadwaita)
 THEN its status is FIX and the exit code is 10
 ```
 
-**Test**: `tests/unit/test_preflight.py::test_human_only_items_are_labelled_and_exit_11` (planned)
+**Test**: `tests/unit/test_preflight.py::test_human_only_items_are_labelled_and_exit_11`
 
 ### AC-8: The GPU checks read nvidia-smi only
 
@@ -164,7 +164,7 @@ AND gpu.vram is OK at 8000 MiB or more (the measured RTX 5060 Laptop reports 815
 AND the detail line names the GPU, the memory and the driver version
 ```
 
-**Test**: `tests/unit/test_preflight.py::test_gpu_and_vram_checks` (planned)
+**Test**: `tests/unit/test_preflight.py::test_gpu_and_vram_checks`
 
 ### AC-9: The disk check is measured per filesystem
 
@@ -175,7 +175,7 @@ AND the requirements of directories on the same filesystem are added, the others
 AND a shortage is a FIX item that names the filesystem, the free and the required space and a command to see what is large
 ```
 
-**Test**: `tests/unit/test_preflight.py::test_disk_requirement_is_per_filesystem` (planned)
+**Test**: `tests/unit/test_preflight.py::test_disk_requirement_is_per_filesystem_service_and_models_share_one`, `tests/unit/test_preflight.py::test_directories_on_different_filesystems_are_checked_apart`
 
 ### AC-10: GNOME on Wayland, and the shell version the extension declares
 
@@ -185,7 +185,7 @@ THEN session.wayland, session.gnome-shell are HUMAN items that state what was fo
 AND the required versions are read from metadata.json, not repeated in the script
 ```
 
-**Test**: `tests/unit/test_preflight.py::test_session_checks_read_the_extension_metadata` (planned)
+**Test**: `tests/unit/test_preflight.py::test_session_checks_read_the_extension_metadata`
 
 ### AC-11: The review app toolkit blocks the install
 
@@ -195,7 +195,7 @@ THEN gtk.pygobject, gtk.gtk4, gtk.libadwaita or gtk.libsecret is a FIX item with
 AND the check runs only the system interpreter (REVIEW_APP_PYTHON), never the uv environment
 ```
 
-**Test**: `tests/unit/test_preflight.py::test_gtk_stack_items` (planned)
+**Test**: `tests/unit/test_preflight.py::test_gtk_stack_items`
 
 ### AC-12: Ollama missing, unreachable or without the default model stops the install
 
@@ -209,7 +209,7 @@ THEN ollama.model is FIX with "ollama pull <model>", the model being the one the
 AND in every case the install stops with zero changes and the installer itself never pulls or starts anything
 ```
 
-**Test**: `tests/unit/test_preflight.py::test_ollama_items` (planned)
+**Test**: `tests/unit/test_preflight.py::test_ollama_items`
 
 ### AC-13: One entry point
 
@@ -220,7 +220,7 @@ AND "make install" and "make uninstall" run them and pass ARGS through (for exam
 AND every doc and message that names the command names ./install.sh (or make install as the alias)
 ```
 
-**Test**: `tests/unit/test_install_scripts.py::test_root_wrappers_and_make_aliases` (planned)
+**Test**: `tests/unit/test_preflight.py::test_root_wrappers_and_make_aliases`, `tests/unit/test_preflight.py::test_make_aliases_run_the_root_scripts_and_pass_args`
 
 ### AC-14: Prerequisites are listed in the README and checked by the preflight
 
@@ -230,7 +230,7 @@ THEN the README prerequisites table mentions every id that can block, and every 
 AND a new check id without a README row (or the reverse) fails the test
 ```
 
-**Test**: `tests/unit/test_readme_prerequisites.py::test_readme_and_preflight_list_the_same_prerequisites` (planned)
+**Test**: `tests/unit/test_readme_prerequisites.py::test_readme_and_preflight_list_the_same_prerequisites`
 
 ### AC-15: Processing loads the cached models with no token
 
@@ -266,7 +266,7 @@ GIVEN the keyring is locked
 THEN Download fails with MODELS_TOKEN_KEYRING_LOCKED and never prompts
 ```
 
-**Test**: `tests/unit/model_setup/test_download_models.py`, `tests/e2e/model_setup/test_keyring_token_source.py`
+**Test**: `tests/unit/model_setup/test_download_models.py::test_the_keyring_token_is_passed_to_the_runner_explicitly`, `...::test_without_a_keyring_token_the_runner_gets_none_so_the_ambient_login_is_used`, `tests/unit/model_setup/test_download_runner.py::test_without_a_token_the_child_gets_no_token_option_and_keeps_the_ambient_login`, `tests/unit/speakers/test_pyannote_backend.py::test_fetch_pipeline_without_a_token_uses_the_ambient_login`, `tests/e2e/model_setup/test_keyring_token_source.py` (no stored token, or no Secret Service, gives `None`, so the existing `hf auth login` is used)
 
 ### AC-18: Download models reports status, progress and the end
 
@@ -303,7 +303,7 @@ GIVEN the models are cached
 THEN the summary says "models: ready (cached)"
 ```
 
-**Test**: `tests/unit/test_install_scripts.py::test_install_reports_models_pending_and_still_succeeds` (planned)
+**Test**: `tests/unit/test_install_scripts.py::test_install_reports_models_pending_and_still_succeeds`
 
 ### AC-21: Update is idempotent and keeps user data
 
@@ -314,7 +314,7 @@ THEN a new version directory becomes current, the service restarts when idle, an
 AND running it a third time leaves the same observable state: identical unit file bytes, identical activation and extension files, the same set of user files kept, and exactly one version directory under the install root
 ```
 
-**Test**: `tests/unit/test_install_scripts.py::test_update_keeps_user_data_and_is_idempotent` (planned)
+**Test**: `tests/unit/test_install_scripts.py::test_update_keeps_user_data_and_is_idempotent`
 
 ### AC-22: Uninstall mirrors the entry point and says what it keeps
 
@@ -324,7 +324,7 @@ THEN it removes what install created, keeps meetings, settings.json, .env, the k
 AND the keep-list is the same text in the runbook
 ```
 
-**Test**: `tests/unit/test_install_scripts.py::test_uninstall_lists_what_it_keeps` (planned)
+**Test**: `tests/unit/test_install_scripts.py::test_uninstall_lists_what_it_keeps`
 
 ---
 
@@ -604,7 +604,7 @@ Planned only. It runs with the README task (F6.10 in `odd/tasks/meeting-scribe.m
 
 - **(a) License.** Add the `LICENSE` file (GPL-2.0-or-later) and declare it in `pyproject.toml` (`license` and the matching classifier) and, if the format allows it, in the extension `metadata.json`. The owner chose **GPL-2.0-or-later** (decided 2026-10-12, not an open question); the `LICENSE` file carries the GPL-2.0 text and the files declare "or later".
 - **(b) Author email and history.** Change the author email in `pyproject.toml` to `richard.romero@hotmail.cl`. Then rewrite the previous work email, in every commit author and committer field, out of the whole history (a history rewrite with a mailmap-based filter). This requires a force-push of `main` and of every branch; **the owner confirms right before the force-push**, and nothing is pushed without that confirmation. Open pull requests and clones have to be recreated afterwards. The repo stays private until this is done.
-- **(c) Private repository references.** Remove the references to the private repositories `qforest-chatbot` and `donde-compro` (today: `odd/tasks/meeting-scribe.md`, the "Accepted deviations from HANDOFF" section, three lines, and `docs/_templates/README.md` line 4), keeping the facts that still matter (for example that the templates are English and the per-domain settings convention is new here).
+- **(c) Private repository references.** Remove the references to two private repositories of earlier internal projects (they were in `odd/tasks/meeting-scribe.md`, the "Accepted deviations from HANDOFF" section and the task list, and in `docs/_templates/README.md` line 4; done in F6.10), keeping the facts that still matter (for example that the templates are English and the per-domain settings convention is new here).
 
 None of these steps is performed by the F6.0 documentation task.
 
@@ -633,15 +633,15 @@ About 400 authored changed lines per task (advisory, counting additions plus del
 
 ## Definition of Done
 
-- [ ] All acceptance criteria pass in `make check`
-- [ ] D-Bus interface documented in `architecture/api-contracts.md`; new error codes in `architecture/error-codes-catalog.md`
-- [ ] Unit tests written first (RED), then implementation (GREEN)
-- [ ] Lint, format, type check and import contracts clean
-- [ ] Traceability updated in `project/mvp-scope.md` (FR-7 row)
-- [ ] `docs/runbooks/install.md`, the README prerequisites and the "Install (humans and AI agents)" section written
+- [x] All acceptance criteria pass in `make check`
+- [x] D-Bus interface documented in `architecture/api-contracts.md`; new error codes in `architecture/error-codes-catalog.md`
+- [x] Unit tests written first (RED), then implementation (GREEN)
+- [x] Lint, format, type check and import contracts clean
+- [x] Traceability updated in `project/mvp-scope.md` (FR-7 row)
+- [x] `docs/runbooks/install.md`, the README prerequisites and the "Install (humans and AI agents)" section written
 - [x] ADR-010 and ADR-011 `active` (approved with the spec on 2026-10-12)
-- [ ] New rules or gotchas added to `project/rules-registry.md` (GO-047 is superseded by this phase)
-- [ ] `.env.example` and `ARCHITECTURE.md` section 7 list `MODEL_SETUP_DOWNLOAD_TIMEOUT_SECONDS`
+- [x] New rules or gotchas added to `project/rules-registry.md` (GO-047 is superseded by this phase)
+- [x] `.env.example` and `ARCHITECTURE.md` section 7 list `MODEL_SETUP_DOWNLOAD_TIMEOUT_SECONDS`
 - [ ] Docs gate for the tracker PR (audit, language scan)
 
 ---
