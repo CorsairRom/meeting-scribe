@@ -581,14 +581,11 @@ retry budget, the total deadline, the cancel watchdog and the error mapping with
 Model release is unchanged (`keep_alive: 0`, below).
 
 **Cloud: `OpenAiCompatibleProvider`**, configured by `base_url`, `model`, a `cloud` flag and a `CloudKeyStore`
-(ADR-006, ADR-009). It uses the official `openai` Python client (new dependency, assumption A-5). The rest of this
-section describes it; its local options (placeholder key, `reasoning_effort`, truncation guard) are no longer used by
-the service.
+(ADR-006, ADR-009). It uses the official `openai` Python client (new dependency, assumption A-5). It is cloud-only (the local
+branches were removed 2026-10-12). The rest of this section describes it.
 
 - **Endpoint**: `chat.completions.create(model=..., messages=..., temperature=..., max_tokens=..., stream=True)`.
-  Ollama's `/v1/chat/completions` supports `messages`, `temperature`, `max_tokens`, `stream`, `seed` and
-  `response_format`; the Ollama API key is required but ignored, so the local provider sends a fixed placeholder
-  (verified in the Ollama docs). The cloud gateway (default OpenCode Go, ADR-009) uses `base_url="https://opencode.ai/zen/go/v1"`, `POST /chat/completions` and a Bearer key; only models served on `/chat/completions` work (DeepSeek, GLM, Kimi, MiMo, LongCat), not those on `/responses` or `/messages`.
+  The cloud gateway (default OpenCode Go, ADR-009) uses `base_url="https://opencode.ai/zen/go/v1"`, `POST /chat/completions` and a Bearer key; only models served on `/chat/completions` work (DeepSeek, GLM, Kimi, MiMo, LongCat), not those on `/responses` or `/messages`.
 - **Streaming** is used for both: it lets cancellation abort the HTTP request between deltas (closing the stream),
   and makes the read timeout mean "no data for N seconds" instead of "the whole generation took N seconds", which
   matters for a slow local model.
@@ -608,10 +605,6 @@ the service.
   per summary job and shared by its steps. It is never derived from the meeting id, names or content and never
   logged. The header name is a field of the provider entry in `CLOUD_PROVIDERS` (`session_header`); the local
   provider sends neither header.
-- **Reasoning effort** (provider-level option): the local provider sends `"reasoning_effort": "none"` (the `openai`
-  client's `reasoning_effort` parameter) so a thinking model such as `qwen3.5:9b` does not spend the whole output
-  budget on hidden reasoning and answer with nothing (verified on Ollama 0.18: 2048 reasoning tokens, empty content,
-  `finish_reason: length` without it; 4 s and a correct summary with it). The cloud provider does not send it.
 - **Releasing the GPU** (`OllamaModelReleaser`): after a local summary ends in any way, and when
   `SUMMARIES_UNLOAD_LOCAL_MODEL` is true, the service asks Ollama to unload the model with a native
   `POST <origin>/api/generate {"model": ..., "keep_alive": 0}` (documented by Ollama as the immediate unload; the

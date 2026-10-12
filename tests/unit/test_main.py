@@ -378,7 +378,6 @@ def test_the_real_summary_adapters_are_built_from_the_settings_without_any_call(
     assert isinstance(adapters.local_provider, OllamaChatProvider)
     assert isinstance(adapters.cloud_provider, OpenAiCompatibleProvider)
     assert adapters.local_provider._url == "http://127.0.0.1:11434/api/chat"
-    assert adapters.cloud_provider._reasoning_effort is None
     assert adapters.cloud_provider._session_header == "x-opencode-session"
     assert str(adapters.cloud_provider._user_agent).startswith("meeting-scribe/")
 

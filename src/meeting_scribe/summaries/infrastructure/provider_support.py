@@ -22,6 +22,8 @@ from meeting_scribe.summaries.domain.errors import (
 from meeting_scribe.summaries.domain.ports import CancelSignal, Completion
 
 CONNECT_TIMEOUT_SECONDS = 5.0
+TRUNCATION_MARGIN_TOKENS = 16
+"""A prompt this close to ``num_ctx`` may already have lost its start (Ollama guard)."""
 HTTP_TRANSIENT = frozenset({408, 409})
 HTTP_RATE_LIMITED, HTTP_SERVER_ERROR = 429, 500
 _POLL_SECONDS = 0.05

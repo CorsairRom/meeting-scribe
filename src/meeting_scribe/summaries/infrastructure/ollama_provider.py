@@ -39,6 +39,7 @@ from meeting_scribe.summaries.domain.request import CompletionLimits
 from meeting_scribe.summaries.infrastructure.provider_support import (
     CONNECT_TIMEOUT_SECONDS,
     HTTP_SERVER_ERROR,
+    TRUNCATION_MARGIN_TOKENS,
     Outcome,
     Watchdog,
     retry_after,
@@ -46,8 +47,6 @@ from meeting_scribe.summaries.infrastructure.provider_support import (
     stopped_outcome,
 )
 
-TRUNCATION_MARGIN_TOKENS = 16
-"""A prompt this close to ``num_ctx`` may already have lost its start."""
 _HTTP_NOT_FOUND = 404
 _HTTP_ERROR = 400
 _HTTP_RETRIABLE = frozenset({408, 409, 429, 502, 503, 504})
@@ -188,6 +187,9 @@ class OllamaChatProvider:
         completion: Completion, limits: CompletionLimits
     ) -> Result[Completion, SummaryError]:
         # The context check comes first: a prompt that filled the window also ends as "length".
+        # ``prompt_eval_count`` counts only the tokens Ollama evaluated: a prompt prefix served
+        # from its cache may lower it, so this is the last line of defence and not the only one.
+        # The primary guard is the budget check before the call (``usable_input_tokens``).
         reported = completion.prompt_tokens
         if reported is not None and reported >= limits.context_tokens - TRUNCATION_MARGIN_TOKENS:
             return Failure(
