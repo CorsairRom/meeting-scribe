@@ -1,7 +1,7 @@
 ---
 type: spec
 feature: preferences
-status: approved  # draft | approved | in-progress | done | blocked
+status: in-progress  # draft | approved | in-progress | done | blocked
 mvp: true
 prd_ref: NFR-1, NFR-6, safety requirements 2-3
 depends_on:
@@ -542,4 +542,9 @@ verified.
 
 > If unresolved forks appear, record them here AND open an ADR if the decision is structural.
 
-- (none yet)
+- **Language field**: `summaries.language` is `kind` `choice` with `choices` `["auto"]` only; any lowercase ISO code is accepted by the validator, and the curated list lives in the app (P4/P5).
+- **File problem in `GetAll`**: the spec says a damaged file is "reported through GetAll" without a member for it, so every row carries `file_problem` (empty or `SETTINGS_FILE_INVALID`).
+- **`applied` and `SettingsChanged`** list the keys submitted in the successful `Set` (restart fields included); `restart_required` tells which of them are pending.
+- **`Restart` is two steps** (`check`, reply, `perform` 0.3 s later) because a reply cannot follow a restart. Reachability is probed before the reply with `Manager.LoadUnit`; a failure after the reply is only logged. Verified in `man org.freedesktop.systemd1` (systemd 259).
+- **Folder check side effect**: a missing meetings folder is created (mode 0700) during validation even when another field of the same `Set` is invalid.
+- **Startup**: `run()` loads the file with `load_saved_settings` (damaged file or invalid key falls back, logged by key and code); `create_app()` without arguments still reads the environment only.

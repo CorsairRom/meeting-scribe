@@ -68,7 +68,7 @@ Source root: `src/meeting_scribe/`. Each package has `domain/`, `application/`, 
 | `transcription/` | Audio to words with timestamps (faster-whisper adapter) |
 | `speakers/` | Diarization (pyannote adapter), voice samples, rename, merge, "Me" labelling |
 | `summaries/` | `SummaryProvider` port and OpenAI-compatible adapter (Ollama / OpenCode Go) |
-| `preferences/` | The few user-editable settings: the `FieldSpec` registry, the JSON settings file store, the meetings-folder check and (P3) the `Settings1` adapter and use cases; validators are injected by the composition root ([spec](docs/specs/preferences.md)) |
+| `preferences/` | The few user-editable settings: the `FieldSpec` registry, the JSON settings file store, the meetings-folder check the use cases (`PreferencesService`, `RestartService`), the systemd restarter and the `Settings1` adapter; validators are injected by the composition root ([spec](docs/specs/preferences.md)) |
 | `meetings/` | Meeting catalog, `MeetingRepository`, post-recording pipeline orchestration and job queue, worker protocol and subprocess runner, WAV readers |
 | `settings.py` | Root `Settings` composed of per-domain settings classes |
 | `main.py` | Composition root: `create_app(settings)`, `run()` |
@@ -200,7 +200,7 @@ Target GPU: RTX 5060 Laptop, 8 GB.
 
 ---
 
-## 6. D-Bus API (`Recording1`, `Meetings1` and `Summaries1` implemented, others planned)
+## 6. D-Bus API (`Recording1`, `Meetings1`, `Summaries1` and `Settings1` implemented, others planned)
 
 All clients (extension, review app, e2e tests) use the session bus; there is no HTTP server ([ADR-001](docs/decisions/001-thin-gnome-extension-dbus-service.md)).
 Names are proposed and renamable until F6. The contract lives in [`docs/architecture/api-contracts.md`](docs/architecture/api-contracts.md).
@@ -213,6 +213,7 @@ Names are proposed and renamable until F6. The contract lives in [`docs/architec
 | `dev.meetingscribe.Meetings1` (implemented, F3.4a) | `List`, `Get`, `Reprocess`; properties `ActiveMeetingId`, `ActiveState`, `QueuedCount`; signals `ProcessingStateChanged`, `ProcessingFinished` ([spec](docs/specs/processing.md) section 8) |
 | `dev.meetingscribe.Speakers1` | rename, merge, sample path |
 | `dev.meetingscribe.Summaries1` (implemented, F5.5) | `Providers`, `Summarize`, `CancelSummary`, `GetSummaryStatus`, `GetSummary`, `LastSummary`; property `ActiveSummaryMeetingId`; signals `SummaryProgress`, `SummaryFinished` ([spec](docs/specs/summaries.md) section 10) |
+| `dev.meetingscribe.Settings1` (implemented, F5.10) | `GetAll`, `Set` (all or nothing, per-field error rows), `Restart` (systemd, only when idle); property `RestartRequired`; signal `SettingsChanged` ([spec](docs/specs/preferences.md) section 4). The API key never crosses it |
 | Errors | `dev.meetingscribe.Error.<ERROR_CODE>` (see [error codes](docs/architecture/error-codes-catalog.md)) |
 | Activation | `systemd --user` unit plus D-Bus session activation file, installed by `make install` |
 

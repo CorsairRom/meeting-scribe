@@ -3,6 +3,7 @@
 import logging
 import os
 from collections.abc import Mapping
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, Self
@@ -29,6 +30,7 @@ from meeting_scribe.preferences.domain.fields import (
     FieldSpec,
     field_spec,
 )
+from meeting_scribe.preferences.domain.ports import SettingsFileStore
 from meeting_scribe.recording.infrastructure.recording_settings import RecordingSettings
 from meeting_scribe.speakers.infrastructure.speakers_settings import SpeakersSettings
 from meeting_scribe.summaries.infrastructure.summaries_settings import SummariesSettings
@@ -38,10 +40,12 @@ from meeting_scribe.transcription.infrastructure.transcription_settings import (
 
 __all__ = [
     "APP_DIR_NAME",
+    "LoadedSettings",
     "Settings",
     "StorageSettings",
     "effective_env_files",
     "get_settings",
+    "load_saved_settings",
     "xdg_env_file",
     "xdg_settings_file",
 ]
@@ -78,6 +82,7 @@ class Settings(MeetingScribeSettings):
 
     # Env files resolved when ``load`` ran; empty for settings built any other way.
     _env_files: tuple[Path, ...] = PrivateAttr(default=())
+    _loaded: bool = PrivateAttr(default=False)
     # Which layer supplied each exposed field, computed once at load.
     _sources: dict[str, FieldSource] = PrivateAttr(default_factory=dict)
 
@@ -97,6 +102,7 @@ class Settings(MeetingScribeSettings):
         with file_layer(saved):
             settings = cls()
         settings._env_files = env_files
+        settings._loaded = True
         settings._sources = _field_sources(saved, env_files)
         locked = _migrate_legacy_cloud_switch(settings, env_files, log=log_legacy)
         if locked is not None:
@@ -139,6 +145,11 @@ class Settings(MeetingScribeSettings):
         spec = _spec(key)
         section = _section_class(spec.section)
         return str(section.model_fields[spec.name].default)
+
+    @property
+    def loaded(self) -> bool:
+        """True when built by ``load`` (environment, ``.env`` and saved values), not by hand."""
+        return self._loaded
 
     @property
     def env_files(self) -> tuple[Path, ...]:
@@ -268,3 +279,45 @@ def _migrate_legacy_cloud_switch(
             "%s is obsolete and ignored: the provider setting decides.", LEGACY_CLOUD_ENABLED
         )
     return None
+
+
+@dataclass(frozen=True)
+class LoadedSettings:
+    """Startup result: the settings, the saved values behind them and any file problem code."""
+
+    settings: Settings
+    saved: dict[str, str]
+    file_problem: str = ""
+
+
+def load_saved_settings(store: SettingsFileStore) -> LoadedSettings:
+    """Load the settings with the user's saved file below the environment (AC-11).
+
+    The service never refuses to start because of the file: an unreadable file is ignored, and a
+    key that is unknown or fails validation falls back to its default on its own. Logs name keys and
+    codes, never values; the file itself is only rewritten by the next successful ``Set``.
+    """
+    read = store.read()
+    if isinstance(read, Failure):
+        code = read.failure().error_code
+        logger.warning("Settings file ignored: %s", code)
+        return LoadedSettings(Settings.load(), {}, code)
+    values: dict[str, str] = {}
+    for key, value in read.unwrap().items():
+        if field_spec(key) is None:
+            logger.warning("Settings file: ignored unknown key %s", key)
+        else:
+            values[key] = value
+    while values:
+        result = Settings.with_overrides(values)
+        if isinstance(result, Success):
+            break
+        rejected = {problem.key for problem in result.failure() if problem.key in values}
+        if not rejected:
+            break  # an environment-only problem: nothing in the file can fix it
+        for problem in result.failure():
+            logger.warning(
+                "Settings file: key %s fell back to its default (%s)", problem.key, problem.code
+            )
+        values = {key: value for key, value in values.items() if key not in rejected}
+    return LoadedSettings(Settings.load(file_values=values), values)

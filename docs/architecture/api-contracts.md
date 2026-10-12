@@ -1,7 +1,7 @@
 ---
 type: architecture
 status: active
-last_updated: 2026-10-11
+last_updated: 2026-10-12
 mvp: true
 verifiable_by:
   - src/meeting_scribe/recording/infrastructure/dbus/recording_interface.py
@@ -10,6 +10,8 @@ verifiable_by:
   - tests/e2e/meetings/test_meetings_over_dbus.py
   - src/meeting_scribe/meetings/infrastructure/dbus/summaries_interface.py
   - tests/e2e/meetings/test_summaries_over_dbus.py
+  - src/meeting_scribe/preferences/infrastructure/dbus/settings_interface.py
+  - tests/e2e/preferences/test_settings_over_dbus.py
   - "busctl --user introspect dev.meetingscribe.Service /dev/meetingscribe/Service"
 ai_instructions:
   - "This doc is the SOURCE OF TRUTH for D-Bus contracts. If a method, property or signal changes, update THIS file in the same commit."
@@ -167,6 +169,38 @@ gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meeting
   --method dev.meetingscribe.Summaries1.Providers
 gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service \
   --method dev.meetingscribe.Summaries1.GetSummaryStatus "2026-10-09_101500"
+```
+
+---
+
+### `dev.meetingscribe.Settings1`
+
+The few settings the user may change (summary provider, models and language, the meetings folder), owned by the
+service: clients never read the settings file and never write `.env`. Same bus name and object path as `Recording1`.
+Nothing here carries the cloud API key, which is not a setting and never crosses D-Bus (BR-005). Spec:
+[preferences](../specs/preferences.md) sections 2 to 5.
+
+| Member | Kind | Signature | Description | Errors |
+|---|---|---|---|---|
+| `GetAll` | method | `() -> aa{sv}` | One row per exposed field, in registry order: `key` (s, for example `summaries.provider`), `kind` (s: `choice`, `text`, `path`), `value` (s, the effective value), `default` (s), `source` (s: `default`, `file`, `env`, `dotenv`; the layer that wins), `locked` (b, true when `env` or `dotenv` supplies it), `lock_reason` (s, empty or a code such as `LEGACY_SETTING`), `apply` (s: `live`, `restart`), `choices` (as, empty unless `choice`), `file_problem` (s, empty or `SETTINGS_FILE_INVALID` when the saved file could not be read; the same on every row). Values are strings; the client parses by `kind` | none |
+| `Set` | method | `(a{ss}) -> a{sv}` | Validate the whole candidate (key to text) over the current values; on success write the settings file atomically, apply and signal. Returns `applied` (as, the keys written; empty on any error), `restart_required` (as, every key saved but not yet in effect, not only this call's) and `errors` (a(sss): key, code, message; one row per invalid field). All or nothing: any error means nothing is written, applied or signalled. Only one `Set` runs at a time; a second waits | `SETTINGS_STORAGE_FAILED` |
+| `Restart` | method | `() -> s` | Restart `meeting-scribe.service` through the user systemd manager when nothing is active; returns `RESTARTING` and asks systemd after the reply is sent (`org.freedesktop.systemd1.Manager.RestartUnit("meeting-scribe.service", "replace")`). Unfinished jobs resume as on any start | `SETTINGS_RESTART_BUSY`; `SETTINGS_RESTART_UNAVAILABLE` |
+| `RestartRequired` | property | `as` (read) | Keys saved but not yet in effect (the meetings folder after a change) | n/a |
+| `SettingsChanged` | signal | `(as)` | The keys written by a `Set`, emitted after the file is saved. `PropertiesChanged` carries `RestartRequired` when it changes | n/a |
+
+Field error codes inside `Set` replies: `FIELD_UNKNOWN`, `FIELD_LOCKED`, `FIELD_INVALID`, `FIELD_FOLDER_NOT_WRITABLE`
+(see `error-codes-catalog.md`). Messages carry keys and next steps, never values: a value can hold a home path, and
+logs and signals follow the same rule. A client that gets `UnknownMethod` or `UnknownInterface` treats the service as too
+old and asks the user to update it. `LocalModels` (installed Ollama models) is planned (spec task P8) and not part of
+this contract yet.
+
+Example calls (documentation only, run them against your own session bus; `Set` changes your real settings):
+
+```bash
+gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service \
+  --method dev.meetingscribe.Settings1.GetAll
+gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service \
+  --method dev.meetingscribe.Settings1.Set "{'summaries.language': 'es'}"
 ```
 
 ---

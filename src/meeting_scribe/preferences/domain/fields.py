@@ -72,3 +72,19 @@ class FieldSource:
     @property
     def locked(self) -> bool:
         return self.source in {"env", "dotenv"}
+
+
+@dataclass(frozen=True)
+class FieldRow:
+    """One ``GetAll`` row: the spec plus where the effective value comes from."""
+
+    key: str
+    kind: FieldKind
+    value: str
+    default: str
+    source: SourceName
+    locked: bool
+    lock_reason: str
+    apply: ApplyMode
+    choices: tuple[str, ...]
+    file_problem: str  # empty, or a code such as SETTINGS_FILE_INVALID (the same on every row)
