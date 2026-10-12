@@ -156,7 +156,7 @@ Kept (not removed):
 - your meetings (the meetings folder is never touched)
 - settings.json and .env in `~/.config/meeting-scribe`
 - the keyring items: the cloud API key and the Hugging Face token (remove them in Seahorse)
-- the downloaded models in ~/.cache/huggingface (shared with other tools)
+- the downloaded models in ~/.cache/huggingface, or $HF_HOME when set (shared with other tools)
 
 ## Verify
 
