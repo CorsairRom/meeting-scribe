@@ -4,8 +4,13 @@ The token goes from the field to the keyring port and nowhere else: a sentinel p
 state. Late replies are matched to what asked for them, so none can override a newer outcome.
 """
 
+import inspect
+
 import pytest
 
+from meeting_scribe.model_setup.infrastructure.subprocess_cache_probe import SubprocessCacheProbe
+from meeting_scribe.speakers.infrastructure.speakers_settings import SpeakersSettings
+from meeting_scribe_review.core.constants import MODELS_CALL_TIMEOUT_MS, MODELS_CHECK_BOUND_SECONDS
 from meeting_scribe_review.core.errors import (
     KEYRING_STORE_FAILED,
     KEYRING_UNAVAILABLE,
@@ -13,7 +18,13 @@ from meeting_scribe_review.core.errors import (
     ServiceError,
 )
 from meeting_scribe_review.core.models import KeyStatus
-from meeting_scribe_review.core.presenters.models import ModelsPhase, ModelsPresenter, ModelsState
+from meeting_scribe_review.core.presenters.models import (
+    TERMS_TEXT,
+    TERMS_URL,
+    ModelsPhase,
+    ModelsPresenter,
+    ModelsState,
+)
 from meeting_scribe_review.core.result import Err, Ok
 from tests.unit.review_app.fakes import FakeModelsGateway, FakeTokenStore, models_status
 
@@ -33,6 +44,19 @@ def _wire(
 
 def _status(gateway: FakeModelsGateway, state: str = "PENDING", **kwargs: object) -> None:
     gateway.replies["models_status"] = Ok(models_status(state, **kwargs))  # type: ignore[arg-type]
+
+
+# -- the terms link ---------------------------------------------------------------------------
+
+
+def test_the_terms_link_is_the_page_of_the_pipeline_the_service_downloads() -> None:
+    assert f"https://hf.co/{SpeakersSettings().pipeline}" == TERMS_URL
+
+
+def test_the_terms_text_says_accepting_and_the_token_are_human_steps() -> None:
+    assert "terms" in TERMS_TEXT
+    assert "token" in TERMS_TEXT
+    assert "only you" in TERMS_TEXT
 
 
 # -- status ---------------------------------------------------------------------------------
@@ -500,45 +524,42 @@ def test_a_write_that_succeeds_after_the_dialog_closed_still_counts() -> None:
     assert presenter.state.token_saving is False
 
 
-def test_a_late_success_after_a_newer_failure_keeps_the_failure_text() -> None:
-    """An earlier pitfall: the stale success must not replace the newer attempt's failure text."""
+def test_a_write_still_running_survives_a_close_and_a_reopen() -> None:
     presenter, _, tokens, _ = _wire(deferred_tokens=True)
     presenter.open()
     tokens.release()
-    presenter.submit_token("first")  # held
+    presenter.submit_token("fake")
     presenter.close()
     presenter.open()
-    tokens.release(1)  # the lookup of the second opening
-    tokens.store_result = Err(ServiceError(KEYRING_STORE_FAILED))
-    presenter.submit_token("second")
-    tokens.release(1)  # the second attempt fails first
-    failure = presenter.state.token_problem
-    assert failure
-    tokens.release()  # the first attempt succeeds late
     state = presenter.state
-    assert state.token_problem == failure
-    assert state.token_message == ""
-    assert state.token_status is KeyStatus.STORED  # the fact is still kept
-
-
-def test_a_late_failure_after_a_newer_success_changes_nothing() -> None:
-    presenter, _, tokens, _ = _wire(deferred_tokens=True)
-    presenter.open()
-    tokens.release()
-    tokens.store_result = Err(ServiceError(KEYRING_STORE_FAILED))
-    presenter.submit_token("first")  # held, will fail
-    presenter.close()
-    presenter.open()
-    tokens.release(1)
-    tokens.store_result = Ok(None)
-    presenter.submit_token("second")
-    tokens.release(1)
-    assert presenter.state.token_status is KeyStatus.STORED
-    tokens.release()  # the late failure
+    assert state.token_saving  # the keyring write has not finished
+    assert not state.can_save_token
+    assert not state.can_download
+    presenter.submit_token("other")
+    assert tokens.stored == ["fake"]  # no second write on top of the first
+    tokens.release(1)  # the lookup of the reopening
+    tokens.release()  # the write ends
     state = presenter.state
+    assert not state.token_saving
+    assert state.can_save_token
+    assert state.can_download
     assert state.token_status is KeyStatus.STORED
-    assert state.token_problem == ""
-    assert state.token_message == "Token saved."
+
+
+def test_a_write_that_fails_after_a_reopen_frees_the_field_and_says_why() -> None:
+    presenter, _, tokens, _ = _wire(deferred_tokens=True)
+    presenter.open()
+    tokens.release()
+    tokens.store_result = Err(ServiceError(KEYRING_STORE_FAILED))
+    presenter.submit_token("fake")
+    presenter.close()
+    presenter.open()
+    tokens.release(1)
+    tokens.release()
+    state = presenter.state
+    assert not state.token_saving
+    assert "could not be stored" in state.token_problem
+    assert state.can_download
 
 
 def test_a_keyring_lookup_asked_before_a_store_never_undoes_it() -> None:
@@ -558,3 +579,54 @@ def test_a_second_submit_while_saving_is_ignored() -> None:
     presenter.submit_token("one")
     presenter.submit_token("two")
     assert tokens.stored == ["one"]
+
+
+# -- a status that failed ---------------------------------------------------------------------
+
+
+def test_a_transient_status_error_can_be_retried_in_place() -> None:
+    presenter, gateway, _, _ = _wire()
+    gateway.fail("models_status", "UNKNOWN_ERROR")
+    presenter.open()
+    state = presenter.state
+    assert state.phase is ModelsPhase.UNAVAILABLE
+    assert state.can_retry
+    gateway.replies["models_status"] = Ok(models_status("READY", whisper=True, pipeline=True))
+    presenter.retry()
+    assert gateway.count("models_status") == 2
+    assert presenter.state.phase is ModelsPhase.READY
+    assert not presenter.state.can_retry
+
+
+def test_a_missing_or_older_service_is_not_retried_in_place() -> None:
+    for code in (SERVICE_NOT_RUNNING, "SERVICE_OUTDATED"):
+        presenter, gateway, _, _ = _wire()
+        gateway.fail("models_status", code)
+        presenter.open()
+        assert not presenter.state.can_retry, code
+        presenter.retry()
+        assert gateway.count("models_status") == 1, code
+
+
+def test_retry_is_ignored_when_nothing_failed() -> None:
+    presenter, gateway, _, _ = _wire()
+    presenter.open()
+    presenter.retry()
+    assert gateway.count("models_status") == 1
+
+
+def test_a_download_that_timed_out_on_the_client_can_be_retried_by_pressing_again() -> None:
+    presenter, gateway, _, _ = _wire()
+    presenter.open()
+    gateway.fail("download_models", "UNKNOWN_ERROR")
+    presenter.download()
+    assert presenter.state.phase is ModelsPhase.PENDING
+    assert presenter.state.can_download
+
+
+def test_the_call_timeout_is_longer_than_the_service_cache_check_bound() -> None:
+    service_bound = (
+        inspect.signature(SubprocessCacheProbe.__init__).parameters["timeout_seconds"].default
+    )
+    assert service_bound == MODELS_CHECK_BOUND_SECONDS
+    assert MODELS_CALL_TIMEOUT_MS > MODELS_CHECK_BOUND_SECONDS * 1000

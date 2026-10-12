@@ -85,6 +85,7 @@ class InterfaceProxy:
         values: tuple[Any, ...],
         parse: _Parser[T],
         done: Callback[T],
+        timeout_ms: int = _CALL_TIMEOUT_MS,
     ) -> None:
         def finished(proxy: Gio.DBusProxy, result: Gio.AsyncResult) -> None:
             try:
@@ -109,7 +110,7 @@ class InterfaceProxy:
                 method,
                 pack_args(signature, values),
                 Gio.DBusCallFlags.NONE,
-                _CALL_TIMEOUT_MS,
+                timeout_ms,
                 None,
                 finished,
             )

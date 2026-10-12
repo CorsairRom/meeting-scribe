@@ -9,10 +9,10 @@ Replies are matched to what asked for them, so a late one never overrides a newe
 
 - a status answer is dropped when anything newer happened (a signal, a reopening, a new press);
 - a ``Download`` or ``CancelDownload`` reply counts only while its own press is still waiting;
-- a keyring write that succeeds after its dialog closed still means the token IS stored, and a
-  stale outcome never replaces the text of a newer attempt;
-- what is only local (waiting for a start, cancelling, saving) is cleared when the dialog closes
-  and everything shown is read again from the service when it opens.
+- a keyring write still running is not forgotten by a close or a reopen: only its own end frees
+  the field and Download, and a success after the close still means the token IS stored;
+- what is only local (waiting for a start, cancelling) is cleared when the dialog closes and
+  everything shown is read again from the service when it opens.
 """
 
 from collections.abc import Callable
@@ -23,6 +23,7 @@ from meeting_scribe_review.core.errors import (
     INVALID_REPLY,
     KEYRING_STORE_FAILED,
     SERVICE_NOT_RUNNING,
+    SERVICE_OUTDATED,
     ServiceError,
     message_for,
 )
@@ -89,6 +90,7 @@ class ModelsState:
     progress_fraction: float | None = None  # completed steps over the total; None: the view pulses
     can_download: bool = False
     can_cancel: bool = False
+    can_retry: bool = False  # a transient error: read the status again in place
     token_status: KeyStatus = KeyStatus.UNKNOWN
     token_text: str = TOKEN_TEXTS[KeyStatus.UNKNOWN]  # never the token itself
     token_problem: str = ""
@@ -146,7 +148,7 @@ class ModelsPresenter:
         self._generation += 1
         self._press += 1
         self._requesting = self._cancelling = False
-        self._saving = None
+        # ``_saving`` stays: the keyring write is still running and only its end clears it.
 
     def dispose(self) -> None:
         """The window is going away: stop listening to the service."""
@@ -225,6 +227,11 @@ class ModelsPresenter:
             return
         self._phase = phase
         self._publish()
+
+    def retry(self) -> None:
+        """Read the status again after a transient error (never for a missing or older service)."""
+        if self._state.can_retry:
+            self._reload()
 
     def _fail(self, error: ServiceError) -> None:
         self._phase = ModelsPhase.UNAVAILABLE
@@ -360,6 +367,7 @@ class ModelsPresenter:
             progress_fraction=self._fraction() if running and not self._requesting else None,
             can_download=phase in _RETRYABLE and not saving,
             can_cancel=running and not self._requesting and not self._cancelling,
+            can_retry=phase is ModelsPhase.UNAVAILABLE and self._transient(),
             token_status=self._token,
             token_text=TOKEN_TEXTS[self._token],
             token_problem=self._token_problem,
@@ -386,6 +394,10 @@ class ModelsPresenter:
             return _HEADLINES[phase], problem.text, problem.hint
         return _HEADLINES[phase], detail, ""
 
+    def _transient(self) -> bool:
+        """A failed status that may pass: not a service that is missing or older than the app."""
+        return self._problem is not None and self._problem.code not in _NOT_TRANSIENT
+
     def _progress_text(self) -> str:
         if self._cancelling:
             return CANCELLING_TEXT
@@ -399,6 +411,7 @@ class ModelsPresenter:
         return (self._step - 1) / self._total
 
 
+_NOT_TRANSIENT = frozenset({SERVICE_NOT_RUNNING, SERVICE_OUTDATED})
 _RETRYABLE = frozenset({ModelsPhase.PENDING, ModelsPhase.FAILED, ModelsPhase.CANCELLED})
 _HEADLINES = {
     ModelsPhase.LOADING: LOADING_TEXT,

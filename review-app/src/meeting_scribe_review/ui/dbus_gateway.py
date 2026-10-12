@@ -15,6 +15,7 @@ from meeting_scribe_review.core.availability import AvailabilityFilter
 from meeting_scribe_review.core.constants import (
     BUS_NAME,
     MEETINGS_INTERFACE,
+    MODELS_CALL_TIMEOUT_MS,
     MODELS_INTERFACE,
     PROPERTIES_INTERFACE,
     SETTINGS_INTERFACE,
@@ -188,10 +189,24 @@ class DBusGateway:
         self._summaries.with_proxy(lambda _proxy: None)
 
     def models_status(self, done: Callback[ModelsStatus]) -> None:
-        self._models.call("GetStatus", "", (), parsers.parse_models_status, done)
+        self._models.call(
+            "GetStatus",
+            "",
+            (),
+            parsers.parse_models_status,
+            done,
+            timeout_ms=MODELS_CALL_TIMEOUT_MS,
+        )
 
     def download_models(self, done: Callback[str]) -> None:
-        self._models.call("Download", "", (), parsers.parse_download_reply, done)
+        self._models.call(
+            "Download",
+            "",
+            (),
+            parsers.parse_download_reply,
+            done,
+            timeout_ms=MODELS_CALL_TIMEOUT_MS,
+        )
 
     def cancel_download(self, done: Callback[bool]) -> None:
         self._models.call("CancelDownload", "", (), parsers.parse_cancelled, done)

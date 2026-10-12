@@ -18,7 +18,7 @@ from meeting_scribe_review.core.launch import (
     wants_preferences,
 )
 from meeting_scribe_review.ui.dbus_gateway import DBusGateway
-from meeting_scribe_review.ui.key_store import SecretKeyStore
+from meeting_scribe_review.ui.key_store import SecretKeyStore, hugging_face_token_store
 from meeting_scribe_review.ui.media_player import MediaPlayer
 from meeting_scribe_review.ui.window import ReviewWindow
 
@@ -52,7 +52,12 @@ class ReviewApplication(Adw.Application):
         meeting_id = meeting_id_from_options(options)
         if self._window is None:
             self._window = ReviewWindow(
-                self, DBusGateway(), MediaPlayer(), SecretKeyStore(), meeting_id
+                self,
+                DBusGateway(),
+                MediaPlayer(),
+                SecretKeyStore(),
+                hugging_face_token_store(),
+                meeting_id,
             )
             self._window.connect("destroy", self._forget_window)
             self._window.present()
