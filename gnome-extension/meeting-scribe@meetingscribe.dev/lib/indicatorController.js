@@ -137,12 +137,17 @@ export class IndicatorController {
     }
 
     // The failure text is fixed: a launch error may carry private paths or text and is never shown.
-    async _review() {
-        if (this._launchReview === null)
+    _review() {
+        return this._launchOrNotify(this._launchReview);
+    }
+
+    // Both launches mean the desktop entry needs `make install` when they fail: one fixed text.
+    async _launchOrNotify(launch) {
+        if (launch === null)
             return;
         let launched = false;
         try {
-            launched = await this._launchReview() !== false;
+            launched = await launch() !== false;
         } catch (_e) {
             launched = false;
         }
@@ -150,18 +155,8 @@ export class IndicatorController {
             this._notify(this._('Meeting Scribe'), launchFailureMessage(this._));
     }
 
-    // Same fixed failure text as the review item: both mean the desktop entry needs `make install`.
-    async _preferences() {
-        if (this._launchPreferences === null)
-            return;
-        let launched = false;
-        try {
-            launched = await this._launchPreferences() !== false;
-        } catch (_e) {
-            launched = false;
-        }
-        if (!launched && !this._destroyed)
-            this._notify(this._('Meeting Scribe'), launchFailureMessage(this._));
+    _preferences() {
+        return this._launchOrNotify(this._launchPreferences);
     }
 
     // The path comes from the client's snapshot (the service's answer), never from the model.

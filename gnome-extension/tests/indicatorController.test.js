@@ -250,9 +250,12 @@ function withMeetings(processing = idleProcessing, {reprocessResult = 'QUEUED'} 
     return f;
 }
 
-// The Preferences item always ends the menu; these tests are about the lines above it.
-const lastTexts = f => f.rendered.at(-1).menuItems.filter(i => i.kind !== 'separator')
-    .map(i => i.text).slice(0, -1);
+// The Preferences item ends the menu; these tests are about the lines above it.
+const lastTexts = f => {
+    const items = f.rendered.at(-1).menuItems;
+    const kept = items.at(-1)?.action === 'preferences' ? items.slice(0, -2) : items;
+    return kept.filter(i => i.kind !== 'separator').map(i => i.text);
+};
 
 test('controller renders the processing line when the pipeline changes', () => {
     const f = withMeetings();

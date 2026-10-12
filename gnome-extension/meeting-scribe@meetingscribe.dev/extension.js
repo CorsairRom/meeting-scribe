@@ -7,7 +7,7 @@ import {GLibScheduler} from './lib/glibScheduler.js';
 import {IndicatorController} from './lib/indicatorController.js';
 import {MeetingsClient} from './lib/meetingsClient.js';
 import {PanelIndicator} from './lib/panelIndicator.js';
-import {launchPreferencesAction} from './lib/preferencesLauncher.js';
+import {REVIEW_DESKTOP_ENTRY, launchPreferencesAction} from './lib/preferencesLauncher.js';
 import {RecordingClient} from './lib/recordingClient.js';
 
 const BUS_NAME = 'dev.meetingscribe.Service';
@@ -15,7 +15,7 @@ const OBJECT_PATH = '/dev/meetingscribe/Service';
 
 // Installed by `make install` (packaging/applications/); the app resolves "last meeting" itself.
 const launchReview = () =>
-    Gio.DesktopAppInfo.new('dev.meetingscribe.Review.desktop')?.launch([], null) ?? false;
+    Gio.DesktopAppInfo.new(REVIEW_DESKTOP_ENTRY)?.launch([], null) ?? false;
 
 // The same desktop entry's "preferences" action (`Exec=<launcher> --preferences`); the dialog and
 // every setting live in the review app and the service, never here.

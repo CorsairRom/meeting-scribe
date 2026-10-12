@@ -124,13 +124,14 @@ test('stylesheet.css defines the three indicator states', () => {
 
 test('extension.js launches the review app through its desktop entry and hands it to the controller', () => {
     const source = read('extension.js');
-    assertEqual(source.includes("Gio.DesktopAppInfo.new('dev.meetingscribe.Review.desktop')"), true);
+    assertEqual(source.includes('Gio.DesktopAppInfo.new(REVIEW_DESKTOP_ENTRY)'), true);
+    assertEqual(source.includes('dev.meetingscribe.Review.desktop'), false, 'one constant for the id: ');
     assertEqual(/\.launch\(\[\], null\)/.test(source), true, 'launch([], null): ');
     assertEqual(/\blaunchReview,/.test(source), true, 'the controller gets launchReview: ');
 });
 
 test('the desktop entry id in extension.js is the one packaging installs', () => {
-    const id = read('extension.js').match(/DesktopAppInfo\.new\('([^']+)'\)/)?.[1];
+    const id = read('lib/preferencesLauncher.js').match(/REVIEW_DESKTOP_ENTRY = '([^']+)'/)?.[1];
     const template = GLib.build_filenamev([EXTENSION_DIR, '..', '..', 'packaging', 'applications', `${id}.in`]);
     assertEqual(GLib.file_test(template, GLib.FileTest.EXISTS), true, `no template for ${id}: `);
 });
@@ -188,6 +189,7 @@ test('prefs.js always adds a page (the host rejects an empty window) and closes 
     assertEqual(source.includes('window.add('), true, 'a page is added: ');
     assertEqual(source.includes('Adw.StatusPage'), true);
     assertEqual(source.includes('make install'), true, 'the failure page shows the command: ');
+    assertEqual(source.includes('Could not open Preferences'), true, 'the failure title: ');
     assertEqual(/idle_add_once[\s\S]*window\.close\(\)/.test(source), true, 'closes after fill: ');
     assertEqual(source.includes('launchPreferencesAction'), true);
 });

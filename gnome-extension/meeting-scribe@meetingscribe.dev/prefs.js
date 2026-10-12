@@ -26,8 +26,8 @@ export default class MeetingScribePreferences extends ExtensionPreferences {
                 icon_name: 'preferences-system-symbolic',
             })
             : new Adw.StatusPage({
-                title: _('Meeting Scribe Review is not installed'),
-                description: _('Run <tt>make install</tt> in the meeting-scribe folder, then open the settings again.'),
+                title: _('Could not open Preferences'),
+                description: _('Meeting Scribe Review is not installed or is out of date. Run <tt>make install</tt> in the meeting-scribe folder, then try again.'),
                 icon_name: 'dialog-warning-symbolic',
             });
         const group = new Adw.PreferencesGroup();
