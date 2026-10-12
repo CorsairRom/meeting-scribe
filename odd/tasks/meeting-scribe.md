@@ -663,9 +663,15 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
       Route: delegated direct, one writer (single thread). The three F5 follow-ups (late keyring write after cancel, stale success after a newer failure,
       state surviving a closed dialog) are tests in `test_models_presenter.py`; a sentinel token is absent from presenter state, gateway calls and client output.
       Decisions recorded in `docs/specs/install.md`. Commit `feat(review-app): add the speech models core`.
-- [ ] F6.7 Review app UI: "Speech models" group in Preferences (token field, terms link, Download models with progress and cancel).
+- [x] F6.7 Review app UI: "Speech models" group in Preferences (token field, terms link, Download models with progress and cancel).
       Also remove the interim line `(until then: meeting-scribe prefetch-models)` that `scripts/install.sh` prints after `models: PENDING`
       (and its assertion in `tests/unit/test_install_scripts.py`).
+      Evidence: RED = 4 failed (`test_install_reports_models_pending_and_still_succeeds` with the interim line gone, and 3 static UI tests in
+      `test_ui_imports_on_system_python.py`: one password-entry holder rule, the token field emptied once and read once, the group wired in);
+      GREEN = `make check` 2266 python passed, packaging 1 passed, gjs 163 passed, lint and 16 import contracts clean. The widgets were also built and driven on a private Broadway display (no user
+      session): apply emptied the field and called the presenter once, buttons and progress followed the state, the pulse started and stopped.
+      Not run: the real window on the GNOME session (human steps in `docs/runbooks/preferences.md`). Route: delegated direct, one writer.
+      Decisions recorded in `docs/specs/install.md`. Commit `feat(review-app): add the speech models group to preferences`.
 - [ ] F6.8 Update and uninstall: idempotent re-run proof, uninstall mirrors the entry point and lists what it keeps, existing `hf auth login` still works.
 - [ ] F6.9 Docs and validation: `docs/runbooks/install.md`, README section "Install (humans and AI agents)", the other runbooks,
       ADR-010 and ADR-011 active, docs gate, validation with consent on the real machine (no recording, no audio).

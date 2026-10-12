@@ -6,6 +6,7 @@ state. Late replies are matched to what asked for them, so none can override a n
 
 import pytest
 
+from meeting_scribe.speakers.infrastructure.speakers_settings import SpeakersSettings
 from meeting_scribe_review.core.errors import (
     KEYRING_STORE_FAILED,
     KEYRING_UNAVAILABLE,
@@ -13,7 +14,13 @@ from meeting_scribe_review.core.errors import (
     ServiceError,
 )
 from meeting_scribe_review.core.models import KeyStatus
-from meeting_scribe_review.core.presenters.models import ModelsPhase, ModelsPresenter, ModelsState
+from meeting_scribe_review.core.presenters.models import (
+    TERMS_TEXT,
+    TERMS_URL,
+    ModelsPhase,
+    ModelsPresenter,
+    ModelsState,
+)
 from meeting_scribe_review.core.result import Err, Ok
 from tests.unit.review_app.fakes import FakeModelsGateway, FakeTokenStore, models_status
 
@@ -33,6 +40,19 @@ def _wire(
 
 def _status(gateway: FakeModelsGateway, state: str = "PENDING", **kwargs: object) -> None:
     gateway.replies["models_status"] = Ok(models_status(state, **kwargs))  # type: ignore[arg-type]
+
+
+# -- the terms link ---------------------------------------------------------------------------
+
+
+def test_the_terms_link_is_the_page_of_the_pipeline_the_service_downloads() -> None:
+    assert f"https://hf.co/{SpeakersSettings().pipeline}" == TERMS_URL
+
+
+def test_the_terms_text_says_accepting_and_the_token_are_human_steps() -> None:
+    assert "terms" in TERMS_TEXT
+    assert "token" in TERMS_TEXT
+    assert "only you" in TERMS_TEXT
 
 
 # -- status ---------------------------------------------------------------------------------

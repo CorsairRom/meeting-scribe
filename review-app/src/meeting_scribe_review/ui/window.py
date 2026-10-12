@@ -45,6 +45,7 @@ class ReviewWindow(Adw.ApplicationWindow):
         gateway: DBusGateway,
         player: MediaPlayer,
         keys: SecretKeyStore,
+        tokens: SecretKeyStore,
         meeting_id: str,
     ) -> None:
         super().__init__(
@@ -54,7 +55,7 @@ class ReviewWindow(Adw.ApplicationWindow):
             default_height=DEFAULT_HEIGHT,
         )
         self._gateway = gateway
-        self._preferences = PreferencesController(gateway, keys)
+        self._preferences = PreferencesController(gateway, keys, tokens)
         action = Gio.SimpleAction.new("preferences", None)
         action.connect("activate", lambda _action, _param: self.open_preferences())
         self.add_action(action)

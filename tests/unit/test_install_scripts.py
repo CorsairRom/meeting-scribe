@@ -109,8 +109,9 @@ def test_install_reports_models_pending_and_still_succeeds(sandbox: Env) -> None
     summary = _summary(result)
     assert MODELS_PENDING in summary
     assert "recording works meanwhile" in summary
-    # the interim path stays visible until Download models lands (remove the line in F6.7)
-    assert "             (until then: meeting-scribe prefetch-models)" in summary
+    # Download models in Preferences is the path now: no command is suggested as a stopgap
+    assert "until then" not in summary
+    assert "prefetch-models" not in summary
     # the service, the unit, the activation file, the review app and the extension are installed
     assert sandbox.exe.exists()
     assert sandbox.unit_path.exists()

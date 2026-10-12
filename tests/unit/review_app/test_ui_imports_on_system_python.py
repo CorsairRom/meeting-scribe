@@ -74,4 +74,35 @@ def test_the_preferences_entry_points_are_wired() -> None:
 def test_the_key_never_reaches_the_settings_widgets() -> None:
     for name in ("preferences_dialog.py", "preferences_controller.py"):
         source = (UI / name).read_text(encoding="utf-8")
-        assert "PasswordEntry" not in source, name  # the only key entry is api_key_dialog.py
+        assert "PasswordEntry" not in source, name  # the secret entries have their own modules
+
+
+def test_only_the_two_secret_modules_hold_a_password_entry() -> None:
+    holders = {
+        path.name for path in UI.glob("*.py") if "PasswordEntry" in path.read_text(encoding="utf-8")
+    }
+    assert holders == {"api_key_dialog.py", "models_group.py"}
+
+
+def test_the_token_field_is_emptied_when_submitted_and_read_nowhere_else() -> None:
+    source = (UI / "models_group.py").read_text(encoding="utf-8")
+    assert source.count(".get_text()") == 1  # the apply handler: the only read of the field
+    assert source.count('.set_text("")') == 1  # and it empties the field at once, never echoed
+    assert "set_text(" not in source.replace('.set_text("")', "")  # nothing writes a value into it
+    assert "show_peek_icon" not in source  # no peek: the value is never shown
+
+
+def test_the_speech_models_group_is_wired_into_preferences() -> None:
+    """Static check: no window can open here. The manual check opens the real one."""
+    dialog = (UI / "preferences_dialog.py").read_text(encoding="utf-8")
+    controller = (UI / "preferences_controller.py").read_text(encoding="utf-8")
+    window = (UI / "window.py").read_text(encoding="utf-8")
+    application = (UI / "application.py").read_text(encoding="utf-8")
+    assert "ModelsGroup(" in dialog
+    assert "ModelsPresenter(" in controller
+    assert "self._models.open()" in controller
+    assert "self._models.close()" in controller  # a closed dialog drops what is only local
+    assert "self._models.dispose()" in controller
+    assert "TERMS_URL" in controller  # the terms link opens the page the presenter names
+    assert "hugging_face_token_store()" in application
+    assert "tokens" in window

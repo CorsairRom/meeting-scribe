@@ -323,7 +323,6 @@ if ((models_ready)); then
   echo "  models:    ready (cached)"
 else
   echo "  models:    PENDING: add your Hugging Face token in Preferences and press Download models; recording works meanwhile"
-  echo "             (until then: meeting-scribe prefetch-models)"
 fi
 # This is the result of the preflight taken at the start of the run, not a new probe.
 echo "  ollama:    reachable at preflight; model $PF_OLLAMA_MODEL present"

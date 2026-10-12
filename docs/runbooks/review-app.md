@@ -67,6 +67,14 @@ A meeting in the `DONE` state has a **Summary** tab next to **Review** (spec [`.
   `secret-tool` makes (`application=meeting-scribe`, `key=opencode-api-key`). The key never goes through the service.
   It needs the `Secret-1` typelib (Fedora: `libsecret`, normally installed with GNOME).
 
+## Speech models (in Preferences)
+
+Preferences has a **Speech models** group: the Hugging Face token field (write-only, stored in the GNOME Keyring as
+`application=meeting-scribe`, `key=huggingface-token` through libsecret, never sent to the service over D-Bus), a link
+to the pyannote terms page, the status, **Download models** with step-level progress and **Cancel**. The service
+downloads; the app only shows the status and sends `Download` and `CancelDownload` (`Models1`). Steps and
+troubleshooting: [`preferences.md`](preferences.md).
+
 ## Verify
 
 - `gtk-launch dev.meetingscribe.Review` or the menu item opens one window; a second launch focuses it.
@@ -81,6 +89,7 @@ A meeting in the `DONE` state has a **Summary** tab next to **Review** (spec [`.
 | The menu item shows a notification asking you to run `make install` | The desktop entry is missing: run `make install` |
 | "The Meeting Scribe service is not running" in the window | `systemctl --user start meeting-scribe.service`, then Retry |
 | "The service must be restarted to match this app version" | `systemctl --user restart meeting-scribe.service` (an older service is still running) |
+| "Hugging Face refused access", or **Download models** stays disabled | See "Speech models" in [`preferences.md`](preferences.md); a disabled button means a download runs, the token is being stored, or both models are already ready |
 | **Set API key...** says the keyring is not reachable | Start gnome-keyring (it runs with the GNOME session); unlock the login keyring if asked |
 | The window opens but no sound | Install `gstreamer1-plugins-good`; check the default audio output |
 | The app does not start from the menu | Run the launcher from a terminal and read the traceback; never paste meeting text from it |
