@@ -84,98 +84,73 @@ def _prefetches(sandbox: Env) -> list[str]:
     return [line for line in sandbox.calls() if line.startswith("meeting-scribe prefetch-models")]
 
 
-def test_install_downloads_the_models_with_the_new_version_after_it_is_active(
-    sandbox: Env,
-) -> None:
+def _summary(result: subprocess.CompletedProcess[str]) -> str:
+    return result.stdout.split("meeting-scribe installed")[1]
+
+
+MODELS_PENDING = (
+    "  models:    PENDING: add your Hugging Face token in Preferences and press Download models"
+)
+
+
+def test_install_reports_models_ready_when_they_are_cached(sandbox: Env) -> None:
     result = sandbox.run(INSTALL, **IDLE)
     assert result.returncode == 0, result.stderr
+    assert "  models:    ready (cached)" in _summary(result)
     (version,) = sandbox.versions
-    (call,) = _prefetches(sandbox)
-    assert call == f"meeting-scribe prefetch-models (from {version}/bin/meeting-scribe)"
-    calls = sandbox.calls()
-    assert _index(calls, f"systemctl --user enable --now {UNIT}") < _index(
-        calls, "meeting-scribe prefetch-models"
-    )
-    assert _index(calls, "meeting-scribe prefetch-models") < _index(calls, "gnome-extensions pack")
-    assert "==> Downloading the speech models" in result.stdout
-    assert "fake prefetch output" in result.stdout  # visible, not swallowed
-    assert "models:    downloaded" in result.stdout
+    assert _prefetches(sandbox) == [
+        f"meeting-scribe prefetch-models --check (from {sandbox.root}/current/bin/meeting-scribe)"
+    ]
+    assert version.is_dir()
 
 
-def test_a_failed_model_download_does_not_fail_the_service_install_but_is_loud(
-    sandbox: Env,
-) -> None:
-    result = sandbox.run(INSTALL, FAKE_PREFETCH_FAIL="1", **IDLE)
-    assert result.returncode == 0, result.stderr
-    assert sandbox.exe.exists()  # the service and the unit are installed and switched
+def test_install_reports_models_pending_and_still_succeeds(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, FAKE_MODELS_CACHED="0", **IDLE)
+    assert result.returncode == 0, result.stderr  # pending is not a failure
+    summary = _summary(result)
+    assert MODELS_PENDING in summary
+    assert "recording works meanwhile" in summary
+    # the service, the unit, the activation file, the review app and the extension are installed
+    assert sandbox.exe.exists()
     assert sandbox.unit_path.exists()
-    summary = result.stdout.split("meeting-scribe installed")[1]
-    assert "models:    NOT downloaded" in summary
-    assert "hf auth login" in summary
-    assert "current/bin/meeting-scribe prefetch-models" in summary  # retry once fixed
+    assert sandbox.activation_path.exists()
+    assert sandbox.desktop_entry.exists()
+    assert "extension: enabled" in summary
 
 
-def test_no_model_download_after_a_rollback_and_the_summary_says_why(sandbox: Env) -> None:
+def test_the_installer_never_downloads_the_models(sandbox: Env) -> None:
+    sandbox.run(INSTALL, FAKE_MODELS_CACHED="0", **IDLE)
+    sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", **IDLE)
+    assert _prefetches(sandbox)
+    assert all(line.split()[2] == "--check" for line in _prefetches(sandbox))
+    assert not Path(f"{sandbox.log}.download").exists()  # the fake records any other call there
+
+
+def test_the_install_no_longer_has_a_download_step_or_its_timeout_knob() -> None:
+    for script in SCRIPTS.glob("*.sh"):
+        text = script.read_text()
+        assert "PREFETCH_TIMEOUT" not in text, script
+        assert "Downloading the speech models" not in text, script
+        assert "hf auth login" not in text, script
+
+
+def test_a_hung_models_check_is_cut_off_and_reported_as_pending(sandbox: Env) -> None:
+    result = sandbox.run(
+        INSTALL, FAKE_MODELS_CHECK_SLEEP="30", MEETING_SCRIBE_MODELS_CHECK_TIMEOUT="1", **IDLE
+    )
+    assert result.returncode == 0, result.stderr
+    assert MODELS_PENDING in _summary(result)
+
+
+def test_the_models_line_is_still_reported_after_a_rollback(sandbox: Env) -> None:
     sandbox.run(INSTALL, **IDLE)
     result = sandbox.run(INSTALL, FAKE_UNIT_ACTIVE="1", FAKE_SYSTEMCTL_FAIL="restart", **IDLE)
-    assert len(_prefetches(sandbox)) == 1  # only the first install fetched
-    summary = result.stdout.split("meeting-scribe installed")[1]
-    assert "models:    NOT downloaded, the install rolled back" in summary
-    assert "start failure is the real problem" in summary
-    assert "==> Downloading the speech models" not in result.stdout
-    assert "NOT downloaded; recording works" not in summary
+    summary = _summary(result)
+    assert "rolled back" in summary
+    assert "  models:    ready (cached)" in summary  # the version in charge is checked
 
 
-def test_a_hung_model_download_times_out_and_the_install_still_finishes(sandbox: Env) -> None:
-    result = sandbox.run(
-        INSTALL,
-        FAKE_PREFETCH_SLEEP="30",
-        MEETING_SCRIBE_PREFETCH_TIMEOUT="1",
-        **IDLE,
-    )
-    assert result.returncode == 0, result.stderr
-    assert "gnome-extensions pack" in " ".join(sandbox.calls())  # the extension step still ran
-    summary = result.stdout.split("meeting-scribe installed")[1]
-    assert "models:    NOT downloaded, the download timed out after 1 s" in summary
-    assert "current/bin/meeting-scribe prefetch-models" in summary
-    assert "MEETING_SCRIBE_PREFETCH_TIMEOUT" in summary
-
-
-def test_a_sigkilled_model_download_is_reported_as_timed_out(sandbox: Env) -> None:
-    # timeout --kill-after exits 137 when it had to SIGKILL a download that ignored SIGTERM
-    result = sandbox.run(INSTALL, FAKE_PREFETCH_EXIT="137", **IDLE)
-    assert result.returncode == 0, result.stderr
-    summary = result.stdout.split("meeting-scribe installed")[1]
-    assert "the download timed out after 3600 s" in summary
-    assert "NOT downloaded; recording works" not in summary
-
-
-@pytest.mark.parametrize("value", ["abc", "0", "-5", "1.5", ""])
-def test_an_invalid_prefetch_timeout_warns_once_and_falls_back_to_the_default(
-    sandbox: Env, value: str
-) -> None:
-    result = sandbox.run(
-        INSTALL, MEETING_SCRIBE_PREFETCH_TIMEOUT=value, FAKE_PREFETCH_EXIT="124", **IDLE
-    )
-    assert result.returncode == 0, result.stderr
-    if value == "":  # empty means unset: no warning, the default applies
-        assert "MEETING_SCRIBE_PREFETCH_TIMEOUT" not in result.stderr
-    else:
-        assert result.stderr.count("MEETING_SCRIBE_PREFETCH_TIMEOUT") == 1
-        assert "positive integer" in result.stderr
-    assert len(_prefetches(sandbox)) == 1  # the download still ran
-    assert "timed out after 3600 s" in result.stdout.split("meeting-scribe installed")[1]
-
-
-def test_the_summary_does_not_hardcode_a_pipeline_url(sandbox: Env) -> None:
-    result = sandbox.run(INSTALL, FAKE_PREFETCH_FAIL="1", **IDLE)
-    summary = result.stdout.split("meeting-scribe installed")[1]
-    assert "hf.co/pyannote" not in summary
-    assert "output above" in summary
-    assert "current/bin/meeting-scribe prefetch-models" in summary
-
-
-def test_no_model_download_when_the_install_is_refused_or_uv_fails(sandbox: Env) -> None:
+def test_no_models_check_when_the_install_is_refused_or_uv_fails(sandbox: Env) -> None:
     sandbox.run(INSTALL, FAKE_GDBUS_MODE="recording")
     sandbox.run(INSTALL, FAKE_UV_FAIL="1", **IDLE)
     assert _prefetches(sandbox) == []
@@ -911,6 +886,12 @@ def _remove_tool(sandbox: Env, name: str) -> None:
         ({"remove": "uv"}, 10, "[ FIX ] tool.uv"),
         ({"env": {"FAKE_GDBUS_MODE": "recording"}, "remove": "pactl"}, 10, "[ FIX ] tool.pactl"),
         ({"env": {"FORCE": "1"}, "remove": "curl"}, 10, "[ FIX ] tool.curl"),
+        ({"remove": "nvidia-smi"}, 11, "[HUMAN] gpu.driver"),
+        ({"env": {"FAKE_NVIDIA_ROWS": "Small GPU, 6144 MiB, 1.0"}}, 11, "[HUMAN] gpu.vram"),
+        ({"env": {"FAKE_DF": "/|/dev/small|1048576|/"}}, 10, "[ FIX ] disk.space"),
+        ({"remove": "ollama"}, 10, "[ FIX ] ollama.installed"),
+        ({"env": {"FAKE_OLLAMA_MODE": "down"}}, 10, "[ FIX ] ollama.reachable"),
+        ({"env": {"FAKE_OLLAMA_MODE": "missing-model"}}, 10, "[ FIX ] ollama.model"),
     ],
 )
 def test_install_stops_with_zero_changes_when_a_prerequisite_is_missing(
@@ -924,8 +905,10 @@ def test_install_stops_with_zero_changes_when_a_prerequisite_is_missing(
     assert "fix:" in result.stdout or "steps:" in result.stdout
     assert sandbox.tree() == []  # the sandbox HOME is unchanged
     calls = sandbox.calls()
-    for prefix in ("uv", "systemctl", "gnome-extensions", "gdbus", "sudo", "meeting-scribe"):
+    for prefix in ("uv", "gnome-extensions", "gdbus", "sudo", "meeting-scribe", "ollama"):
         assert not any(line.startswith(prefix) for line in calls), (prefix, calls)
+    # the only systemctl call a preflight makes reads whether Ollama is a system service
+    assert all("cat ollama.service" in x for x in calls if x.startswith("systemctl")), calls
     assert "meeting-scribe installed" not in result.stdout
 
 
@@ -998,95 +981,25 @@ def test_the_desktop_template_has_one_exec_placeholder_per_exec_line() -> None:
     assert template.count("@EXEC@") == len(execs)  # none in a comment: the render replaces all
 
 
-# -- Ollama and the local summary model (F5.8, AC-20): read-only, warns, never fails the install --
-
-
-def _summary(result: subprocess.CompletedProcess[str]) -> str:
-    return result.stdout.split("meeting-scribe installed")[1]
+# -- Ollama and the local summary model (F5.8, F6.3): checked by the preflight, never run ----------
 
 
 def _ollama_calls(sandbox: Env) -> list[str]:
     return [line for line in sandbox.calls() if line.startswith("ollama")]
 
 
-def test_install_reports_a_reachable_ollama_with_the_default_model(sandbox: Env) -> None:
+def test_install_reports_the_reachable_ollama_with_the_configured_model(sandbox: Env) -> None:
     result = sandbox.run(INSTALL, **IDLE)
     assert result.returncode == 0, result.stderr
     assert "  ollama:    reachable; model qwen3:4b-instruct-2507-q4_K_M present" in _summary(result)
-    assert _ollama_calls(sandbox) == ["ollama list"]  # read-only: no pull, run, serve or create
+    assert _ollama_calls(sandbox) == []  # never run: no list, pull, serve or create
 
 
-def test_a_missing_model_only_warns_with_the_pull_command_and_never_pulls(sandbox: Env) -> None:
-    result = sandbox.run(INSTALL, FAKE_OLLAMA_MODE="missing-model", **IDLE)
-    assert result.returncode == 0, result.stderr
-    summary = _summary(result)
-    assert "  ollama:    reachable; model qwen3:4b-instruct-2507-q4_K_M NOT found" in summary
-    assert "ollama pull qwen3:4b-instruct-2507-q4_K_M" in summary
-    assert _ollama_calls(sandbox) == ["ollama list"]
-
-
-def test_a_stopped_ollama_only_warns_and_the_install_still_succeeds(sandbox: Env) -> None:
-    result = sandbox.run(INSTALL, FAKE_OLLAMA_MODE="down", **IDLE)
-    assert result.returncode == 0, result.stderr
-    summary = _summary(result)
-    assert "  ollama:    found but not reachable" in summary
-    assert "systemctl start ollama" in summary
-    assert sandbox.exe.exists()
-    assert _ollama_calls(sandbox) == ["ollama list"]
-
-
-def test_an_ollama_that_is_not_installed_only_warns(sandbox: Env) -> None:
-    (Path(sandbox.env["PATH"]) / "ollama").unlink()
-    result = sandbox.run(INSTALL, **IDLE)
-    assert result.returncode == 0, result.stderr
-    summary = _summary(result)
-    assert "  ollama:    NOT found" in summary
-    assert "ollama pull qwen3:4b-instruct-2507-q4_K_M" in summary
-    assert _ollama_calls(sandbox) == []
-
-
-def test_a_hung_ollama_is_cut_off_and_the_install_still_finishes(sandbox: Env) -> None:
-    result = sandbox.run(
-        INSTALL, FAKE_OLLAMA_MODE="hang", MEETING_SCRIBE_OLLAMA_TIMEOUT="1", **IDLE
-    )
-    assert result.returncode == 0, result.stderr
-    assert "  ollama:    found but not reachable" in _summary(result)
-
-
-def test_the_configured_model_comes_from_the_environment(sandbox: Env) -> None:
+def test_the_summary_names_the_model_from_the_configuration(sandbox: Env) -> None:
     result = sandbox.run(
         INSTALL, SUMMARIES_LOCAL_MODEL="mistral:7b", FAKE_OLLAMA_MODEL="mistral:7b", **IDLE
     )
     assert "model mistral:7b present" in _summary(result)
-
-
-def test_the_configured_model_comes_from_the_settings_file_and_nothing_else_is_read(
-    sandbox: Env,
-) -> None:
-    config = sandbox.home / ".config" / "meeting-scribe"
-    config.mkdir(parents=True)
-    (config / ".env").write_text('HF_TOKEN=not-a-real-token\nSUMMARIES_LOCAL_MODEL="gemma3:4b"  \n')
-    result = sandbox.run(INSTALL, FAKE_OLLAMA_MODEL="gemma3:4b", **IDLE)
-    assert "model gemma3:4b present" in _summary(result)
-    assert "not-a-real-token" not in result.stdout + result.stderr
-
-
-def test_a_model_name_without_a_tag_matches_its_latest_tag(sandbox: Env) -> None:
-    result = sandbox.run(
-        INSTALL, SUMMARIES_LOCAL_MODEL="llama3.2", **IDLE
-    )  # the fake lists llama3.2:latest
-    assert "model llama3.2 present" in _summary(result)
-
-
-def test_a_model_name_is_matched_whole_not_as_a_prefix(sandbox: Env) -> None:
-    result = sandbox.run(INSTALL, SUMMARIES_LOCAL_MODEL="llama3", **IDLE)
-    assert "model llama3 NOT found" in _summary(result)
-
-
-def test_ollama_is_not_checked_when_the_install_is_refused_or_uv_fails(sandbox: Env) -> None:
-    sandbox.run(INSTALL, FAKE_GDBUS_MODE="recording")
-    sandbox.run(INSTALL, FAKE_UV_FAIL="1", **IDLE)
-    assert _ollama_calls(sandbox) == []
 
 
 def test_uninstall_never_touches_ollama(sandbox: Env) -> None:
@@ -1094,60 +1007,4 @@ def test_uninstall_never_touches_ollama(sandbox: Env) -> None:
     sandbox.log.write_text("")
     sandbox.run(UNINSTALL, **IDLE)
     assert _ollama_calls(sandbox) == []
-
-
-@pytest.mark.parametrize(
-    "line",
-    [
-        'SUMMARIES_LOCAL_MODEL="gemma3:4b"  # the small one\r\n',  # CRLF, quotes, inline comment
-        "SUMMARIES_LOCAL_MODEL='gemma3:4b'\r\n",
-        "SUMMARIES_LOCAL_MODEL=  gemma3:4b   # note\n",
-        "SUMMARIES_LOCAL_MODEL=gemma3:4b\t#note\n",
-    ],
-)
-def test_the_model_line_is_parsed_robustly(sandbox: Env, line: str) -> None:
-    config = sandbox.home / ".config" / "meeting-scribe"
-    config.mkdir(parents=True)
-    (config / ".env").write_bytes(line.encode())
-    result = sandbox.run(INSTALL, FAKE_OLLAMA_MODEL="gemma3:4b", **IDLE)
-    assert "model gemma3:4b present" in _summary(result)
-
-
-def test_a_model_name_containing_a_hash_is_kept_when_no_space_precedes_it(sandbox: Env) -> None:
-    config = sandbox.home / ".config" / "meeting-scribe"
-    config.mkdir(parents=True)
-    (config / ".env").write_text("SUMMARIES_LOCAL_MODEL=org/model#1\n")
-    result = sandbox.run(INSTALL, **IDLE)
-    assert "model org/model#1 NOT found" in _summary(result)
-
-
-def _write_settings_json(sandbox: Env, text: str) -> None:
-    config = sandbox.home / ".config" / "meeting-scribe"
-    config.mkdir(parents=True, exist_ok=True)
-    (config / "settings.json").write_text(text)
-
-
-def test_the_configured_model_comes_from_the_preferences_file(sandbox: Env) -> None:
-    _write_settings_json(
-        sandbox,
-        '{"version": 1, "values": {"summaries.provider": "local",'
-        ' "summaries.local_model": "gemma3:4b"}}\n',
-    )
-    result = sandbox.run(INSTALL, FAKE_OLLAMA_MODEL="gemma3:4b", **IDLE)
-    assert "model gemma3:4b present" in _summary(result)
-
-
-def test_the_environment_and_dotenv_override_the_preferences_file(sandbox: Env) -> None:
-    _write_settings_json(sandbox, '{"version":1,"values":{"summaries.local_model":"gemma3:4b"}}')
-    from_env = sandbox.run(INSTALL, SUMMARIES_LOCAL_MODEL="mistral:7b", **IDLE)
-    assert "model mistral:7b NOT found" in _summary(from_env)
-    config = sandbox.home / ".config" / "meeting-scribe"
-    (config / ".env").write_text("SUMMARIES_LOCAL_MODEL=llama3.2\n")
-    from_dotenv = sandbox.run(INSTALL, **IDLE)
-    assert "model llama3.2 present" in _summary(from_dotenv)
-
-
-def test_an_unreadable_preferences_file_falls_back_to_the_default_model(sandbox: Env) -> None:
-    _write_settings_json(sandbox, "not json at all")
-    result = sandbox.run(INSTALL, **IDLE)
-    assert "model qwen3:4b-instruct-2507-q4_K_M present" in _summary(result)
+    assert not any(line.startswith("curl") for line in sandbox.calls())

@@ -429,8 +429,20 @@ def test_a_missing_voice_sample_plugin_is_only_a_warning(sandbox: Env) -> None:
 
 
 def test_every_blocking_item_has_what_why_and_fix(sandbox: Env) -> None:
-    _remove(sandbox, *(tool for tool, _ in TOOL_FIXES.values()), "secret-tool", "gnome-shell")
-    env = {"FAKE_GI_MISSING": "gi", "XDG_SESSION_TYPE": "x11", "DBUS_SESSION_BUS_ADDRESS": ""}
+    _remove(
+        sandbox,
+        *(tool for tool, _ in TOOL_FIXES.values()),
+        "secret-tool",
+        "gnome-shell",
+        "nvidia-smi",
+        "ollama",
+    )
+    env = {
+        "FAKE_GI_MISSING": "gi",
+        "XDG_SESSION_TYPE": "x11",
+        "DBUS_SESSION_BUS_ADDRESS": "",
+        "FAKE_DF": "/|/dev/small|1048576|/",
+    }
     code, checks = _check(sandbox, XDG_RUNTIME_DIR=str(sandbox.home.parent / "run"), **env)
     assert code == 10
     blocking = [c for c in checks.values() if c["status"] in {"FIX", "HUMAN"}]
@@ -439,6 +451,9 @@ def test_every_blocking_item_has_what_why_and_fix(sandbox: Env) -> None:
         "session.gnome-shell",
         "session.bus",
         "gtk.pygobject",
+        "gpu.driver",
+        "disk.space",
+        "ollama.installed",
         *TOOL_FIXES,
     }
     for item in blocking:
@@ -608,3 +623,335 @@ def test_the_gtk_probes_run_only_the_system_interpreter_and_never_uv(sandbox: En
     assert all("args=-c " in line for line in probes)
     assert not any("meeting_scribe_review" in line for line in probes)
     assert not any(line.startswith("uv") for line in calls)
+
+
+# -- hardware and services: GPU, disk, Ollama (F6.3) -------------------------------------------
+
+GIB_KIB = 1024 * 1024  # one GiB in the KiB that `df -Pk` reports
+
+
+def _statuses(checks: dict[str, dict], *ids: str) -> dict[str, str]:
+    return {i: checks[i]["status"] for i in ids}
+
+
+def test_with_every_prerequisite_present_every_documented_check_passes(sandbox: Env) -> None:
+    code, checks = _check(sandbox)
+    assert code == 0
+    assert set(checks) == CHECK_IDS  # every documented id, and nothing else
+    assert {i: c["status"] for i, c in checks.items() if c["status"] != "OK"} == {}
+
+
+@pytest.mark.parametrize(
+    ("rows", "vram", "driver"),
+    [
+        ("NVIDIA GeForce RTX 5060 Laptop GPU, 8151 MiB, 610.57.04", "OK", "OK"),
+        ("Card, 8000 MiB, 1.0", "OK", "OK"),
+        ("Card, 7999 MiB, 1.0", "HUMAN", "OK"),
+        ("Small GPU, 4096 MiB, 1.0;Big GPU, 24576 MiB, 1.0", "OK", "OK"),
+        ("Small GPU, 4096 MiB, 1.0;Other, 6144 MiB, 1.0", "HUMAN", "OK"),
+        ("", "SKIP", "HUMAN"),
+    ],
+)
+def test_gpu_and_vram_checks(sandbox: Env, rows: str, vram: str, driver: str) -> None:
+    code, checks = _check(sandbox, FAKE_NVIDIA_ROWS=rows)
+    assert _statuses(checks, "gpu.driver", "gpu.vram") == {"gpu.driver": driver, "gpu.vram": vram}
+    assert code == (0 if "HUMAN" not in {vram, driver} else 11)
+
+
+def test_the_gpu_detail_names_the_gpu_the_memory_and_the_driver(sandbox: Env) -> None:
+    _, checks = _check(sandbox)
+    summary = checks["gpu.driver"]["summary"]
+    assert "NVIDIA GeForce RTX 5060 Laptop GPU" in summary
+    assert "8151 MiB" in summary
+    assert "610.57.04" in summary
+    assert "8151 MiB" in checks["gpu.vram"]["summary"]
+    assert "7000" in checks["gpu.vram"]["detail"]  # the free amount is printed as information
+
+
+def test_several_gpus_the_first_row_decides_and_the_others_are_listed(sandbox: Env) -> None:
+    _, checks = _check(
+        sandbox, FAKE_NVIDIA_ROWS="First GPU, 4096 MiB, 9.1;Second GPU, 8192 MiB, 9.1"
+    )
+    assert "First GPU" in checks["gpu.driver"]["summary"]
+    assert "Second GPU" in checks["gpu.driver"]["detail"]
+    assert checks["gpu.vram"]["status"] == "OK"  # the largest total counts
+    assert "8192 MiB" in checks["gpu.vram"]["summary"]
+
+
+@pytest.mark.parametrize("mode", ["missing", "fail", "hang"])
+def test_a_missing_failing_or_hung_nvidia_smi_is_a_human_item(sandbox: Env, mode: str) -> None:
+    if mode == "missing":
+        _remove(sandbox, "nvidia-smi")
+    code, checks = _check(sandbox, FAKE_NVIDIA_MODE=mode, MEETING_SCRIBE_NVIDIA_SMI_TIMEOUT="1")
+    assert code == 11
+    driver = checks["gpu.driver"]
+    assert driver["status"] == "HUMAN"
+    assert driver["human"] is True
+    assert driver["fix"] == []
+    assert driver["steps"]
+    assert checks["gpu.vram"]["status"] == "SKIP"
+    expected = {"missing": "not installed", "fail": "failed", "hang": "did not answer"}[mode]
+    assert expected in driver["summary"]
+
+
+def test_the_gpu_checks_read_nvidia_smi_only(sandbox: Env) -> None:
+    sandbox.run(INSTALL, "--check")
+    smi = [line for line in sandbox.calls() if line.startswith("nvidia-smi")]
+    assert smi
+    assert all("--query-gpu=" in line and "--format=csv" in line for line in smi)
+    assert any("name,memory.total,driver_version" in line for line in smi)
+
+
+def test_a_low_vram_item_has_no_fix_and_says_so(sandbox: Env) -> None:
+    _, checks = _check(sandbox, FAKE_NVIDIA_ROWS="Card, 6144 MiB, 1.0")
+    vram = checks["gpu.vram"]
+    assert vram["status"] == "HUMAN"
+    assert vram["fix"] == []
+    assert "8000" in vram["summary"]
+    assert "6144" in vram["summary"]
+    assert "cannot run the local models" in " ".join(vram["steps"])
+
+
+def _disk_dirs(sandbox: Env) -> tuple[Path, Path]:
+    data = sandbox.home / ".local" / "share"
+    cache = sandbox.home / ".cache" / "huggingface"
+    data.mkdir(parents=True)
+    cache.mkdir(parents=True)
+    return data, cache
+
+
+def _df(rows: list[tuple[Path, str, float, str]]) -> str:
+    return ";".join(f"{path}|{dev}|{int(gib * GIB_KIB)}|{mount}" for path, dev, gib, mount in rows)
+
+
+@pytest.mark.parametrize(
+    ("free_gib", "status"),
+    [(9.0, "FIX"), (9.5, "FIX"), (10.0, "OK"), (500.0, "OK")],
+)
+def test_disk_requirement_is_per_filesystem_service_and_models_share_one(
+    sandbox: Env, free_gib: float, status: str
+) -> None:
+    data, cache = _disk_dirs(sandbox)
+    one_device = _df([(sandbox.home, "/dev/home", free_gib, "/home")])
+    _, checks = _check(sandbox, FAKE_DF=one_device)
+    item = checks["disk.space"]
+    assert item["status"] == status, item
+    if status == "FIX":  # 8 GiB for the service and 2 GiB for the models add up on one filesystem
+        assert "/dev/home" in item["summary"]
+        assert "/home" in item["summary"]
+        assert f"{int(free_gib)}.{int(free_gib * 10) % 10} GiB free" in item["summary"]
+        assert "10.0 GiB required" in item["summary"]
+        assert item["fix"] == ["du -xsh ~/.cache ~/.local/share"]
+        assert item["why"]
+    assert data.is_dir()
+    assert cache.is_dir()
+
+
+def test_directories_on_different_filesystems_are_checked_apart(sandbox: Env) -> None:
+    data, cache = _disk_dirs(sandbox)
+    table = _df([(cache, "/dev/cache", 1.5, "/cache"), (sandbox.home, "/dev/home", 8.5, "/home")])
+    _, checks = _check(sandbox, FAKE_DF=table)
+    item = checks["disk.space"]
+    assert item["status"] == "FIX"
+    assert "/dev/cache" in item["summary"]
+    assert "1.5 GiB free" in item["summary"]
+    assert "2.0 GiB required" in item["summary"]
+    assert "/dev/home" not in item["summary"]  # 8.5 GiB covers the 8 GiB the service needs
+    table = _df([(cache, "/dev/cache", 2.5, "/cache"), (sandbox.home, "/dev/home", 8.5, "/home")])
+    _, checks = _check(sandbox, FAKE_DF=table)
+    assert checks["disk.space"]["status"] == "OK"
+    assert data.is_dir()
+
+
+def test_an_existing_version_doubles_the_service_requirement(sandbox: Env) -> None:
+    data, _ = _disk_dirs(sandbox)
+    (data / "meeting-scribe" / "versions" / "20260101000000-1").mkdir(parents=True)
+    table = _df([(sandbox.home, "/dev/home", 17.0, "/home")])
+    _, checks = _check(sandbox, FAKE_DF=table)  # 16 GiB for two environments plus 2 GiB of models
+    assert checks["disk.space"]["status"] == "FIX"
+    assert "18.0 GiB required" in checks["disk.space"]["summary"]
+    _, checks = _check(sandbox, FAKE_DF=_df([(sandbox.home, "/dev/home", 18.0, "/home")]))
+    assert checks["disk.space"]["status"] == "OK"
+
+
+def test_cached_models_need_no_space_for_the_models(sandbox: Env) -> None:
+    _, cache = _disk_dirs(sandbox)
+    for repo in (
+        "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo",
+        "models--pyannote--speaker-diarization-community-1",
+    ):
+        (cache / "hub" / repo / "snapshots" / "abc").mkdir(parents=True)
+    _, checks = _check(sandbox, FAKE_DF=_df([(sandbox.home, "/dev/home", 8.0, "/home")]))
+    assert checks["disk.space"]["status"] == "OK"  # 8 GiB for the service, 0 for the models
+
+
+def test_the_nearest_existing_parent_is_measured(sandbox: Env) -> None:
+    data, _ = _disk_dirs(sandbox)  # meeting-scribe/ itself does not exist on a first install
+    sandbox.run(INSTALL, "--check")
+    df_calls = [line for line in sandbox.calls() if line.startswith("df")]
+    assert f"df -Pk {data}" in df_calls
+    assert not (data / "meeting-scribe").exists()
+
+
+def test_an_unreadable_filesystem_is_a_warning_not_a_blocker(sandbox: Env) -> None:
+    code, checks = _check(sandbox, FAKE_DF_FAIL="1")
+    assert code == 0
+    assert checks["disk.space"]["status"] == "WARN"
+
+
+def test_ollama_items(sandbox: Env) -> None:
+    _remove(sandbox, "ollama")
+    code, checks = _check(sandbox)
+    assert code == 10
+    assert _statuses(checks, "ollama.installed", "ollama.reachable", "ollama.model") == {
+        "ollama.installed": "FIX",
+        "ollama.reachable": "SKIP",
+        "ollama.model": "SKIP",
+    }
+    assert any("https://ollama.com/download" in line for line in checks["ollama.installed"]["fix"])
+
+
+@pytest.mark.parametrize(
+    ("system_unit", "fix"),
+    [("1", "sudo systemctl start ollama"), ("0", "ollama serve")],
+)
+def test_an_unreachable_ollama_prints_how_to_start_it(
+    sandbox: Env, system_unit: str, fix: str
+) -> None:
+    code, checks = _check(sandbox, FAKE_OLLAMA_MODE="down", FAKE_OLLAMA_SYSTEMD=system_unit)
+    assert code == 10
+    assert _statuses(checks, "ollama.installed", "ollama.reachable", "ollama.model") == {
+        "ollama.installed": "OK",
+        "ollama.reachable": "FIX",
+        "ollama.model": "SKIP",
+    }
+    assert checks["ollama.reachable"]["fix"] == [fix]
+    assert not any(x.startswith("ollama") for x in sandbox.calls())  # printed, never run
+
+
+def test_a_hung_ollama_is_cut_off(sandbox: Env) -> None:
+    code, checks = _check(sandbox, FAKE_OLLAMA_MODE="hang", MEETING_SCRIBE_OLLAMA_TIMEOUT="1")
+    assert code == 10
+    assert checks["ollama.reachable"]["status"] == "FIX"
+
+
+def test_a_missing_default_model_prints_the_pull_command_and_never_pulls(sandbox: Env) -> None:
+    code, checks = _check(sandbox, FAKE_OLLAMA_MODE="missing-model")
+    assert code == 10
+    assert checks["ollama.reachable"]["status"] == "OK"
+    assert checks["ollama.model"]["status"] == "FIX"
+    assert checks["ollama.model"]["fix"] == ["ollama pull qwen3:4b-instruct-2507-q4_K_M"]
+    assert not any(x.startswith("ollama") for x in sandbox.calls())
+
+
+def test_ollama_is_probed_through_its_http_api_on_the_default_address(sandbox: Env) -> None:
+    sandbox.run(INSTALL, "--check")
+    curls = [line for line in sandbox.calls() if line.startswith("curl")]
+    assert len(curls) == 1
+    assert "http://127.0.0.1:11434/api/tags" in curls[0]
+    assert "--max-time" in curls[0]
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["http://127.0.0.1:9999/v1", "http://127.0.0.1:9999/v1/", "http://127.0.0.1:9999/"],
+)
+def test_a_non_default_ollama_address_from_the_environment_is_honoured(
+    sandbox: Env, url: str
+) -> None:
+    sandbox.run(INSTALL, "--check", SUMMARIES_LOCAL_BASE_URL=url)
+    curls = [line for line in sandbox.calls() if line.startswith("curl")]
+    assert any("http://127.0.0.1:9999/api/tags" in line for line in curls), curls
+
+
+def test_without_curl_the_ollama_probes_are_skipped(sandbox: Env) -> None:
+    _remove(sandbox, "curl")
+    code, checks = _check(sandbox)
+    assert code == 10  # tool.curl is the FIX item
+    assert checks["tool.curl"]["status"] == "FIX"
+    assert _statuses(checks, "ollama.reachable", "ollama.model") == {
+        "ollama.reachable": "SKIP",
+        "ollama.model": "SKIP",
+    }
+
+
+def _config(sandbox: Env) -> Path:
+    config = sandbox.home / ".config" / "meeting-scribe"
+    config.mkdir(parents=True, exist_ok=True)
+    return config
+
+
+def _model_check(sandbox: Env, **extra: str) -> dict:
+    _, checks = _check(sandbox, **extra)
+    return checks["ollama.model"]
+
+
+def test_the_configured_model_comes_from_the_environment(sandbox: Env) -> None:
+    item = _model_check(sandbox, SUMMARIES_LOCAL_MODEL="mistral:7b", FAKE_OLLAMA_MODEL="mistral:7b")
+    assert item["status"] == "OK"
+    assert "mistral:7b" in item["summary"]
+
+
+def test_the_dotenv_is_read_for_that_one_line_and_nothing_else(sandbox: Env) -> None:
+    (_config(sandbox) / ".env").write_text(
+        'HF_TOKEN=not-a-real-token\nSUMMARIES_LOCAL_MODEL="gemma3:4b"  \n'
+    )
+    result = sandbox.run(INSTALL, "--check", "--json", FAKE_OLLAMA_MODEL="gemma3:4b")
+    item = {c["id"]: c for c in _json(result)["checks"]}["ollama.model"]
+    assert item["status"] == "OK"
+    assert "gemma3:4b" in item["summary"]
+    assert "not-a-real-token" not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'SUMMARIES_LOCAL_MODEL="gemma3:4b"  # the small one\r\n',  # CRLF, quotes, inline comment
+        "SUMMARIES_LOCAL_MODEL='gemma3:4b'\r\n",
+        "SUMMARIES_LOCAL_MODEL=  gemma3:4b   # note\n",
+        "SUMMARIES_LOCAL_MODEL=gemma3:4b\t#note\n",
+    ],
+)
+def test_the_dotenv_model_line_is_parsed_robustly(sandbox: Env, line: str) -> None:
+    (_config(sandbox) / ".env").write_bytes(line.encode())
+    assert _model_check(sandbox, FAKE_OLLAMA_MODEL="gemma3:4b")["status"] == "OK"
+
+
+def test_a_model_name_containing_a_hash_is_kept_when_no_space_precedes_it(sandbox: Env) -> None:
+    (_config(sandbox) / ".env").write_text("SUMMARIES_LOCAL_MODEL=org/model#1\n")
+    item = _model_check(sandbox)
+    assert item["status"] == "FIX"
+    assert item["fix"] == ["ollama pull org/model#1"]
+
+
+def test_the_configured_model_comes_from_the_preferences_file(sandbox: Env) -> None:
+    (_config(sandbox) / "settings.json").write_text(
+        '{"version": 1, "values": {"summaries.provider": "local",'
+        ' "summaries.local_model": "gemma3:4b"}}\n'
+    )
+    assert _model_check(sandbox, FAKE_OLLAMA_MODEL="gemma3:4b")["status"] == "OK"
+
+
+def test_the_environment_and_dotenv_override_the_preferences_file(sandbox: Env) -> None:
+    (_config(sandbox) / "settings.json").write_text(
+        '{"version":1,"values":{"summaries.local_model":"gemma3:4b"}}'
+    )
+    from_env = _model_check(sandbox, SUMMARIES_LOCAL_MODEL="mistral:7b")
+    assert from_env["fix"] == ["ollama pull mistral:7b"]
+    (_config(sandbox) / ".env").write_text("SUMMARIES_LOCAL_MODEL=llama3.2\n")
+    assert _model_check(sandbox)["status"] == "OK"  # the fake lists llama3.2:latest
+
+
+def test_an_unreadable_preferences_file_falls_back_to_the_default_model(sandbox: Env) -> None:
+    (_config(sandbox) / "settings.json").write_text("not json at all")
+    item = _model_check(sandbox)
+    assert item["status"] == "OK"
+    assert "qwen3:4b-instruct-2507-q4_K_M" in item["summary"]
+
+
+def test_a_model_name_without_a_tag_matches_its_latest_tag(sandbox: Env) -> None:
+    assert _model_check(sandbox, SUMMARIES_LOCAL_MODEL="llama3.2")["status"] == "OK"
+
+
+def test_a_model_name_is_matched_whole_not_as_a_prefix(sandbox: Env) -> None:
+    assert _model_check(sandbox, SUMMARIES_LOCAL_MODEL="llama3")["status"] == "FIX"

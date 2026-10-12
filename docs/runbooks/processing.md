@@ -19,7 +19,7 @@ ai_instructions:
 
 ## Purpose
 
-Get meetings transcribed and diarized after Stop: what to install, what `make install` downloads, what to expect on
+Get meetings transcribed and diarized after Stop: what to install, what the install needs and how the models get downloaded, what to expect on
 the first run, and what each failure code means. Design: [`../specs/processing.md`](../specs/processing.md).
 
 ## Preconditions
@@ -31,26 +31,25 @@ the first run, and what each failure code means. Design: [`../specs/processing.m
   2. Log in once in a real terminal: `hf auth login` (the CLI comes with `huggingface_hub`; run it from the
      installed environment or any environment that has it). The token is stored by Hugging Face; this program never
      reads or prints it.
-- Network access during `make install` only. Processing itself runs offline (`HF_HUB_OFFLINE=1`).
+- Network access only while the models are downloaded. Processing itself runs offline (`HF_HUB_OFFLINE=1`).
 
 ## Steps
 
-1. `make install`. It installs the service with the `ml` extra (faster-whisper, torch, pyannote.audio) and then runs
-   `meeting-scribe prefetch-models` as a visible step. That command downloads into the Hugging Face cache
-   (`~/.cache/huggingface`, or `$HF_HOME`):
+1. `./install.sh` (alias `make install`). It runs the preflight, installs the service with the `ml` extra
+   (faster-whisper, torch, pyannote.audio) and does **not** download the models: recording never needs them. The
+   models live in the Hugging Face cache (`~/.cache/huggingface`, or `$HF_HOME`):
    - the diarization pipeline `pyannote/speaker-diarization-community-1` (`SPEAKERS_PIPELINE`) with the models it names,
    - the Whisper model `large-v3-turbo` (`TRANSCRIPTION_MODEL`).
 
    Size, measured on the first real install (A-10): about 7.1 GB per installed version (torch with CUDA) and about 1.6 GB
    of models in the Hugging Face cache (`large-v3-turbo` 1.6 GB, community-1 32 MB). Later installs reuse the uv
-   cache and the Hugging Face cache.
-2. Read the summary. The `models:` line says `downloaded`, or `NOT downloaded` with the fix. A failed download never
-   fails the service install: recording works, processing does not until the models are cached. The download is
-   bounded by `MEETING_SCRIBE_PREFETCH_TIMEOUT` (a positive integer of seconds, default 3600; an invalid value warns and uses the default; the summary says when it timed out), and it is
-   skipped when the install rolled back because the new version failed to start (fix that first).
-3. If the models were not downloaded: fix the cause (login, terms, network; the download output above names it),
-   then run `make install` again. To download only the models: `meeting-scribe prefetch-models` (installed path:
-   `~/.local/share/meeting-scribe/current/bin/meeting-scribe prefetch-models`).
+   cache and the Hugging Face cache. The preflight checks the free space per filesystem (`disk.space`).
+2. Read the summary. The `models:` line says `ready (cached)`, or `PENDING: add your Hugging Face token in Preferences
+   and press Download models` (an offline check, bounded by `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT` seconds, default 30).
+   Pending is not a failure: recording works, processing does not until the models are cached.
+3. Fetch the models. The Download models action in Preferences arrives with F6.5 to F6.7; until then run
+   `meeting-scribe prefetch-models` (installed path: `~/.local/share/meeting-scribe/current/bin/meeting-scribe
+   prefetch-models`) after the login and the terms above.
 
 ## First run
 
@@ -80,8 +79,8 @@ Unfinished meetings resume by themselves when the service starts.
 |---|---|---|
 | `GPU_UNAVAILABLE` | No usable CUDA device or driver | Fix the NVIDIA driver (`nvidia-smi`), restart the service, Reprocess. `PROCESSING_DEVICE=cpu` runs on the CPU explicitly (slow). |
 | `GPU_OUT_OF_MEMORY` | The GPU ran out of memory | Close other GPU programs and Reprocess. There is no automatic CPU retry. |
-| `DIARIZATION_MODEL_ACCESS_DENIED` | Terms not accepted or no Hugging Face login | Accept the terms at the model page, run `hf auth login`, run `make install` again, then Reprocess. Transcription is kept. |
-| `MODEL_UNAVAILABLE` | A model is not in the cache (the worker is offline) | Run `make install` again (it downloads the models), or check `TRANSCRIPTION_MODEL` / `SPEAKERS_PIPELINE`, then Reprocess. |
+| `DIARIZATION_MODEL_ACCESS_DENIED` | Terms not accepted or no Hugging Face login | Accept the terms at the model page, run `hf auth login`, fetch the models again (`meeting-scribe prefetch-models`), then Reprocess. Transcription is kept. |
+| `MODEL_UNAVAILABLE` | A model is not in the cache (the worker is offline) | Fetch the models (`meeting-scribe prefetch-models`; the install only reports `models: PENDING`), or check `TRANSCRIPTION_MODEL` / `SPEAKERS_PIPELINE`, then Reprocess. |
 | `WORKER_TIMEOUT` | A worker exceeded its stage timeout | Reprocess. For very long meetings raise `PROCESSING_WORKER_TIMEOUT_FACTOR` or `PROCESSING_WORKER_MIN_TIMEOUT_SECONDS`. |
 | `WORKER_CRASHED` | A worker exited abnormally | Read the end of `processing.log` in the meeting folder (yourself, privately), then Reprocess. |
 | `WORKER_PROTOCOL_ERROR` | A worker spoke an unexpected protocol | Reinstall with `make install` (service and worker must be the same version). |

@@ -9,7 +9,7 @@ verifiable_by:
   - .env.example
 ai_instructions:
   - "An agent must NEVER run these steps against the owner's machine: they talk to Ollama, to the cloud gateway and to the keyring, and summaries are built from private transcripts. Only the user runs them."
-  - "Never pull a model, start Ollama or send a prompt on the user's behalf. `make install` only checks."
+  - "Never pull a model, start Ollama or send a prompt on the user's behalf. The preflight and `./install.sh` only check."
   - "Never put an API key, a transcript or a summary in the repo, a log or a doc."
 ---
 
@@ -23,7 +23,7 @@ the cloud choice: [ADR-009](../decisions/009-cloud-summaries-through-opencode-go
 
 ## Preconditions
 
-- `make install` was run (service, review app and extension). Its summary has an `ollama:` line.
+- `./install.sh` (alias `make install`) was run (service, review app and extension). Its preflight already required Ollama and the model, and its summary has an `ollama:` line.
 - Settings are changed in the **Preferences** window (Meeting Scribe menu, or the gear in the Extensions app); see
   [`preferences.md`](preferences.md). Model and provider changes apply at once, with no restart. Developers can still
   override any of them with `SUMMARIES_*` variables in the environment or in `~/.config/meeting-scribe/.env`
@@ -33,8 +33,10 @@ the cloud choice: [ADR-009](../decisions/009-cloud-summaries-through-opencode-go
 
 ## Steps: local summaries with Ollama
 
-`make install` only **checks** Ollama and the model, read-only (`ollama list`). It never starts Ollama, never pulls a
-model and never sends a prompt; a gap is a warning, the install still succeeds. Re-run `make install` to re-check.
+The preflight (`./install.sh --check`, rows `ollama.installed`, `ollama.reachable`, `ollama.model`) **checks** Ollama and
+the model, read-only (one GET of `/api/tags` on `SUMMARIES_LOCAL_BASE_URL`, default `http://127.0.0.1:11434`). It never
+starts Ollama, never pulls a model and never sends a prompt; a gap stops the install with zero changes and prints the
+command to fix it (exit 10). Run the command, then `./install.sh --check` again.
 
 1. Install Ollama from <https://ollama.com/download> and make sure it runs. On a system install this is
    `systemctl status ollama`; start it with `sudo systemctl start ollama` (or run `ollama serve` in a terminal).
@@ -109,9 +111,9 @@ A finished summary appears in the Summary tab and as `summary.md` next to the me
 
 | Symptom or code | Cause and fix |
 |---|---|
-| Install says `ollama: NOT found` | Ollama is not installed or not on `PATH`. Install it, then `ollama pull qwen3:4b-instruct-2507-q4_K_M`. |
-| Install says `found but not reachable` | The server is stopped. `sudo systemctl start ollama` or `ollama serve`, then re-run `make install`. |
-| Install says `model ... NOT found` | `ollama pull <model>` (the command is in the install output). The install never pulls. |
+| `[ FIX ] ollama.installed` | Ollama is not installed or not on `PATH`. Install it from <https://ollama.com/download>, then `ollama pull qwen3:4b-instruct-2507-q4_K_M`. |
+| `[ FIX ] ollama.reachable` | The server is stopped. `sudo systemctl start ollama` or `ollama serve`, then `./install.sh --check` again. |
+| `[ FIX ] ollama.model` | `ollama pull <model>` (the command is in the report). The install never pulls. |
 | `SUMMARY_PROVIDER_UNAVAILABLE` | Ollama is unreachable from the service. Start it; `SUMMARIES_LOCAL_BASE_URL` must point at it. |
 | `SUMMARY_MODEL_RUN_FAILED` | Ollama is up but could not run the model (load failure or out of memory). Check `ollama ps` and `journalctl -u ollama`, free GPU memory or pick a smaller model. It is not retried. |
 | `SUMMARY_MODEL_NOT_FOUND` | The model is not in `ollama list`: pull it, or pick another one in Preferences (or fix `SUMMARIES_LOCAL_MODEL` if you override it). |

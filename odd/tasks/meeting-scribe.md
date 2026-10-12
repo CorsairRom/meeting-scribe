@@ -632,9 +632,14 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
       prerequisites list and the drift test that keeps it equal to the check ids.
       Evidence: RED = 29 failed in `tests/unit/test_preflight.py` plus 2 errors in `test_readme_prerequisites.py` (no checks,
       no README table); GREEN = `make check` 1986 python passed, packaging 1 passed, gjs 163 passed. The old "review app: NOT
-      usable" warning tests became the zero-change stop (AC-2). Commit: see F6.3 evidence.
-- [ ] F6.3 Preflight, hardware and services: NVIDIA driver, VRAM, free disk by filesystem, Ollama installed, reachable,
+      usable" warning tests became the zero-change stop (AC-2). Commit `664727f` `feat(install): check the session, the shell and the review app toolkit`.
+- [x] F6.3 Preflight, hardware and services: NVIDIA driver, VRAM, free disk by filesystem, Ollama installed, reachable,
       default model present; the install stops with zero changes; summary line "models: pending" replaces the model download step.
+      Evidence: RED = 60 failed across `test_preflight.py`, `test_install_scripts.py` (new fakes: `nvidia-smi`, `df`, `curl`);
+      GREEN = `make check` 2016 python passed, packaging 1 passed, gjs 163 passed, lint clean. The no-write proof
+      (`test_check_changes_nothing`) passed before the smoke run `./install.sh --check` on the real machine: exit 0, all 22
+      checks OK. `MEETING_SCRIBE_PREFETCH_TIMEOUT` removed everywhere; decisions recorded in `docs/specs/install.md`.
+      Note: `prefetch-models --check` arrives in F6.4, so the real summary says `models: PENDING` until then. Commit: see git log.
 - [ ] F6.4 Token-free processing: the pyannote loader uses no token, the fetcher takes one on stdin, `prefetch-models`
       gets `--check` and machine-readable progress, error texts point to Preferences; offline verification without a login.
 - [ ] F6.5 `model_setup` domain and `dev.meetingscribe.Models1` (status, download, cancel, progress, finished), keyring

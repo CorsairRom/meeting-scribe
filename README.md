@@ -34,6 +34,12 @@ when only those remain, 10 when a command can fix something). The first column i
 | `gtk.libsecret` | libsecret typelib, stores keys in the GNOME Keyring | blocks | `sudo dnf install libsecret` |
 | `gtk.gstreamer` | `gstreamer1-plugins-good`, plays the voice samples | optional | `sudo dnf install gstreamer1-plugins-good` |
 | `tool.secret-tool` | `secret-tool`, stores a key from a terminal | optional | `sudo dnf install libsecret` |
+| `gpu.driver` | The NVIDIA driver: `nvidia-smi` lists a GPU (transcription and diarization run on the local GPU, there is no CPU or cloud mode) | human, blocks | Install the NVIDIA driver (for example from RPM Fusion), reboot, run `nvidia-smi` |
+| `gpu.vram` | At least 8000 MiB of VRAM (an "8 GB" card reports 8151 to 8192 MiB) | human, blocks | No command: this GPU cannot run the local models |
+| `disk.space` | Free space per filesystem: 8 GiB for the service (16 GiB while an older version exists, two environments coexist during an upgrade) and 2 GiB for the models when they are not cached | blocks | Free space on the named filesystem; `du -xsh ~/.cache ~/.local/share` shows what is large |
+| `ollama.installed` | Ollama, for local summaries (the install stops without it, also with the cloud provider) | blocks | Install it from <https://ollama.com/download> (its script asks for administrator rights: read it first) |
+| `ollama.reachable` | Ollama answers at `http://127.0.0.1:11434` (`SUMMARIES_LOCAL_BASE_URL` is honoured) | blocks | `sudo systemctl start ollama` when it is a system service, else `ollama serve` |
+| `ollama.model` | The configured local model is pulled (default `qwen3:4b-instruct-2507-q4_K_M`) | blocks | `ollama pull <model>` (about 2.5 GB); the installer never pulls it |
 
 ## Quickstart
 
@@ -47,8 +53,8 @@ when only those remain, 10 when a command can fix something). The first column i
 never runs `sudo` and never prompts: it prints the commands. Exit codes: 0 success, 1 an install stage failed or was
 refused, 2 usage error, 10 blocked by a fixable prerequisite, 11 blocked only by steps a human must do.
 
-You never start the service by hand. `make install` does the following, and is safe to re-run to upgrade. It checks
-the recording first: while a recording is in progress, or its state cannot be read, it changes nothing and exits with an
+You never start the service by hand. `make install` does the following, and is safe to re-run to upgrade. It runs the preflight first
+(exit 10 or 11 and no change when a prerequisite is missing), then checks the recording: while a recording is in progress, or its state cannot be read, it changes nothing and exits with an
 error (stop the recording from the top-bar menu, then run it again). If only the state is unreadable, `FORCE=1 make install`
 overrides that (never a positive recording). The state is re-checked right before the service restarts; if a recording started
 meanwhile the restart is skipped with a warning and the new version applies on the next restart or login. If the service
@@ -65,10 +71,10 @@ as NOT active and exits non-zero. A failing extension step is reported in the su
    the installer exits non-zero.
 2. Installs and enables the `systemd --user` unit and the D-Bus activation file, then starts the service
    (on upgrade it restarts it).
-3. Downloads the speech models with `meeting-scribe prefetch-models` (a visible step; needs the network and, for the gated
-   diarization model, `hf auth login` plus accepted terms, see [`processing.md`](docs/runbooks/processing.md)). The service
-   is installed with the `ml` extra, and processing then runs offline (`HF_HUB_OFFLINE=1`). A failed download does not
-   fail the install: the summary says `models: NOT downloaded` and `make install` again fixes it.
+3. Does not download the speech models: recording needs none of them. The summary says `models: ready (cached)` or
+   `models: PENDING: add your Hugging Face token in Preferences and press Download models` (an offline check, never a
+   failure; the Download models action arrives with F6.5 to F6.7, until then `meeting-scribe prefetch-models` fetches
+   them, see [`processing.md`](docs/runbooks/processing.md)). Processing runs offline (`HF_HUB_OFFLINE=1`).
 4. Packs, installs and enables the GNOME extension. On Wayland a brand-new extension is discovered only after you
    log out and back in once; the installer tells you when that is needed.
 5. Installs the review app (F4) into the same version directory (`app/` and the `bin/meeting-scribe-review` launcher, which
@@ -76,9 +82,10 @@ as NOT active and exits non-zero. A failing extension step is reported in the su
    `${XDG_DATA_HOME:-~/.local/share}/applications/`. The preflight (`gtk.*` rows above) has already
    checked the toolkit, so a missing package stops the install before any change and prints its `dnf` command. See
    [`review-app.md`](docs/runbooks/review-app.md). `make uninstall` removes the desktop entry and the version tree.
-6. Checks Ollama and the local summary model, read-only (`ollama list`). The summary has an `ollama:` line; a missing or
-   stopped Ollama or a missing model only warns with the command to fix it. The install never starts Ollama, never pulls
-   a model and never sends a prompt. See [`summaries.md`](docs/runbooks/summaries.md).
+6. Checked Ollama and the local summary model before any change (the `ollama.*` rows above, one read-only request to
+   its HTTP API). The summary has an `ollama:` line. The install never starts Ollama, never pulls a model and never
+   sends a prompt; a missing piece stops the install with the command to fix it. See
+   [`summaries.md`](docs/runbooks/summaries.md).
 
 Upgrading from an install made before versioned installs (the service ran from `~/.local/bin/meeting-scribe`): the first
 `make install` rewrites the unit to the `current/` path and, only after the service is active on it, runs
