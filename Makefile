@@ -38,11 +38,11 @@ run: ## Start the service in the foreground (development)
 run-review-app: ## Open the review app from the working tree (development; opens a window, ask the user first)
 	PYTHONPATH=review-app/src $(REVIEW_APP_PYTHON) -m meeting_scribe_review
 
-install: ## Install everything: service, systemd unit, D-Bus activation, GNOME extension
-	scripts/install.sh
+install: ## Install everything (alias of ./install.sh; ARGS=--check only checks, ARGS='--check --json' for agents)
+	./install.sh $(ARGS)
 
-uninstall: ## Remove what install added (keeps meetings and .env); FORCE=1 to stop while recording or when its state is unreadable
-	scripts/uninstall.sh
+uninstall: ## Remove what install added (alias of ./uninstall.sh; keeps meetings and .env); FORCE=1 to stop while recording or when its state is unreadable
+	./uninstall.sh $(ARGS)
 
 extension-pack: ## Build the GNOME extension zip into dist/ (development)
 	mkdir -p $(PACK_DIR)

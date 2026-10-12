@@ -622,8 +622,11 @@ owner merges the tracker. Docs gate before the tracker is ready (see `docs/proje
 Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers are a separate phase after F6.
 - [x] F6.0a Phase start: F5 done, F6 in progress (mvp-scope, AGENTS, backlog, README, F5 spec statuses, this document).
 - [x] F6.0b Design spec `docs/specs/install.md`, ADR-010 and ADR-011 written and approved 2026-10-12 under the owner's delegation; OQ-1 to OQ-3 answered with their recommendations.
-- [ ] F6.1 Root `install.sh` and `uninstall.sh` entry points (thin wrappers over `scripts/`), `make install` alias,
+- [x] F6.1 Root `install.sh` and `uninstall.sh` entry points (thin wrappers over `scripts/`), `make install` alias,
       option parsing (`--check`, `--json`, `--help`), exit-code contract and report formatter, with fakes-based tests.
+      Evidence: RED = 36 failed in `tests/unit/test_preflight.py` (no wrappers, no `scripts/preflight.sh`); GREEN =
+      `make check` 1945 python passed, packaging 1 passed, gjs 163 passed. Sandbox moved to `tests/unit/install_sandbox.py`
+      (shared with the preflight tests, stdin closed, fake `sudo` that fails loudly). Commit: see F6.2 evidence.
 - [ ] F6.2 Preflight, system checks: GNOME Wayland session, GNOME Shell version from the extension metadata, `uv`,
       `ffmpeg`, `pactl`, `systemctl`, `gdbus`, `gnome-extensions`, GTK4, libadwaita, PyGObject, libsecret; the README
       prerequisites list and the drift test that keeps it equal to the check ids.
@@ -656,6 +659,7 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
 | F0.1 + F0.2 | delegated (1 writer) | 2+ non-trivial files (pyproject, settings, main, kernel, tests) |
 | F5.10 P7 | delegated (1 writer) | 2+ non-trivial files (runbook, install.sh, summaries.md, tests) |
 | F6.0 | delegated (1 docs writer) | 2+ non-trivial doc files (phase start, spec, ADR) and reading that prepares the write |
+| F6.1 + F6.2 + F6.3 | delegated (1 writer for all three, one commit each) | 2+ non-trivial files per task (scripts, tests, README, docs) |
 | gitignore fix | inline | one mechanical file, root cause already understood |
 | F0.3 + F0.4 | delegated (1 writer, ran in parallel with the code review — disjoint files) | 30+ doc files |
 | review suggestions | inline | two mechanical one-line doc edits |

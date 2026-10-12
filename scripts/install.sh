@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # One-command install: service (uv tool), systemd --user unit, D-Bus activation, GNOME extension.
-# Idempotent; safe to re-run to upgrade. Refuses to run while a recording is in progress, or its
-# state is unknown unless FORCE=1 (FORCE never overrides a recording).
+# Run it as ./install.sh (the root wrapper) or `make install` (alias; `make install ARGS=--check`).
+# Idempotent; safe to re-run to upgrade. It first runs the read-only preflight (scripts/preflight.sh)
+# and stops with zero changes when a prerequisite is missing; it never runs sudo and never prompts.
+# Then it refuses to run while a recording is in progress, or its state is unknown unless FORCE=1
+# (FORCE never overrides a recording).
 #
 # Every run installs into a fresh versions/<id>/ directory, verifies it, and only then repoints the
 # `current` symlink atomically, so the environment a running service was loaded from is never
@@ -23,8 +26,69 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/_common.sh
 source "$REPO_ROOT/scripts/_common.sh"
 
+# shellcheck source=scripts/preflight.sh
+source "$REPO_ROOT/scripts/preflight.sh"
+
+usage() {
+  cat <<'USAGE'
+Usage: ./install.sh [--check [--json]] [--help]   (alias: make install ARGS=--check)
+
+Installs the service, the systemd user unit, the D-Bus activation file, the review app and the
+GNOME extension. It first checks every prerequisite (read-only) and stops with zero changes when
+one is missing. It never elevates privileges and never asks anything: it prints the commands to run.
+
+  --check   Run only the preflight, change nothing, call no service.
+  --json    With --check: print one JSON document on stdout (the prose goes to stderr).
+  --help    Show this text.
+
+Environment: FORCE=1 installs over an unreadable recording state (never over a recording).
+
+Exit codes:
+  0   success: installed, or --check found nothing that blocks
+  1   an install stage failed or was refused (recording in progress, service or extension step)
+  2   usage error
+  10  blocked: at least one FIX item (a printed command fixes it)
+  11  blocked: only HUMAN items remain (only the user can resolve them)
+USAGE
+}
+
+check_only=0
+json_output=0
+for arg in "$@"; do
+  case "$arg" in
+    --check) check_only=1 ;;
+    --json) json_output=1 ;;
+    -h | --help) usage; exit 0 ;;
+    *) echo "error: unknown option: $arg" >&2; usage >&2; exit 2 ;;
+  esac
+done
+if ((json_output && !check_only)); then
+  echo "error: --json is only valid with --check" >&2
+  usage >&2
+  exit 2
+fi
+
+# The preflight comes first and is read-only: nothing below runs while a prerequisite is missing.
+preflight_run
+preflight_code="$(pf_exit_code)"
+if ((check_only)); then
+  if ((json_output)); then
+    pf_report json
+    pf_report text >&2
+  else
+    pf_report text
+  fi
+  exit "$preflight_code"
+fi
+if ((preflight_code != 0)); then
+  pf_report text
+  exit "$preflight_code"
+fi
+echo "==> Prerequisites: all present"
+pf_items_text WARN
+
 # Decide before touching anything.
-refuse_unless_safe "'make install'" unknown || exit 1
+refuse_unless_safe "'./install.sh'" unknown || exit 1
 
 # Repoints `current` atomically through a uniquely named temporary link, so a leftover link from
 # an interrupted run can never collide. $1 is the link target, relative to $INSTALL_ROOT.
@@ -335,14 +399,14 @@ else
 fi
 if ((${#review_missing[@]})); then
   echo "  review app: NOT usable (missing: ${review_missing[*]}); install with: sudo dnf install ${review_missing[*]}"
-  echo "             Sample playback also needs gstreamer1-plugins-good. The extension menu item stays; re-run 'make install' to re-check."
+  echo "             Sample playback also needs gstreamer1-plugins-good. The extension menu item stays; re-run ./install.sh to re-check."
 else
   echo "  review app: ready ($DESKTOP_ENTRY_NAME)"
 fi
 case "$models_status" in
   skipped_rollback)
     echo "  models:    NOT downloaded, the install rolled back (the start failure is the real problem)."
-    echo "             Fix it, run 'make install' again, or fetch them later with: $prefetch_cmd"
+    echo "             Fix it, run ./install.sh again, or fetch them later with: $prefetch_cmd"
     ;;
   timed_out)
     echo "  models:    NOT downloaded, the download timed out after $prefetch_timeout s; recording works,"
@@ -368,7 +432,7 @@ case "$ollama_status" in
     ;;
   unreachable)
     echo "  ollama:    found but not reachable (summaries stay unavailable; recording and processing are unaffected)"
-    echo "             Start it with: systemctl start ollama (or run: ollama serve), then re-run 'make install' to re-check."
+    echo "             Start it with: systemctl start ollama (or run: ollama serve), then re-run ./install.sh to re-check."
     ;;
   *)
     echo "  ollama:    NOT found (summaries stay unavailable; recording and processing are unaffected)"
