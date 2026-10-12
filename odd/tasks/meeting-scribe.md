@@ -578,7 +578,7 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
       Integrated #114. GREEN 1548 python / 145 gjs / 14 contracts. Follow-ups (stopped the review loop here):
       a stale success arriving after a newer attempt already failed replaces that failure text with the
       stored-key note; misplaced comment and duplicated reset in api_key.py; the gjs hold test waits 100 ms.
-- [ ] F5.10 Preferences window (owner request 2026-10-11: no .env, no console; no separate cloud switch,
+- [x] F5.10 Preferences window (owner request 2026-10-11: no .env, no console; no separate cloud switch,
       Provider=Cloud is the opt-in). Spec `docs/specs/preferences.md` approved (`b755136`): Settings1 D-Bus,
       settings.json (0600) with env/.env as developer override, live vs restart fields, prefs.js launcher +
       menu item, key stays in libsecret. Tasks P1-P7 (P8 optional model picker, not planned).
@@ -595,10 +595,18 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
         then shown to fail with the sources stashed). GREEN 1759 python / 163 gjs. Follow-ups: restart wait state
         survives closing the dialog (self-clears after the 20 s timer); failed-save test name overclaims; fake
         unwatch diverges from the real gateway; timer truncates fractional seconds.
-  - [ ] P7 runbook, docs, validation with consent.
+  - [x] P7 runbook, docs (2026-10-12). `docs/runbooks/preferences.md` added and linked from the runbooks index,
+        AGENTS.md and summaries.md (Preferences is the user path, `.env` the developer override); install.sh summary
+        points to Preferences and the Ollama check reads `summaries.local_model` from settings.json (env > .env >
+        file > default; RED: new test failed with the file ignored, GREEN after); uninstall.sh states settings.json
+        and the keyring entry stay; systemd unit comment updated. Commits `7de660b`, `f4dc687`.
+        Evidence: `make lint` contracts 15 kept; `make check` 1901 python passed, packaging 1 passed, gjs 163
+        passed; Spanish language scan over docs/ scripts/ src/ README.md AGENTS.md: no matches. Validation with
+        consent is F5.9 below.
 - [ ] F5.9 validation with consent (local run; cloud only on explicit go), docs gate.
-      make install done 2026-10-11 (version 20261011195308-2317253; ollama reachable, qwen3.5:9b present);
-      owner to test a local summary.
+      make install done 2026-10-12 (version 20261012015947-1358289; ollama reachable,
+      qwen3:4b-instruct-2507-q4_K_M present). Owner tested a local summary and a cloud summary (OpenCode Go)
+      successfully on 2026-10-12. Remaining: docs gate before the integration PR.
 ### F6 Install — pending
 
 ## Route log
@@ -607,6 +615,7 @@ TDD: strict, runner `uv run pytest` / `make check` (source: AGENTS.md). Route: d
 |---|---|---|
 | Mapping | delegated (2 Explore mappers, parallel) | prototype = 5 files; conventions = 3 repos |
 | F0.1 + F0.2 | delegated (1 writer) | 2+ non-trivial files (pyproject, settings, main, kernel, tests) |
+| F5.10 P7 | delegated (1 writer) | 2+ non-trivial files (runbook, install.sh, summaries.md, tests) |
 | gitignore fix | inline | one mechanical file, root cause already understood |
 | F0.3 + F0.4 | delegated (1 writer, ran in parallel with the code review — disjoint files) | 30+ doc files |
 | review suggestions | inline | two mechanical one-line doc edits |
