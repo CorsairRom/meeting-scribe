@@ -429,11 +429,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 13 | 0 | 0 |
-| GO | 65 | 1 | 0 |
+| GO | 66 | 1 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-066 — 2026-10-12
-**Next available IDs**: BR-006, CR-014, GO-067, AP-005
+**Last rule added**: GO-067 — 2026-10-12
+**Next available IDs**: BR-006, CR-014, GO-068, AP-005
 
 ---
 
@@ -583,3 +583,10 @@ with `Supersedes: <ID>`. Never delete rules.
 - **Detail**: `./install.sh` (alias `make install`) does no network step: recording needs no model, so a missing network, login or terms acceptance can never block or fail the install. After the switch it runs `current/bin/meeting-scribe prefetch-models --check` (offline) and prints `models: ready (cached)` or `models: PENDING: add your Hugging Face token in Preferences and press Download models; recording works meanwhile`, followed until F6.7 by `(until then: meeting-scribe prefetch-models)`. A missing, failing or timed out check is reported as PENDING, never as a failure. The check is bounded by `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT` seconds (default 30; an invalid value falls back to 30). The `--check` option arrives in F6.4, so until then the real command rejects it and the line says PENDING. Unchanged from GO-047: the worker always runs with `HF_HUB_OFFLINE=1`, a cache miss becomes `MODEL_UNAVAILABLE`, and `uv tool install` takes the extra as `meeting-scribe[ml] @ <repo>`.
 - **Source**: [install spec](../specs/install.md) section 5 and OQ-2
 - **Verifiable in**: `tests/unit/test_install_scripts.py`
+
+### GO-067 — Processing loads the cache with no token; `prefetch-models` is the one command that takes one, on stdin
+- **Date**: 2026-10-12
+- **Status**: active
+- **Detail**: `RealPyannoteBackend.load_pipeline` calls `Pipeline.from_pretrained(pipeline, token=None)`: the worker is offline (`HF_HUB_OFFLINE=1`), so a cached model loads with no network, no login and no token, and the loader never reads a stored login (proved on the real cache by `tests/gpu/test_offline_cached_load.py`, which redirects `HF_TOKEN_PATH` to a missing file). Only the download needs a token: `fetch_pipeline(pipeline, token=None)` passes a given token explicitly and otherwise uses the ambient login (`token=True`), so an existing `hf auth login` keeps working. `meeting-scribe prefetch-models` (also `python -m meeting_scribe.cli prefetch-models`) takes `--token-stdin` (the first line of standard input, never argv or the environment; an empty line is exit 2), `--progress-json` (stdout is one JSON object per line and nothing else: `{"event":"step","model":"pipeline"|"whisper","step":N,"total_steps":2}` before each model, `{"event":"error","model","error_code","message"}` per failure, `{"event":"finished","ready":bool}` last; the message is scrubbed) and `--check` (offline, one line `{"whisper": bool, "pipeline": bool}`, exit 0 only when both are cached; it cannot be combined with the other two). The scrub hides anything shaped `hf_...` and also the exact token given. "Cached" is stricter than "a snapshot folder exists" (`base/infrastructure/hf_cache.snapshot_is_complete`): every file the model needs is present (Whisper: `config.json`, `preprocessor_config.json`, `model.bin`, `tokenizer.json`, `vocabulary.*`; pipeline: `config.yaml` plus each `$model/<path>` its config names), no symlink points at a missing blob and no `*.incomplete` blob is in the repository, because an interrupted download leaves a snapshot folder behind. The check uses `snapshot_download(local_files_only=True)` and never the network. The error texts of the worker and of the download now point at Preferences ("add your Hugging Face token in Preferences and press Download models"); the install-time text for `MODEL_UNAVAILABLE` still says how to retry the command.
+- **Source**: [install spec](../specs/install.md) sections 6, AC-15, F6.4
+- **Verifiable in**: `tests/unit/speakers/test_pyannote_backend.py`, `tests/unit/test_prefetch.py`, `tests/unit/test_prefetch_check_offline.py`, `tests/unit/test_cli.py`, `tests/unit/base/test_hf_cache.py`, `tests/gpu/test_offline_cached_load.py`

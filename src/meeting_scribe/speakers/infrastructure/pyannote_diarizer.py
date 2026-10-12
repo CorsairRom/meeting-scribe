@@ -41,8 +41,8 @@ _NO_CUDA = (
 )
 _ACCESS_ERRORS = frozenset({"GatedRepoError", "RepositoryNotFoundError", "LocalTokenNotFoundError"})
 """Gated or private pipeline (``GatedRepoError`` extends ``RepositoryNotFoundError``) and
-``token=True`` without a stored login (``LocalTokenNotFoundError``): all fixed by ``hf auth
-login`` plus accepting the terms (assumption A-11)."""
+``token=True`` without a stored login (``LocalTokenNotFoundError``): all fixed by accepting the
+terms and adding a token in Preferences (assumption A-11)."""
 _ACCESS_STATUS = frozenset({401, 403})
 _MODEL_LOOKUP_ERRORS = frozenset(
     {"LocalEntryNotFoundError", "OfflineModeIsEnabled", "HFValidationError"}
@@ -96,7 +96,7 @@ class PyannoteBackend(Protocol):
     def cuda_device_count(self) -> int: ...
 
     def load_pipeline(self, pipeline: str, device: Device) -> PipelineLike:
-        """``Pipeline.from_pretrained(pipeline, token=True)`` moved to ``device``."""
+        """``Pipeline.from_pretrained(pipeline, token=None)`` on ``device``: offline, no login."""
         ...
 
     def make_input(self, audio: Samples) -> Mapping[str, object]:
@@ -222,13 +222,14 @@ def map_pyannote_error(error: Exception, pipeline: str) -> MeetingScribeError:
     if names & _ACCESS_ERRORS or status in _ACCESS_STATUS:
         return DiarizationModelAccessError(
             f"Cannot access the diarization model '{pipeline}' ({type(error).__name__}). "
-            f"Accept its terms at https://hf.co/{pipeline} and run `hf auth login` once in a "
-            "terminal, then reprocess the meeting (the transcription is kept)."
+            f"Accept its terms at https://hf.co/{pipeline}, add your Hugging Face token in "
+            "Preferences (Speech models) and press Download models, then reprocess the meeting "
+            "(the transcription is kept)."
         )
     if names & _MODEL_LOOKUP_ERRORS:
         return ModelUnavailableError(
             f"The pipeline '{pipeline}' is not in the Hugging Face cache and the worker runs "
-            f"offline ({type(error).__name__}). Run `make install` again to download the models "
+            f"offline ({type(error).__name__}). Open Preferences and press Download models "
             "(or check SPEAKERS_PIPELINE), then reprocess the meeting."
         )
     if isinstance(error, ImportError):

@@ -206,7 +206,9 @@ def test_a_model_error_message_names_the_model_but_cannot_carry_a_token() -> Non
     assert "hf_secret" not in str(mapped)
 
 
-def test_a_model_cache_miss_tells_the_user_to_run_the_installer_again() -> None:
+def test_a_model_cache_miss_tells_the_user_to_download_the_models_in_preferences() -> None:
     mapped = map_whisper_error(type("LocalEntryNotFoundError", (OSError,), {})("offline"), "m")
 
-    assert "make install" in str(mapped)
+    assert "Preferences" in str(mapped)
+    assert "Download models" in str(mapped)
+    assert "make install" not in str(mapped)

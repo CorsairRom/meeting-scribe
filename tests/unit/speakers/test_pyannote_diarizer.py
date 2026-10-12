@@ -105,7 +105,9 @@ def test_gated_model_error_maps_to_access_denied(error: Exception) -> None:
     assert isinstance(failure, DiarizationModelAccessError)
     assert failure.error_code == "DIARIZATION_MODEL_ACCESS_DENIED"
     assert f"https://hf.co/{PARAMS.pipeline}" in str(failure)
-    assert "hf auth login" in str(failure)
+    assert "Preferences" in str(failure)
+    assert "Download models" in str(failure)
+    assert "hf auth login" not in str(failure)
     assert "403 gated" not in str(failure)  # the library's text is never repeated
 
 
@@ -196,10 +198,12 @@ def test_the_hook_ignores_unknown_steps_and_zero_totals() -> None:
     assert seen == [0.0]
 
 
-def test_an_offline_cache_miss_tells_the_user_to_run_the_installer_again() -> None:
+def test_an_offline_cache_miss_tells_the_user_to_download_the_models_in_preferences() -> None:
     class LocalEntryNotFoundError(FileNotFoundError):
         pass
 
     message = str(map_pyannote_error(LocalEntryNotFoundError("offline"), "p"))
 
-    assert "make install" in message
+    assert "Preferences" in message
+    assert "Download models" in message
+    assert "make install" not in message
