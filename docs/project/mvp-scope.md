@@ -7,7 +7,7 @@ ai_instructions:
   - "If a deliverable is not in 'IN SCOPE', do NOT build it now even if it appears in the PRD."
   - "When you complete a deliverable, update its status and add date + commit."
   - "If the PRD and this doc conflict, THIS doc wins for v1."
-  - "Work phase by phase. The phase table below is machine-checked by tests/unit/test_docs_sync.py: status is done, in progress or pending, with exactly one in progress."
+  - "Work phase by phase. The phase tables below (v1 and v1.1) are machine-checked by tests/unit/test_docs_sync.py: status is done, in progress or pending, with exactly one in progress across all of them."
 ---
 
 # MVP Scope — v1
