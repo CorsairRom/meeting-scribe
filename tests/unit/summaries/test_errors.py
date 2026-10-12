@@ -12,6 +12,7 @@ CODES = {
     errors.SummaryProviderRejectedError: "SUMMARY_PROVIDER_REJECTED",
     errors.SummaryTimeoutError: "SUMMARY_TIMEOUT",
     errors.SummaryContextTooLargeError: "SUMMARY_CONTEXT_TOO_LARGE",
+    errors.SummaryOutputLimitReachedError: "SUMMARY_OUTPUT_LIMIT_REACHED",
     errors.SummaryOutputInvalidError: "SUMMARY_OUTPUT_INVALID",
     errors.SummaryCancelledError: "SUMMARY_CANCELLED",
     errors.SummaryCloudKeyMissingError: "SUMMARY_CLOUD_KEY_MISSING",

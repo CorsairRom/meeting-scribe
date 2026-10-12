@@ -44,6 +44,12 @@ class SummaryContextTooLargeError(SummaryError):
     error_code = "SUMMARY_CONTEXT_TOO_LARGE"
 
 
+class SummaryOutputLimitReachedError(SummaryError):
+    """The model used the whole output budget (often on hidden reasoning); not a context problem."""
+
+    error_code = "SUMMARY_OUTPUT_LIMIT_REACHED"
+
+
 class SummaryOutputInvalidError(SummaryError):
     error_code = "SUMMARY_OUTPUT_INVALID"
 

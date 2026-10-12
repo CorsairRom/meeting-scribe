@@ -26,6 +26,7 @@ from meeting_scribe.summaries.domain.errors import (
     SummaryContextTooLargeError,
     SummaryError,
     SummaryModelNotFoundError,
+    SummaryOutputLimitReachedError,
     SummaryProviderRejectedError,
     SummaryProviderUnavailableError,
     SummaryRateLimitedError,
@@ -317,8 +318,9 @@ class OpenAiCompatibleProvider:
     ) -> Result[Completion, SummaryError]:
         if completion.finish_reason == "length":
             return Failure(
-                SummaryContextTooLargeError(
-                    "The answer was cut at the output limit. Raise SUMMARIES_MAX_OUTPUT_TOKENS."
+                SummaryOutputLimitReachedError(
+                    "The model used its whole output limit before finishing the summary, often "
+                    "on hidden reasoning. Raise SUMMARIES_MAX_OUTPUT_TOKENS or choose another model."
                 )
             )
         reported = completion.prompt_tokens

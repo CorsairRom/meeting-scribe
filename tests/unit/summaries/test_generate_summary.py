@@ -13,6 +13,7 @@ from meeting_scribe.summaries.domain.chunker import estimate_tokens, format_line
 from meeting_scribe.summaries.domain.errors import (
     SummaryCancelledError,
     SummaryContextTooLargeError,
+    SummaryOutputLimitReachedError,
     SummaryNoSpeechError,
     SummaryOutputInvalidError,
     SummaryProviderUnavailableError,
@@ -209,12 +210,15 @@ def test_empty_output_fails_without_repair() -> None:
     assert len(provider.requests) == 1
 
 
-def test_output_cut_at_the_token_limit_is_never_accepted() -> None:
-    provider = FakeProvider(lambda _m: Completion(text=VALID_OUTPUT, finish_reason="length"))
+@pytest.mark.parametrize("text", [VALID_OUTPUT, ""])
+def test_output_cut_at_the_token_limit_is_never_accepted(text: str) -> None:
+    provider = FakeProvider(lambda _m: Completion(text=text, finish_reason="length"))
 
     result = _use_case(provider).run(request(), FakeCancel())
 
-    assert isinstance(result.failure(), SummaryContextTooLargeError)
+    failure = result.failure()
+    assert isinstance(failure, SummaryOutputLimitReachedError)
+    assert not isinstance(failure, SummaryContextTooLargeError)
 
 
 def test_a_provider_failure_stops_the_summary() -> None:

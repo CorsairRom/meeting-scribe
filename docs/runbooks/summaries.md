@@ -113,7 +113,8 @@ A finished summary appears in the Summary tab and as `summary.md` next to the me
 | Install says `model ... NOT found` | `ollama pull <model>` (the command is in the install output). The install never pulls. |
 | `SUMMARY_PROVIDER_UNAVAILABLE` | Ollama is unreachable from the service. Start it; `SUMMARIES_LOCAL_BASE_URL` must point at it. |
 | `SUMMARY_MODEL_NOT_FOUND` | The model is not in `ollama list`: pull it or fix `SUMMARIES_LOCAL_MODEL`. |
-| `SUMMARY_CONTEXT_TOO_LARGE`, or an answer cut short | Raise the Ollama context and `SUMMARIES_LOCAL_CONTEXT_TOKENS` together (above); the cut-short case also has `SUMMARIES_MAX_OUTPUT_TOKENS`. |
+| `SUMMARY_CONTEXT_TOO_LARGE` | Raise the Ollama context and `SUMMARIES_LOCAL_CONTEXT_TOKENS` together (above). |
+| `SUMMARY_OUTPUT_LIMIT_REACHED` | The model used its whole output limit, often on hidden reasoning. Raise `SUMMARIES_MAX_OUTPUT_TOKENS` or choose another model. |
 | `SUMMARY_TIMEOUT` | The provider sent no data in time; retry, or raise `SUMMARIES_TIMEOUT_SECONDS`. A model that spills to the CPU is slow. |
 | `SUMMARY_GPU_BUSY`, `SUMMARY_BUSY` | A recording, processing or another summary holds the GPU. Wait; processing resumes by itself. |
 | `SUMMARY_CLOUD_DISABLED` | The provider is not `cloud`: set `SUMMARIES_PROVIDER=cloud` (or choose Cloud in Preferences). |

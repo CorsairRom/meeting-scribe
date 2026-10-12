@@ -96,6 +96,10 @@ _MESSAGES: dict[str, UserMessage] = {
         "The transcript does not fit the model. Raise the Ollama context and "
         "SUMMARIES_LOCAL_CONTEXT_TOKENS together."
     ),
+    "SUMMARY_OUTPUT_LIMIT_REACHED": UserMessage(
+        "The model used its whole output limit before finishing, often on hidden reasoning. "
+        "Raise the output limit or choose another model."
+    ),
     "SUMMARY_OUTPUT_INVALID": UserMessage("The model did not return a usable summary. Try again."),
     "SUMMARY_CANCELLED": UserMessage("The summary was cancelled."),
     "SUMMARY_CLOUD_KEY_MISSING": UserMessage(

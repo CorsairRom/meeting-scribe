@@ -21,6 +21,7 @@ from meeting_scribe.summaries.domain.errors import (
     SummaryError,
     SummaryNoSpeechError,
     SummaryOutputInvalidError,
+    SummaryOutputLimitReachedError,
     SummaryTimeoutError,
 )
 from meeting_scribe.summaries.domain.fingerprint import input_fingerprint
@@ -269,7 +270,12 @@ class _Either:
 
 def _accepted(completion: Completion) -> Result[str, SummaryError]:
     if completion.finish_reason == "length":
-        return Failure(_too_large("The model output was cut at the token limit."))
+        return Failure(
+            SummaryOutputLimitReachedError(
+                "The model used its whole output limit before finishing the summary. "
+                "Raise SUMMARIES_MAX_OUTPUT_TOKENS or choose another model."
+            )
+        )
     if not completion.text.strip():
         return Failure(SummaryOutputInvalidError("The model returned an empty answer."))
     return Success(completion.text)

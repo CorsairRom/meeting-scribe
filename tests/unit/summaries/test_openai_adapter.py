@@ -16,6 +16,7 @@ from meeting_scribe.summaries.domain.errors import (
     SummaryCloudKeyLockedError,
     SummaryContextTooLargeError,
     SummaryError,
+    SummaryOutputLimitReachedError,
     SummaryModelNotFoundError,
     SummaryProviderRejectedError,
     SummaryProviderUnavailableError,
@@ -431,12 +432,16 @@ def test_the_cloud_budget_is_not_a_hard_window() -> None:
 
 
 @pytest.mark.parametrize("cloud", [False, True])
-def test_an_answer_cut_at_the_output_limit_is_context_too_large(cloud: bool) -> None:
-    body = sse(chunk("cut"), chunk(finish="length"))
+@pytest.mark.parametrize("text", ["cut", None])
+def test_an_answer_cut_at_the_output_limit_is_not_a_context_problem(
+    cloud: bool, text: str | None
+) -> None:
+    body = sse(chunk(text), chunk(finish="length"))
 
     failure = complete(make(lambda _r: sse_response(body), cloud=cloud)).failure()
 
-    assert isinstance(failure, SummaryContextTooLargeError)
+    assert isinstance(failure, SummaryOutputLimitReachedError)
+    assert not isinstance(failure, SummaryContextTooLargeError)
     assert "SUMMARIES_MAX_OUTPUT_TOKENS" in str(failure)
 
 

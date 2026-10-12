@@ -254,7 +254,7 @@ THEN the model is released from the GPU before the next worker may start
 GIVEN the provider is unreachable, the model is unknown, the key is rejected, the rate limit persists,
       the output is empty or malformed, or the output was cut at the token limit
 THEN the summary fails with, respectively, SUMMARY_PROVIDER_UNAVAILABLE, SUMMARY_MODEL_NOT_FOUND,
-     SUMMARY_AUTH_FAILED, SUMMARY_RATE_LIMITED, SUMMARY_OUTPUT_INVALID, SUMMARY_CONTEXT_TOO_LARGE
+     SUMMARY_AUTH_FAILED, SUMMARY_RATE_LIMITED, SUMMARY_OUTPUT_INVALID, SUMMARY_OUTPUT_LIMIT_REACHED
 AND transient failures (connection, 408, 409, 429, 5xx) are retried up to SUMMARIES_MAX_RETRIES with backoff first
 AND the failure is saved in meeting.json (code and time, never content) and any previous summary is kept
 AND the error message names the next step (start Ollama, pull the model, check the key) and never quotes content
@@ -438,7 +438,7 @@ AND no Spanish text exists in code or tests: only in the Spanish catalog file
 | Model answers with its reasoning (a "thinking" model) | Only the message content is used; a leading `<think>...</think>` block is stripped; the reasoning is never stored |
 | Model returns text without the expected sections | One repair request, then `SUMMARY_OUTPUT_INVALID`; nothing is written |
 | Model returns an empty or whitespace string | `SUMMARY_OUTPUT_INVALID` |
-| Output reaches `SUMMARIES_MAX_OUTPUT_TOKENS` (`finish_reason` length) | `SUMMARY_CONTEXT_TOO_LARGE` (cut output is never saved as complete) |
+| Output reaches `SUMMARIES_MAX_OUTPUT_TOKENS` (`finish_reason` length), with empty or partial content | `SUMMARY_OUTPUT_LIMIT_REACHED` (not a context problem; cut output is never saved as complete) |
 | The model translates a technical term (for example it renders "deploy" in the summary language) | Not detected by the service; the prompt contract forbids it (AC-22) and the validation in F5.9 checks real output |
 | Ollama stopped (the system service is inactive) | `SUMMARY_PROVIDER_UNAVAILABLE` with "Start Ollama (systemctl status ollama)" |
 | Ollama model not pulled | `SUMMARY_MODEL_NOT_FOUND` with `ollama pull <model>` (the model name is configuration, not content) |
@@ -719,7 +719,8 @@ New classes derive from `MeetingScribeError`; each is registered in `error-codes
 | `SUMMARY_RATE_LIMITED` | 429 after the retries | Try again later |
 | `SUMMARY_PROVIDER_REJECTED` | Another 4xx (HTTP status only) | Check the provider settings |
 | `SUMMARY_TIMEOUT` | Step or total timeout | Retry; raise the timeout |
-| `SUMMARY_CONTEXT_TOO_LARGE` | Truncation guard or output cut at the limit | Raise the context and the matching setting |
+| `SUMMARY_CONTEXT_TOO_LARGE` | Truncation guard, or no room or budget for the transcript | Raise the context and the matching setting |
+| `SUMMARY_OUTPUT_LIMIT_REACHED` | The model used the whole output limit (often hidden reasoning) | Raise `SUMMARIES_MAX_OUTPUT_TOKENS` or choose another model |
 | `SUMMARY_OUTPUT_INVALID` | Empty or malformed model output after one repair | Retry or use another model |
 | `SUMMARY_CANCELLED` | Cancelled by the user or by a recording start | Press Generate again |
 | `SUMMARY_STORAGE_FAILED` | `summary.md` or `meeting.json` could not be written | Check disk space and permissions |
