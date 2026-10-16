@@ -777,6 +777,7 @@ Scope: the backlog F7 epic (summary quality, Preferences and model-setup polish 
 | gitignore fix | inline | one mechanical file, root cause already understood |
 | F6.5 research | delegated (3 researchers, parallel) | KDE tray rendering, Plasma widgets, Fedora KDE defaults: beyond the inline evidence budget |
 | F6.5.0 | inline | mechanical phase-start doc edits; no writer reason |
+| F6.5.1 | inline (1 Explore mapper first) | the seam map exceeded the inline evidence budget; the spec and ADR were written inline (no writer reason) |
 | F0.3 + F0.4 | delegated (1 writer, ran in parallel with the code review — disjoint files) | 30+ doc files |
 | review suggestions | inline | two mechanical one-line doc edits |
 | RDD consent | standing | user instruction 2026-10-09: always answer `granted` to Gentle AI review-consent envelopes in this repo. Scope: review consent ONLY — it does not cover recordings, installing/enabling the extension, running a nested shell, product decisions or pushes; those still need explicit consent. |
