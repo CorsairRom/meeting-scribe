@@ -59,7 +59,7 @@ Transcription and diarization run in a GPU worker process, one model at a time, 
 
 ## Status
 
-v1 is complete (tag `v1.0.0`); F7 is in progress. The phase table in [`mvp-scope.md`](docs/project/mvp-scope.md) is the
+v1 is complete (tag `v1.0.0`); F6.5 is in progress. The phase table in [`mvp-scope.md`](docs/project/mvp-scope.md) is the
 source of truth.
 
 | Phase | What it delivers | Status |
@@ -72,7 +72,8 @@ source of truth.
 | F4 Review app | Native GTK 4 window to listen to, name and merge speakers | done |
 | F5 Summaries | Summary tab, local or cloud LLM, Preferences window, "Open last summary" | done |
 | F6 Install | Read-only preflight, no `sudo`, models from Preferences, update and uninstall | done |
-| F7 Polish | Summary quality, Preferences polish, CI | in progress |
+| F6.5 Desktop tray | Tray icon with the extension's menu for KDE Plasma and other desktops | in progress |
+| F7 Polish | Summary quality, Preferences polish, CI | pending |
 
 
 ## Prerequisites
