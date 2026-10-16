@@ -719,11 +719,11 @@ Specs (the owner's words are translated from Spanish, because artifacts are Engl
   Processing failed — Reprocess, Preferences…, error notifications and the service-unavailable state.
 - S2 Recording visibility: "with the icon changing color ... so it is understood that it is recording and they do
   not forget to stop it ... we leave the counter". The tray icon turns red while recording (steady, no pulse); the
-  elapsed time ("Recording in progress (12:34)") stays in the menu and the tooltip. No text next to the icon.
+  elapsed time (for example "Recording in progress · 12:34") stays in the menu and the tooltip. No text next to the icon.
 - S3 Minimum for the Fedora KDE tester: "the minimum for them to try it without problems". `./install.sh` works on
   Fedora KDE (Plasma 6) without GNOME Shell: outside GNOME the preflight does not require `gnome-shell`,
-  `gnome-extensions` or a GNOME session, and requires `gjs`; it installs the tray with an autostart entry that GNOME
-  skips; uninstall removes it. The GNOME install does not change.
+  `gnome-extensions` or a GNOME session, and requires `gjs`; it installs the tray with an autostart entry (on GNOME Shell
+  the tray exits at once); uninstall removes it. The GNOME install does not change.
 - S4 One client for the other desktops: "not have to develop for each user interface". The same tray runs on any
   desktop with a StatusNotifierItem host (KDE Plasma, Xfce, Cinnamon, LXQt, waybar).
 - S5 Out of scope: distribution packages (dnf, apt): "then we see distribution".
@@ -732,10 +732,11 @@ Specs (the owner's words are translated from Spanish, because artifacts are Engl
 
 Tasks:
 
-- [x] F6.5.0 Start the phase and open the tracker PR (S5; inline)
-- [ ] F6.5.1 Approved design `docs/specs/desktop-tray.md` and its ADR (S1-S6)
+- [x] F6.5.0 Start the phase and open the tracker PR (S1-S6 recorded; inline)
+- [ ] F6.5.1 Approved design `docs/specs/desktop-tray.md` and its ADR (S1-S6; PR #148, native review approved
+      `review-84e4682ceaa87bfe` with three advisories fixed; waits for the owner's approval)
 - [ ] F6.5.2 StatusNotifierItem and dbusmenu exporter in GJS, tested against a private `dbus-daemon` (S1, S4)
-- [ ] F6.5.3 Tray app: the reused model and controller, four colored icons, launchers, notifications, translations (S1, S2, S6)
+- [ ] F6.5.3 Tray app: the reused model and controller, five colored status icons, launchers, notifications; no translations (S1, S2, S6)
 - [ ] F6.5.4 Install, update, uninstall and preflight that detect the desktop; autostart entry (S3)
 - [ ] F6.5.5 Tray runbook and docs (ARCHITECTURE, rules registry, README prerequisites) (S3, S4)
 - [ ] F6.5.6 Docs gate and owner check on Fedora KDE (S1-S3)
