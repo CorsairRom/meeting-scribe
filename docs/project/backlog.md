@@ -4,7 +4,7 @@ status: living
 last_updated: 2026-10-16
 ai_instructions:
   - "This tracks pending and completed work. The per-task checklist lives in odd/tasks/meeting-scribe.md."
-  - "Before implementing, check that the matching ADR is 'active' (not 'proposed'). ADRs 001-011 are active."
+  - "Before implementing, check that the matching ADR is 'active' (not 'proposed'). ADRs 001-012 are active."
   - "When you complete a task: mark it done, add the date, and update mvp-scope.md if it applies."
   - "When you add tasks for an epic: follow the existing format and reference the ADR."
 ---
@@ -64,7 +64,7 @@ Added when F6 closed:
 Owner decision of 2026-10-16: a tester runs Fedora KDE, so everything the GNOME extension offers must work without
 it, with the least new code. Design: `docs/specs/desktop-tray.md`. Tasks: `odd/tasks/meeting-scribe.md` (F6.5).
 
-- [ ] Approved design: a StatusNotifierItem tray in standalone GJS that reuses the extension's Shell-free modules
+- [x] Approved design (`docs/specs/desktop-tray.md`, ADR-012; owner approval 2026-10-16): a StatusNotifierItem tray in standalone GJS that reuses the extension's Shell-free modules
 - [ ] Tray client with the extension's menu; the icon turns red while recording; the elapsed time in the menu and tooltip
 - [ ] Install, update and uninstall that detect the desktop: the extension on GNOME, the tray elsewhere
 - [ ] Runbook and docs for the tray; owner check on Fedora KDE
