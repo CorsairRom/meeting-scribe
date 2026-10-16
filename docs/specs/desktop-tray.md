@@ -71,7 +71,7 @@ GNOME Shell.
 | `desktop-tray/main.js` | Entry point (`gjs -m`): main loop, single instance, wiring, shutdown on SIGTERM/SIGINT |
 | `desktop-tray/lib/statusNotifierItem.js` | Exports `org.kde.StatusNotifierItem` and registers with the watcher |
 | `desktop-tray/lib/dbusMenu.js` | Exports `com.canonical.dbusmenu` from a list of menu items |
-| `desktop-tray/lib/trayModel.js` | Pure: turns the extension's view model into the tray's icon, tooltip and menu (no imports) |
+| `desktop-tray/lib/trayModel.js` | Pure: turns the extension's view model into the tray's icon, tooltip and menu (no `gi://` imports; it imports only the shared view-model constants) |
 | `desktop-tray/lib/trayView.js` | The `view` the controller renders into: applies `trayModel` to the item and the menu |
 | `desktop-tray/icons/` | Five colored SVG status icons (section 4) |
 | `desktop-tray/tests/` | Tests, reusing `gnome-extension/tests/harness.js` and `privateBus.js` |
@@ -135,9 +135,9 @@ lost.
 `{iconName, tooltip, menuItems}`:
 
 - **Tooltip**: the view model's `tooltip`; while recording it ends with the elapsed time, for example
-  `Recording in progress · 12:34`.
+  `Recording in progress · 00:12:34`.
 - **Menu**: the view model's `menuItems` in the same order, with the same texts. While recording, the first status
-  row ends with the elapsed time (`Recording in progress (…) · 12:34`). The elapsed time uses the extension's
+  row ends with the elapsed time (`Recording in progress (…) · 00:12:34`). The elapsed time uses the extension's
   `formatElapsed`, so it reads the same as the GNOME label.
 - Every second while recording the controller renders again. The tray then updates only the tooltip and that row's
   label (`NewToolTip` and `ItemsPropertiesUpdated`), so an open menu does not close or jump.
