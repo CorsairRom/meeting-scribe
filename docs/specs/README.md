@@ -23,6 +23,6 @@ A spec is the behavioral contract for one feature: goal, user stories, Gherkin a
 | [`summaries.md`](summaries.md) | F5 | done |
 | [`preferences.md`](preferences.md) | F5 (F5.10) | done |
 | [`install.md`](install.md) | F6 | done |
-| [`desktop-tray.md`](desktop-tray.md) | F6.5 | draft |
+| [`desktop-tray.md`](desktop-tray.md) | F6.5 | approved |
 
 The "Me" versus system labelling algorithm (ADR-002) is specified in `processing.md` section 2.4.

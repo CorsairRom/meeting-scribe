@@ -1,7 +1,7 @@
 ---
 type: decision
 adr_number: 012
-status: proposed  # proposed | active | superseded | deprecated
+status: active  # proposed | active | superseded | deprecated
 date: 2026-10-16
 deciders: [richard, ai-assistant]
 supersedes: null
@@ -16,8 +16,8 @@ ai_instructions:
 
 ## Status
 
-`proposed` - drafted with [`../specs/desktop-tray.md`](../specs/desktop-tray.md) on 2026-10-16, from the owner's
-decisions of the same day.
+`active` (approved 2026-10-16) - drafted with [`../specs/desktop-tray.md`](../specs/desktop-tray.md) on 2026-10-16,
+from the owner's decisions of the same day.
 
 ## Context
 

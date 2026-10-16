@@ -1,7 +1,7 @@
 ---
 type: spec
 feature: desktop-tray
-status: draft  # draft | approved | in-progress | done | blocked
+status: approved  # draft | approved | in-progress | done | blocked
 mvp: false     # v1.1 phase F6.5
 prd_ref: FR-1, FR-2, FR-5, FR-6, FR-7, safety requirement 1
 depends_on:

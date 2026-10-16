@@ -733,8 +733,8 @@ Specs (the owner's words are translated from Spanish, because artifacts are Engl
 Tasks:
 
 - [x] F6.5.0 Start the phase and open the tracker PR (S1-S6 recorded; inline)
-- [ ] F6.5.1 Approved design `docs/specs/desktop-tray.md` and its ADR (S1-S6; PR #148, native review approved
-      `review-84e4682ceaa87bfe` with three advisories fixed; waits for the owner's approval)
+- [x] F6.5.1 Approved design `docs/specs/desktop-tray.md` and its ADR (S1-S6; PR #148, native review approved
+      `review-84e4682ceaa87bfe` with three advisories fixed; owner approval 2026-10-16)
 - [ ] F6.5.2 StatusNotifierItem and dbusmenu exporter in GJS, tested against a private `dbus-daemon` (S1, S4)
 - [ ] F6.5.3 Tray app: the reused model and controller, five colored status icons, launchers, notifications; no translations (S1, S2, S6)
 - [ ] F6.5.4 Install, update, uninstall and preflight that detect the desktop; autostart entry (S3)
@@ -758,6 +758,7 @@ Log:
   better."
 - L4 (2026-10-16, translated): "Open the integration PR. The integration PR carries the complete feature to main; the
   other PRs go to the integration PR."
+- L5 (2026-10-16, translated): the owner approved the design of #148: "Yes, go ahead, start."
 
 ### F7 Polish — pending (starts after F6.5)
 
