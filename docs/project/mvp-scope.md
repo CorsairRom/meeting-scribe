@@ -46,7 +46,8 @@ and generate a summary — all running locally on the developer's machine.
 
 | Phase | Deliverable | User can... | Status |
 |---|---|---|---|
-| F7 Polish | Summary quality (no duplicate tasks, real owners, topics kept), Preferences and model-setup polish from the F5 and F6 reviews, CI running `make check` as a required check on `main` | get better summaries and a calmer Preferences window; rely on CI before every merge | in progress |
+| F6.5 Desktop tray | A cross-desktop tray icon (StatusNotifierItem, standalone GJS) with the same menu as the GNOME extension, for KDE Plasma and other desktops; an install that detects the desktop and installs the extension on GNOME or the tray elsewhere | record, follow processing and open the last meeting from KDE Plasma (and other desktops) without GNOME Shell | in progress |
+| F7 Polish | Summary quality (no duplicate tasks, real owners, topics kept), Preferences and model-setup polish from the F5 and F6 reviews, CI running `make check` as a required check on `main` | get better summaries and a calmer Preferences window; rely on CI before every merge | pending |
 
 ---
 
@@ -100,3 +101,4 @@ and generate a summary — all running locally on the developer's machine.
 | 2026-10-09 | F3 done (tracker #52 merged); F4 in progress. |
 | 2026-10-11 | F4 done (tracker #82 merged); F5 in progress. |
 | 2026-10-12 | F5 done (tracker #99 merged); F6 in progress and renamed from Hardening to Install (owner decisions of 2026-10-12). |
+| 2026-10-16 | F6.5 Desktop tray inserted before F7 and in progress (owner decision of 2026-10-16: a tester runs Fedora KDE); F7 Polish back to pending, not started. |

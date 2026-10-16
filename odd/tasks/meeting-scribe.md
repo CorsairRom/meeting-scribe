@@ -701,7 +701,64 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
   - [x] (c) The references to the two private repositories were rephrased neutrally in this document, the spec section 11 and `docs/_templates/README.md`;
         a case-insensitive search for the two repository names finds none. Commit `chore: license the project under gpl-2.0-or-later and drop private references`.
 
-### F7 Polish — in progress (integration branch to be created after the F6 close-out PR)
+### F6.5 Desktop tray — in progress (integration branch `feat/desktop-tray`)
+
+Inserted before F7 by the owner on 2026-10-16: a tester runs Fedora KDE. Delivery: integration branch
+`feat/desktop-tray` from `main`, tracker PR to `main` that the owner merges; work-unit PRs target the integration
+branch. TDD: strict, runners `uv run pytest` / `make check` and `make test-extension` (`gjs -m`, private `dbus-daemon`).
+Research of 2026-10-16 (source-verified, Engram topic `architecture/desktop-portability`): the Plasma 6 tray never reads
+`XAyatanaLabel` and its cells are fixed squares, so no text can sit next to a tray icon on KDE; only a Plasma panel
+widget could, and the owner chose the minimal tray instead.
+
+Specs (the owner's words are translated from Spanish, because artifacts are English by project rule):
+
+- S1 Parity without GNOME Shell: "start/stop, the links to the last meeting, open the last summary, the progress
+  messages, the preferences ... everything the extension has today can be done without depending on it". That is:
+  Start and Stop as explicit menu actions (a click never records, CR-013), the recording state, the processing
+  progress with its stage and queue count, the last meeting result, Review last meeting, Open last summary (date),
+  Processing failed — Reprocess, Preferences…, error notifications and the service-unavailable state.
+- S2 Recording visibility: "with the icon changing color ... so it is understood that it is recording and they do
+  not forget to stop it ... we leave the counter". The tray icon turns red while recording (steady, no pulse); the
+  elapsed time ("Recording in progress (12:34)") stays in the menu and the tooltip. No text next to the icon.
+- S3 Minimum for the Fedora KDE tester: "the minimum for them to try it without problems". `./install.sh` works on
+  Fedora KDE (Plasma 6) without GNOME Shell: outside GNOME the preflight does not require `gnome-shell`,
+  `gnome-extensions` or a GNOME session, and requires `gjs`; it installs the tray with an autostart entry that GNOME
+  skips; uninstall removes it. The GNOME install does not change.
+- S4 One client for the other desktops: "not have to develop for each user interface". The same tray runs on any
+  desktop with a StatusNotifierItem host (KDE Plasma, Xfce, Cinnamon, LXQt, waybar).
+- S5 Out of scope: distribution packages (dnf, apt): "then we see distribution".
+- S6 Reuse: the tray reuses the extension's Shell-free modules (view model, controller, D-Bus clients, scheduler);
+  the service, the review app and the keyring do not change.
+
+Tasks:
+
+- [x] F6.5.0 Start the phase and open the tracker PR (S5; inline)
+- [ ] F6.5.1 Approved design `docs/specs/desktop-tray.md` and its ADR (S1-S6)
+- [ ] F6.5.2 StatusNotifierItem and dbusmenu exporter in GJS, tested against a private `dbus-daemon` (S1, S4)
+- [ ] F6.5.3 Tray app: the reused model and controller, four colored icons, launchers, notifications, translations (S1, S2, S6)
+- [ ] F6.5.4 Install, update, uninstall and preflight that detect the desktop; autostart entry (S3)
+- [ ] F6.5.5 Tray runbook and docs (ARCHITECTURE, rules registry, README prerequisites) (S3, S4)
+- [ ] F6.5.6 Docs gate and owner check on Fedora KDE (S1-S3)
+
+Log:
+
+- L1 (2026-10-16, translated): "Let's review this repo so it can be distributed; for that we need to know how not to
+  tie ourselves to GNOME, since there are other desktop environments, something like a system tray. I want us to
+  discuss what options we have, at least to bring it to KDE, or how we can avoid developing for each user interface,
+  so people can install with dnf or maybe apt, regardless of the Linux distribution or the desktop environment."
+- L2 (2026-10-16, translated): "Before we branch off, what I want clear is the phases: first, that start/stop, the
+  links to the last meeting, open the last summary, the progress messages, the preferences, the icon starting to
+  count that it is recording, etc., everything the extension has today, can be done without depending on it. Then we
+  look at distribution. I have someone who wants to try it; they have Fedora but with KDE, so I need the minimum for
+  them to try it without problems."
+- L3 (2026-10-16, translated): the owner first asked for the same look as GNOME; after the research showed that only a
+  KDE-only Plasma widget can put a counter next to the icon, the owner chose the minimum: "with the icon changing
+  color, so it is understood that it is recording and they do not forget to stop it ... this way it is already
+  better."
+- L4 (2026-10-16, translated): "Open the integration PR. The integration PR carries the complete feature to main; the
+  other PRs go to the integration PR."
+
+### F7 Polish — pending (starts after F6.5)
 
 Scope: the backlog F7 epic (summary quality, Preferences and model-setup polish from the F5 and F6 reviews, CI with
 `make check` as a required check on `main`). TDD: strict, runner `uv run pytest` / `make check`.
@@ -718,6 +775,8 @@ Scope: the backlog F7 epic (summary quality, Preferences and model-setup polish 
 | F6.1 + F6.2 + F6.3 | delegated (1 writer for all three, one commit each) | 2+ non-trivial files per task (scripts, tests, README, docs) |
 | F6.8 + F6.9 (docs) + F6.10 (files) | delegated (1 writer, single thread) | 2+ non-trivial files per task (scripts, tests, 15+ docs) |
 | gitignore fix | inline | one mechanical file, root cause already understood |
+| F6.5 research | delegated (3 researchers, parallel) | KDE tray rendering, Plasma widgets, Fedora KDE defaults: beyond the inline evidence budget |
+| F6.5.0 | inline | mechanical phase-start doc edits; no writer reason |
 | F0.3 + F0.4 | delegated (1 writer, ran in parallel with the code review — disjoint files) | 30+ doc files |
 | review suggestions | inline | two mechanical one-line doc edits |
 | RDD consent | standing | user instruction 2026-10-09: always answer `granted` to Gentle AI review-consent envelopes in this repo. Scope: review consent ONLY — it does not cover recordings, installing/enabling the extension, running a nested shell, product decisions or pushes; those still need explicit consent. |
@@ -806,3 +865,5 @@ integrated (#14, #16–#31; packaging/runbook #28–#30, smoke test #31). Final 
 F1 merged to `main` (#15, merge commit 7301d96). F2 started on `feat/gnome-extension`; current: F2.4 done; F2.1–F2.3 integrated (#33–#34, #36–#40); F2 complete and verified in the real session (#33–#48); tracker #35 ready for the owner. Next: F3 Processing.
 
 F6 merged to `main` (#130, 2026-10-12): v1 complete, tag `v1.0.0`; the repository is public with `main` protected. Next: F7 Polish.
+
+F6.5 Desktop tray inserted before F7 (2026-10-16) on integration branch `feat/desktop-tray`. Next: F6.5.1, the approved design.

@@ -1,7 +1,7 @@
 ---
 type: backlog
 status: living
-last_updated: 2026-10-12
+last_updated: 2026-10-16
 ai_instructions:
   - "This tracks pending and completed work. The per-task checklist lives in odd/tasks/meeting-scribe.md."
   - "Before implementing, check that the matching ADR is 'active' (not 'proposed'). ADRs 001-011 are active."
@@ -31,13 +31,10 @@ Raised after the first real recording (2026-10-09); recorded so nothing is lost,
 - [ ] Open the review app from the "Meeting processed" notification (F4 OQ-6: menu only for now); a `desktop-entry` hint needs a manual check in GNOME Shell
 - [ ] Import recordings made before F3 (no `meeting.json`) so they can be processed
 
----
-
-## In progress
-
 ### [EPIC] F7 Polish — summary quality, Preferences polish and CI
 
-The phase after F6 (owner decision of 2026-10-12): the F5 and F6 leftovers, plus CI.
+The phase after F6 (owner decision of 2026-10-12): the F5 and F6 leftovers, plus CI. Pending: it starts after F6.5
+(owner decision of 2026-10-16).
 
 - [ ] Summary quality: duplicate task rows, generic team owners instead of names, topics lost in the reduce step
 - [ ] The model list cache is not invalidated when the provider or the key changes
@@ -58,6 +55,19 @@ Added when F6 closed:
 - [ ] CI: a GitHub Actions workflow running `make check` (no GPU) as a required status check on `main`
 - [ ] Speech models: Download models stays the primary button when the models are Ready (it replies READY without downloading); make it secondary or hide it then
 
+---
+
+## In progress
+
+### [EPIC] F6.5 Desktop tray — the extension's menu outside GNOME Shell
+
+Owner decision of 2026-10-16: a tester runs Fedora KDE, so everything the GNOME extension offers must work without
+it, with the least new code. Design: `docs/specs/desktop-tray.md`. Tasks: `odd/tasks/meeting-scribe.md` (F6.5).
+
+- [ ] Approved design: a StatusNotifierItem tray in standalone GJS that reuses the extension's Shell-free modules
+- [ ] Tray client with the extension's menu; the icon turns red while recording; the elapsed time in the menu and tooltip
+- [ ] Install, update and uninstall that detect the desktop: the extension on GNOME, the tray elsewhere
+- [ ] Runbook and docs for the tray; owner check on Fedora KDE
 
 ---
 
