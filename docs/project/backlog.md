@@ -1,7 +1,7 @@
 ---
 type: backlog
 status: living
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ai_instructions:
   - "This tracks pending and completed work. The per-task checklist lives in odd/tasks/meeting-scribe.md."
   - "Before implementing, check that the matching ADR is 'active' (not 'proposed'). ADRs 001-012 are active."
@@ -65,9 +65,10 @@ Owner decision of 2026-10-16: a tester runs Fedora KDE, so everything the GNOME 
 it, with the least new code. Design: `docs/specs/desktop-tray.md`. Tasks: `odd/tasks/meeting-scribe.md` (F6.5).
 
 - [x] Approved design (`docs/specs/desktop-tray.md`, ADR-012; owner approval 2026-10-16): a StatusNotifierItem tray in standalone GJS that reuses the extension's Shell-free modules
-- [ ] Tray client with the extension's menu; the icon turns red while recording; the elapsed time in the menu and tooltip
-- [ ] Install, update and uninstall that detect the desktop: the extension on GNOME, the tray elsewhere
-- [ ] Runbook and docs for the tray; owner check on Fedora KDE
+- [x] Tray client with the extension's menu; the icon turns red while recording; the elapsed time in the menu and tooltip (2026-10-17, #150/#152/#153/#155/#156)
+- [x] Install, update and uninstall that detect the desktop: the extension on GNOME, the tray elsewhere (#154/#157/#160)
+- [x] Runbook and docs (#158)
+- [ ] Owner check on Fedora KDE (F6.5.6)
 
 ---
 

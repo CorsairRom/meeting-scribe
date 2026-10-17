@@ -24,5 +24,5 @@ A runbook gives exact commands, preconditions and what to verify afterwards.
 | [Set up and troubleshoot summaries](summaries.md) | F5 | active |
 | [Change settings in Preferences](preferences.md) | F5 | active |
 | [Store the cloud API key in the GNOME Keyring](store-cloud-api-key.md) | F5 | active |
-| [Install, update, uninstall and troubleshoot](install.md) | F6 | active |
+| [Install, update, uninstall and troubleshoot](install.md) | F6, F6.5 | active |
 | [Run and troubleshoot the desktop tray](desktop-tray.md) | F6.5 | active |
