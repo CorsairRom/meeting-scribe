@@ -8,7 +8,7 @@ supersedes: null
 superseded_by: null
 ai_instructions:
   - "If this decision changes, do NOT edit this ADR. Create a new ADR and set superseded_by."
-  - "Draft: it becomes active when the owner approves docs/specs/desktop-tray.md."
+  - "Active since the owner approved docs/specs/desktop-tray.md on 2026-10-16."
   - "The tray reuses the extension's Shell-free modules; never fork them into a second copy."
 ---
 
