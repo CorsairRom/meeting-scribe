@@ -1,7 +1,7 @@
 ---
 type: runbook
 status: active
-last_updated: 2026-10-12
+last_updated: 2026-10-17
 phase: F4
 verifiable_by:
   - scripts/install.sh
@@ -19,9 +19,9 @@ ai_instructions:
 
 ## Purpose
 
-Install the native review app (F4), open it from the panel menu, and fix the usual problems. The app is a thin
-D-Bus client of the service (`dev.meetingscribe.Meetings1`): it lists processed meetings, plays one sample per
-speaker, renames and merges speakers, and shows the transcript. Design: [`../specs/review-app.md`](../specs/review-app.md).
+Install the native review app (F4), open it from the panel menu (or the tray menu outside GNOME Shell), and fix the
+usual problems. The app is a thin D-Bus client of the service (`dev.meetingscribe.Meetings1`): it lists processed
+meetings, plays one sample per speaker, renames and merges speakers, and shows the transcript. Design: [`../specs/review-app.md`](../specs/review-app.md).
 
 ## Privacy warning
 
@@ -47,8 +47,8 @@ speaker, renames and merges speakers, and shows the transcript. Design: [`../spe
    - the preflight (`./install.sh --check`, rows `gtk.pygobject`, `gtk.gtk4`, `gtk.libadwaita`, `gtk.libsecret`) has
      already checked that system Python can import GTK 4, libadwaita and libsecret: a missing package stops the
      install with zero changes and prints its `dnf` command; the summary says `review app: ready`.
-2. Open the app: click the panel indicator, then **Review last meeting**. The menu item is shown whenever the
-   service is available and nothing is recording. It opens the newest `DONE` meeting; the app shows an empty state
+2. Open the app: click the panel indicator (or the tray icon outside GNOME Shell), then **Review last meeting**. The
+   menu item is shown whenever the service is available and nothing is recording. It opens the newest `DONE` meeting; the app shows an empty state
    when there is none.
 3. From a terminal (optional): `~/.local/share/meeting-scribe/current/bin/meeting-scribe-review [--meeting ID]`.
 4. Development only: `make run-review-app` starts the app from the working tree with system Python.
@@ -63,13 +63,13 @@ A meeting in the `DONE` state has a **Summary** tab next to **Review** (spec [`.
   and the speaker names leave this computer. Cancel is the default; only **Send to cloud** sends.
 - While it runs the tab shows progress and **Cancel**. A summary older than the speakers or transcript shows an
   "out of date" banner. **Copy** and **Save a copy...** export the text; the app never picks a path itself.
-- **Set API key...** (cloud only) stores the key in the GNOME Keyring through libsecret, with the same item
+- **Set API key...** (cloud only) stores the key in the keyring (Secret Service) through libsecret, with the same item
   `secret-tool` makes (`application=meeting-scribe`, `key=opencode-api-key`). The key never goes through the service.
   It needs the `Secret-1` typelib (Fedora: `libsecret`, normally installed with GNOME).
 
 ## Speech models (in Preferences)
 
-Preferences has a **Speech models** group: the Hugging Face token field (write-only, stored in the GNOME Keyring as
+Preferences has a **Speech models** group: the Hugging Face token field (write-only, stored in the keyring (Secret Service) as
 `application=meeting-scribe`, `key=huggingface-token` through libsecret, never sent to the service over D-Bus), a link
 to the pyannote terms page, the status, **Download models** with step-level progress and **Cancel**. The service
 downloads; the app only shows the status and sends `Download` and `CancelDownload` (`Models1`). Steps and

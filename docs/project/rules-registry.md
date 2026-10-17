@@ -1,7 +1,7 @@
 ---
 type: registry
 status: living  # ALWAYS 'living' — this doc is never "finished"
-last_updated: 2026-10-12
+last_updated: 2026-10-17
 update_frequency: on-every-decision
 ai_instructions:
   - "This is the PROJECT LOGBOOK. Rules accumulate, they are not replaced."
@@ -152,6 +152,13 @@ ai_instructions:
 - **Rule**: In GNOME Shell 50 `PanelMenu.Button` opens its menu from a `Clutter.ClickGesture` (`recognize` calls `this.menu?.toggle()`), so overriding `vfunc_event` or `button-press-event` no longer controls it. The indicator passes `dontCreateMenu = true` and installs its own `PopupMenu` subclass through `setMenu()` whose `toggle()` calls the controller's `onPrimaryClick()` and only calls `super.toggle()` for `open-menu`. Since the 2026-10-09 decision the controller only returns `open-menu`/`close-menu`, so the hook always falls through to `super.toggle()`; it is kept on purpose as the single click decision point (nobody should look for a click-to-start path, and any future click action must go through it). Every state opens the menu on click (idle/stopped offer Start, recording offers Stop): a stray click on the top bar must never record (user decision 2026-10-09, replacing the earlier one-click start).
 - **Source**: gnome-shell `gnome-50` `js/ui/panelMenu.js` and `popupMenu.js`; [ADR-001](../decisions/001-thin-gnome-extension-dbus-service.md); F2.3
 - **Verifiable in**: `gnome-extension/meeting-scribe@meetingscribe.dev/lib/panelIndicator.js` (needs a manual check in a real shell, F2.4); controller behaviour in `gnome-extension/tests/indicatorController.test.js`
+
+### CR-014 — A click on the tray icon never records; Start and Stop are explicit menu actions
+- **Date**: 2026-10-16
+- **Status**: active
+- **Rule**: The desktop tray's StatusNotifierItem sets `ItemIsMenu` to `true`, so a click opens the menu, and its `Activate`, `SecondaryActivate`, `ContextMenu` and `Scroll` methods do nothing: no click, middle click, context-menu request or wheel turn on the icon reaches the controller. Starting and stopping a recording happen only through the explicit **Start recording** and **Stop recording** menu items (a dbusmenu `clicked` event on an action item). This is CR-013's user decision of 2026-10-09 applied to the tray; any future click action must be a new, explicit owner decision.
+- **Source**: [ADR-012](../decisions/012-cross-desktop-tray-in-standalone-gjs.md); [desktop tray spec](../specs/desktop-tray.md) section 3, AC-3; F6.5.2
+- **Verifiable in**: `desktop-tray/tests/tray.test.js` (no Start call from `Activate`, `SecondaryActivate` or `ContextMenu`; exactly one from the menu item), `desktop-tray/tests/statusNotifierItem.test.js` (all four methods, `Scroll` included, do nothing)
 
 ---
 
@@ -428,12 +435,12 @@ ai_instructions:
 | Category | Active | Superseded | Deprecated |
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
-| CR | 13 | 0 | 0 |
-| GO | 67 | 1 | 0 |
+| CR | 14 | 0 | 0 |
+| GO | 69 | 1 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-068 — 2026-10-12
-**Next available IDs**: BR-006, CR-014, GO-069, AP-005
+**Last rule added**: GO-070 — 2026-10-17
+**Next available IDs**: BR-006, CR-015, GO-071, AP-005
 
 ---
 
@@ -597,3 +604,17 @@ with `Supersedes: <ID>`. Never delete rules.
 - **Detail**: The `model_setup` domain (a peer of `preferences`, wired only in `main.py`) owns `Models1`. `ModelSetupController` runs one download at a time on its own thread; `Download` claims the slot, checks the cache **afresh** (a remembered answer may be stale) and, when both models are cached, replies `READY` without running anything or emitting a signal, so a download never touches a cache a processing job reads (the worker is offline and only reads). Otherwise it replies `DOWNLOADING` and the job thread reads the token, runs the child and verifies the cache again: a download that leaves a model partial is `FAILED` with `MODELS_DOWNLOAD_FAILED`, never `READY`. The slot is free and the status recorded before `ModelsFinished` (always the last event); at most two `ModelsProgress` per download, so no throttle is needed. A failure is a state and a code, not a D-Bus error; only `MODELS_DOWNLOAD_ACTIVE` is raised. `FailurePolicy` keeps `DIARIZATION_MODEL_ACCESS_DENIED`, `MODEL_UNAVAILABLE`, the timeout and the locked keyring, and turns anything else into `MODELS_DOWNLOAD_FAILED`. Which token: the keyring token wins (the ambient `HF_TOKEN` and `HUGGING_FACE_HUB_TOKEN` are removed from the child's environment) and no keyring token or no Secret Service means no `--token-stdin`, so the child uses the ambient login; a locked keyring fails with `MODELS_TOKEN_KEYRING_LOCKED` and never prompts. The token is read from the keyring on the job thread by `base/infrastructure/secret_service.SecretServiceReader` (shared with the cloud key store, which keeps its behaviour), becomes a `SecretStr`, is written to the child's stdin as one line and closed; it is in no argv, no environment, no event, no status and no error (errors have fixed texts; the child's stderr tail is logged only after the exact token and anything shaped `hf_...` are scrubbed). The child is `python -m meeting_scribe.cli prefetch-models [--token-stdin] --progress-json` with `HF_HUB_OFFLINE` and `TRANSFORMERS_OFFLINE` removed (the download needs the network), its own process group (stopped by group id: SIGTERM, grace, SIGKILL) and stdout parsed for the three known events only. The cache probe is the same command with `--check`, offline, no token, bounded to 30 s; any failure counts as "not cached". `GetStatus` shows `FAILED` until the next `Download` (a fix made outside the service shows after that or after a restart); a cancel or failure forgets the remembered cache so the next status re-checks. The cache probe behind `GetStatus` is single-flight: concurrent callers while the cache is unknown share one `--check` child. `CancelDownload` is `false` until `Download` has decided to run, and a `true` always ends as `CANCELLED`. After `shutdown` begins no child can start: `Download` fails with the internal `MODELS_DOWNLOAD_CANCELLED` and a job that was about to start ends as `CANCELLED`. The child's stderr is split on `\r` and `\n`, scrubbed per segment and bounded by characters; an over-long segment is dropped whole. A restart through `Settings1.Restart` is not blocked by a download: shutdown cancels it and the Hugging Face cache resumes it.
 - **Source**: [install spec](../specs/install.md) sections 6 to 8, AC-16 to AC-18, [ADR-011](../decisions/011-hugging-face-token-in-keyring-and-models-from-preferences.md)
 - **Verifiable in**: `tests/unit/model_setup/`, `tests/e2e/model_setup/test_models_over_dbus.py`, `tests/e2e/model_setup/test_keyring_token_source.py`, `tests/e2e/base/test_secret_service_reader.py`, `tests/e2e/summaries/test_secret_service_store.py`
+
+### GO-069 — The Plasma 6 tray: no text, square cells, recolored symbolic icons, sticky dbusmenu ids and a strict registration order
+- **Date**: 2026-10-17
+- **Status**: active
+- **Detail**: Facts the desktop tray depends on, read in the upstream sources and found while building it. (1) **No text next to the icon**: the Plasma 6 system tray never reads a StatusNotifierItem's `XAyatanaLabel` (`plasma-workspace` `applets/systemtray/statusnotifieritemsource.cpp`) and draws every item in a fixed square cell (`applets/systemtray/qml/main.qml`); a wide pixmap is scaled down until text is unreadable. So the recording state is the red icon and the elapsed time lives in the tooltip and the first menu row (ADR-012). (2) **Symbolic icons are recolored**: Plasma paints `-symbolic` icons in the theme color, so the five status icons are full-color SVGs whose names do not end in `-symbolic`; otherwise the red recording icon would turn gray. (3) **dbusmenu ids are never reused**: the libdbusmenu-qt importer keeps the type of an item id it already knows (a separator stays a separator), so an id reused for another kind of item after a layout change is drawn wrong. `DBusMenu` keeps ids while only labels change (the elapsed time is one `ItemsPropertiesUpdated`, the open menu stays put) and gives every item of a new layout revision a fresh id from a counter that only grows. (4) **Own the name before registering**: the watcher drops a registration whose bus name has no owner, so the item exports `/StatusNotifierItem`, then owns `org.kde.StatusNotifierItem-<pid>-1`, and only then calls `RegisterStatusNotifierItem`, sent to the watcher's unique name (a reply never comes from a later watcher). (5) **Retry while the same watcher runs**: a watcher can be busy or time out at login, so a failed registration is retried every 2 s while the same watcher owns the name, logged once per watcher; a new watcher owner (a `plasmashell` restart) cancels the retry and registers afresh. `Status` stays `Active`: `NeedsAttention` makes Plasma pulse the icon endlessly.
+- **Source**: [ADR-012](../decisions/012-cross-desktop-tray-in-standalone-gjs.md) (Context, research of 2026-10-16); [desktop tray spec](../specs/desktop-tray.md) sections 3 to 5 and "Decisions taken during implementation"; F6.5.2, F6.5.3, native review finding fixed in #155
+- **Verifiable in**: `desktop-tray/tests/trayModel.test.js` (icon names never symbolic), `desktop-tray/tests/dbusMenu.test.js` (a change of kinds never reuses an id; a label change keeps ids and revision), `desktop-tray/tests/statusNotifierItem.test.js` (registers once the name is owned, never a name it does not own; a failed registration is retried with the same watcher; a restarted watcher gets a new registration); the Plasma rendering itself needs the owner check on Fedora KDE (F6.5.6)
+
+### GO-070 — The tray uses `GioUnix` and `GLibUnix`, so it needs GLib 2.80 or later
+- **Date**: 2026-10-17
+- **Status**: active
+- **Detail**: gjs 1.88 deprecates the `Gio` and `GLib` aliases of the Unix-only APIs and prints a warning when they are used, among them `Gio.DesktopAppInfo` and `GLib.unix_signal_add`. The tray uses the `GioUnix` and `GLibUnix` namespaces instead: `GioUnix.DesktopAppInfo.new(...)` for the review app and Preferences launchers (`desktop-tray/lib/tray.js`) and `GLibUnix.signal_add(...)` for SIGTERM and SIGINT (`desktop-tray/main.js`). Those namespaces exist since GLib 2.80, so the tray needs GLib 2.80 or later; on an older GLib, gjs fails at import with a missing `GioUnix` or `GLibUnix` typelib, before any `meeting-scribe-tray:` line. The shared modules stay free of both: `preferencesLauncher.js` takes the lookup as an injected function. The extension keeps `Gio.DesktopAppInfo` (`extension.js`, `prefs.js`, pinned by `gnome-extension/tests/shellGlue.test.js`), because it runs inside GNOME Shell's own gjs.
+- **Source**: [desktop tray spec](../specs/desktop-tray.md) "Decisions taken during implementation" (2026-10-17); F6.5.3, #156
+- **Verifiable in**: `desktop-tray/lib/tray.js`, `desktop-tray/main.js`; `make test-tray` runs `main.js` under `gjs` (`desktop-tray/tests/main.test.js`) and imports `tray.js` (`desktop-tray/tests/tray.test.js`), so a missing namespace fails it; no test asserts that the deprecation warning is absent

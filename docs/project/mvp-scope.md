@@ -1,7 +1,7 @@
 ---
 type: scope
 status: draft
-last_updated: 2026-10-12
+last_updated: 2026-10-17
 ai_instructions:
   - "This is the contract of what IS and IS NOT implemented in the current release (v1)."
   - "If a deliverable is not in 'IN SCOPE', do NOT build it now even if it appears in the PRD."
@@ -23,7 +23,7 @@ and generate a summary — all running locally on the developer's machine.
 
 **v1 status**: complete on 2026-10-12 (F6 merged, #130; tag `v1.0.0`).
 
-**Non-goals**: live transcription, chat with the meeting, cloud sync/sharing, multi-user, non-GNOME desktops.
+**Non-goals**: live transcription, chat with the meeting, cloud sync/sharing, multi-user, non-GNOME desktops (v1; v1.1 adds the tray, F6.5).
 
 ---
 
@@ -46,7 +46,8 @@ and generate a summary — all running locally on the developer's machine.
 
 | Phase | Deliverable | User can... | Status |
 |---|---|---|---|
-| F7 Polish | Summary quality (no duplicate tasks, real owners, topics kept), Preferences and model-setup polish from the F5 and F6 reviews, CI running `make check` as a required check on `main` | get better summaries and a calmer Preferences window; rely on CI before every merge | in progress |
+| F6.5 Desktop tray | A cross-desktop tray icon (StatusNotifierItem, standalone GJS) with the same menu as the GNOME extension, for KDE Plasma and other desktops; an install that detects the desktop and installs the extension on GNOME or the tray elsewhere | record, follow processing and open the last meeting from KDE Plasma (and other desktops) without GNOME Shell | in progress |
+| F7 Polish | Summary quality (no duplicate tasks, real owners, topics kept), Preferences and model-setup polish from the F5 and F6 reviews, CI running `make check` as a required check on `main` | get better summaries and a calmer Preferences window; rely on CI before every merge | pending |
 
 ---
 
@@ -66,7 +67,7 @@ and generate a summary — all running locally on the developer's machine.
 |---|---|
 | Cloud sync / sharing | Meetings are private by design; nothing leaves the machine except an explicit LLM call |
 | Multi-user / accounts | Single-user tool, per-user D-Bus session bus only |
-| Non-GNOME desktops | The recording trigger is a GNOME Shell extension; the D-Bus API could serve other clients later |
+| Desktops with neither GNOME Shell nor a tray host | The recording triggers are the GNOME Shell extension and, on other desktops, the tray (F6.5), which needs a StatusNotifierItem host; the D-Bus API could serve other clients later |
 
 ---
 
@@ -81,11 +82,12 @@ and generate a summary — all running locally on the developer's machine.
 | Configurable log level | F0 scaffold | `src/meeting_scribe/base/infrastructure/logging.py` | `tests/unit/base/test_logging.py` |
 | FR-1 start/stop recording | F1 | `src/meeting_scribe/recording/`, `src/meeting_scribe/main.py` | `tests/unit/recording/`, `tests/e2e/` |
 | FR-2 panel button | F2 | `gnome-extension/meeting-scribe@meetingscribe.dev/` | `gnome-extension/tests/` (`make test-extension`), `tests/unit/test_extension_pack.py` |
+| FR-2 panel button on other desktops (tray) | F6.5 | `desktop-tray/` | `desktop-tray/tests/` (`make test-tray`) |
 | FR-3 transcribe + diarize after stop | F3 | `src/meeting_scribe/meetings/`, `src/meeting_scribe/transcription/`, `src/meeting_scribe/speakers/`, `src/meeting_scribe/worker.py` | `tests/unit/meetings/`, `tests/unit/transcription/`, `tests/unit/speakers/` |
 | FR-4 voice samples, notification | F3 | `src/meeting_scribe/speakers/` (samples); `src/meeting_scribe/meetings/` (notification, `Meetings1`) | `tests/unit/speakers/` |
 | FR-5 review: listen, rename, merge | F4 | `src/meeting_scribe/speakers/`, `src/meeting_scribe/meetings/`, `review-app/src/meeting_scribe_review/`, `gnome-extension/` | `tests/unit/speakers/`, `tests/unit/review_app/`, `tests/e2e/meetings/`, `gnome-extension/tests/` |
 | FR-6 summary via LLM provider | F5 | `src/meeting_scribe/summaries/`, `src/meeting_scribe/preferences/`, `src/meeting_scribe/meetings/` (`SummaryController`, `Summaries1`), `review-app/src/meeting_scribe_review/`, `gnome-extension/` | `tests/unit/summaries/`, `tests/unit/preferences/`, `tests/unit/meetings/`, `tests/unit/review_app/`, `tests/e2e/summaries/`, `tests/e2e/preferences/`, `tests/e2e/meetings/`, `gnome-extension/tests/` |
-| FR-7 install | F2.5, F6 | `install.sh`, `uninstall.sh`, `scripts/install.sh`, `scripts/uninstall.sh`, `scripts/preflight.sh`, `src/meeting_scribe/model_setup/`, `src/meeting_scribe/prefetch.py`, `review-app/src/meeting_scribe_review/` (Speech models), `docs/runbooks/install.md` | `tests/unit/test_install_scripts.py`, `tests/unit/test_preflight.py`, `tests/unit/test_readme_prerequisites.py`, `tests/unit/model_setup/`, `tests/e2e/model_setup/`, `tests/unit/review_app/test_models_presenter.py`, `tests/unit/test_prefetch.py` |
+| FR-7 install | F2.5, F6, F6.5 | `install.sh`, `uninstall.sh`, `scripts/install.sh`, `scripts/uninstall.sh`, `scripts/preflight.sh`, `scripts/_common.sh`, `packaging/autostart/`, `desktop-tray/`, `src/meeting_scribe/model_setup/`, `src/meeting_scribe/prefetch.py`, `review-app/src/meeting_scribe_review/` (Speech models), `docs/runbooks/install.md` | `tests/unit/test_install_scripts.py`, `tests/unit/test_preflight.py`, `tests/unit/test_readme_prerequisites.py`, `tests/unit/model_setup/`, `tests/e2e/model_setup/`, `tests/unit/review_app/test_models_presenter.py`, `tests/unit/test_prefetch.py` |
 
 > When you add a deliverable, fill its row. If a column is empty, that deliverable is not finished.
 
@@ -100,3 +102,5 @@ and generate a summary — all running locally on the developer's machine.
 | 2026-10-09 | F3 done (tracker #52 merged); F4 in progress. |
 | 2026-10-11 | F4 done (tracker #82 merged); F5 in progress. |
 | 2026-10-12 | F5 done (tracker #99 merged); F6 in progress and renamed from Hardening to Install (owner decisions of 2026-10-12). |
+| 2026-10-16 | F6.5 Desktop tray inserted before F7 and in progress (owner decision of 2026-10-16: a tester runs Fedora KDE); F7 Polish back to pending, not started. |
+| 2026-10-17 | Traceability row for the tray (FR-2 on other desktops); the "indefinitely out of scope" desktops narrowed to those with neither GNOME Shell nor a tray host. |

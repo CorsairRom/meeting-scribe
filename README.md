@@ -22,16 +22,17 @@
 
 ---
 
-A local, GPU-accelerated meeting assistant for GNOME (Fedora, Wayland). Record from a panel button, get a transcript
-with speakers told apart, name or merge speakers in a native GNOME review app, and generate a summary with a local
-(Ollama) or opt-in cloud (OpenCode Go) LLM. Everything runs on your machine; nothing leaves it unless you explicitly ask
-for a cloud summary.
+A local, GPU-accelerated meeting assistant for GNOME (Fedora, Wayland). Record from a panel button (or from a tray
+icon on KDE Plasma and other desktops), get a transcript with speakers told apart, name or merge speakers in a native
+GNOME review app, and generate a summary with a local (Ollama) or opt-in cloud (OpenCode Go) LLM. Everything runs on
+your machine; nothing leaves it unless you explicitly ask for a cloud summary.
 
 ## Highlights
 
 | | |
 |---|---|
 | **One click from the top bar** | A GNOME Shell panel menu starts and stops the recording, shows the processing stage and opens the last review or summary. |
+| **Or from the tray** | On KDE Plasma and other desktops with a tray, a tray icon offers the same menu and turns red while recording. |
 | **Who said what** | Transcription with faster-whisper (`large-v3-turbo`) and speaker diarization with pyannote (`community-1`), on your NVIDIA GPU, with a "Me" label and a voice sample per speaker. |
 | **A native review app** | A GTK 4 + libadwaita window to listen to each speaker, name them, merge or unmerge them and read the transcript. |
 | **Summaries in the meeting's language** | Topics, decisions, tasks and open questions, from a local Ollama model by default or from OpenCode Go when you choose the cloud (labelled, and confirmed on every request). |
@@ -42,7 +43,7 @@ for a cloud summary.
 
 ```mermaid
 flowchart LR
-    A([Panel menu<br/>Start / Stop]) -->|D-Bus| B[meeting-scribe service<br/>systemd --user]
+    A([Panel or tray menu<br/>Start / Stop]) -->|D-Bus| B[meeting-scribe service<br/>systemd --user]
     B --> C[(Audio chunks)]
     C --> D[Transcribe<br/>faster-whisper]
     D --> E[Tell speakers apart<br/>pyannote]
@@ -54,12 +55,13 @@ flowchart LR
     I --> J
 ```
 
-The GNOME extension and the review app are thin clients of one service on the D-Bus session bus (no HTTP server).
+The GNOME extension (or, on other desktops, the tray) and the review app are thin clients of one service on the D-Bus
+session bus (no HTTP server).
 Transcription and diarization run in a GPU worker process, one model at a time, after you press Stop.
 
 ## Status
 
-v1 is complete (tag `v1.0.0`); F7 is in progress. The phase table in [`mvp-scope.md`](docs/project/mvp-scope.md) is the
+v1 is complete (tag `v1.0.0`); F6.5 is in progress. The phase table in [`mvp-scope.md`](docs/project/mvp-scope.md) is the
 source of truth.
 
 | Phase | What it delivers | Status |
@@ -72,32 +74,36 @@ source of truth.
 | F4 Review app | Native GTK 4 window to listen to, name and merge speakers | done |
 | F5 Summaries | Summary tab, local or cloud LLM, Preferences window, "Open last summary" | done |
 | F6 Install | Read-only preflight, no `sudo`, models from Preferences, update and uninstall | done |
-| F7 Polish | Summary quality, Preferences polish, CI | in progress |
+| F6.5 Desktop tray | Tray icon with the extension's menu for KDE Plasma and other desktops | in progress |
+| F7 Polish | Summary quality, Preferences polish, CI | pending |
 
 
 ## Prerequisites
 
-Fedora with GNOME on Wayland. `./install.sh --check` tests every row below, changes nothing and prints, for each
+Fedora on Wayland, with GNOME (the top-bar extension) or another desktop such as KDE Plasma (the tray icon). `./install.sh --check` tests every row below, changes nothing and prints, for each
 missing one, what is missing, why it is needed and the exact command to fix it (the installer never runs `sudo`: it
 prints the command and you run it). A row marked "human" has no command: only you can do it (`./install.sh` exits 11
 when only those remain, 10 when a command can fix something). The first column is the check id in the report.
 
 | Check id | What | If missing | How to get it (Fedora) |
 |---|---|---|---|
-| `session.wayland` | A GNOME session on Wayland (`XDG_SESSION_TYPE=wayland`) | human, blocks | Log out, pick "GNOME" (not "GNOME on Xorg"), run the installer from a terminal in that session |
-| `session.gnome-shell` | GNOME Shell of a version listed in the extension's `metadata.json` (`shell-version`) | human, blocks | Use a GNOME session with that version |
-| `session.bus` | The session bus (`DBUS_SESSION_BUS_ADDRESS` or `$XDG_RUNTIME_DIR/bus`) | human, blocks | Run the installer from a terminal inside the GNOME session |
+| `session.desktop` | The desktop, read from the session bus: GNOME Shell gets the extension, any other desktop gets the tray | never blocks | Nothing to install |
+| `session.wayland` | A session on Wayland (`XDG_SESSION_TYPE=wayland`); outside GNOME Shell, X11 only warns (not tested) | human, blocks | Log out, pick a Wayland session ("GNOME", not "GNOME on Xorg"; on KDE "Plasma (Wayland)"), run the installer from a terminal in that session |
+| `session.gnome-shell` | On GNOME Shell only (skipped elsewhere): GNOME Shell of a version listed in the extension's `metadata.json` (`shell-version`) | human, blocks | Use a GNOME session with that version |
+| `session.bus` | The session bus (`DBUS_SESSION_BUS_ADDRESS` or `$XDG_RUNTIME_DIR/bus`) | human, blocks | Run the installer from a terminal inside your desktop session |
+| `session.tray-host` | Outside GNOME Shell, a tray host (`org.kde.StatusNotifierWatcher`: KDE Plasma, Xfce, Cinnamon, LXQt, waybar) | optional | Enable the desktop's status notifier or tray applet |
 | `tool.uv` | [`uv`](https://docs.astral.sh/uv/), installs the service and its Python 3.12 | blocks | `sudo dnf install uv` |
 | `tool.curl` | `curl`, probes the local Ollama API | blocks | `sudo dnf install curl` |
 | `tool.ffmpeg` | `ffmpeg`, captures the audio | blocks | `sudo dnf install ffmpeg-free` (or the RPM Fusion `ffmpeg`) |
 | `tool.pactl` | `pactl` (PipeWire's PulseAudio shim), finds the microphone and the system-audio monitor | blocks | `sudo dnf install pulseaudio-utils` |
 | `tool.systemctl` | `systemctl`, runs the service as a `systemd --user` unit | blocks | `sudo dnf install systemd` |
 | `tool.gdbus` | `gdbus`, reads the recording state before an update | blocks | `sudo dnf install glib2` |
-| `tool.gnome-extensions` | `gnome-extensions`, packs, installs and enables the extension | blocks | `sudo dnf install gnome-shell` |
+| `tool.gnome-extensions` | On GNOME Shell only (skipped elsewhere): `gnome-extensions`, packs, installs and enables the extension | blocks | `sudo dnf install gnome-shell` |
+| `tool.gjs` | `gjs`, runs the tray outside GNOME Shell (needs GLib 2.80 or later; GNOME Shell ships it) | blocks | `sudo dnf install gjs` |
 | `gtk.pygobject` | PyGObject (`gi`) on the system Python, for the review app | blocks | `sudo dnf install python3-gobject` |
 | `gtk.gtk4` | GTK 4 typelib | blocks | `sudo dnf install gtk4` |
 | `gtk.libadwaita` | libadwaita typelib | blocks | `sudo dnf install libadwaita` |
-| `gtk.libsecret` | libsecret typelib, stores keys in the GNOME Keyring | blocks | `sudo dnf install libsecret` |
+| `gtk.libsecret` | libsecret typelib, stores keys in the keyring through the Secret Service | blocks | `sudo dnf install libsecret` |
 | `gtk.gstreamer` | `gstreamer1-plugins-good`, plays the voice samples | optional | `sudo dnf install gstreamer1-plugins-good` |
 | `tool.secret-tool` | `secret-tool`, stores a key from a terminal | optional | `sudo dnf install libsecret` |
 | `gpu.driver` | The NVIDIA driver: `nvidia-smi` lists a GPU (transcription and diarization run on the local GPU, there is no automatic CPU fallback) | human, blocks | Install the NVIDIA driver (for example from RPM Fusion), reboot, run `nvidia-smi` |
@@ -115,14 +121,14 @@ git clone https://github.com/CorsairRom/meeting-scribe.git && cd meeting-scribe
 ```
 
 1. Read what `--check` prints. Each blocker says what is missing, why it is needed and the exact command to fix it. An item
-   tagged `FIX` is fixed by a command (exit 10); an item tagged `HUMAN` has no command, only you can do it: the GNOME
+   tagged `FIX` is fixed by a command (exit 10); an item tagged `HUMAN` has no command, only you can do it: your desktop
    session, the NVIDIA driver and reboot, the GPU itself (exit 11 when only those remain). An AI agent may run
    `--check`, but it runs a `sudo` fix only with your consent and hands every `HUMAN` item back to you.
 2. Run the fixes, then `./install.sh --check` again until it says `Summary: nothing blocks the install.`
-3. `./install.sh` installs the service, the review app and the GNOME extension (it repeats the check and never asks
-   anything). Log out and back in once if it says the extension needs it.
-4. Open **Preferences** from the Meeting Scribe menu in the top bar, then **Speech models**: accept the pyannote terms,
-   paste your Hugging Face token (it goes to the GNOME Keyring) and press **Download models**. Recording works before
+3. `./install.sh` installs the service, the review app and the GNOME extension, or the tray outside GNOME Shell (it
+   repeats the check and never asks anything). Log out and back in once if it says the extension needs it.
+4. Open **Preferences** from the Meeting Scribe menu in the top bar (or the tray), then **Speech models**: accept the
+   pyannote terms, paste your Hugging Face token (it goes to the keyring through the Secret Service) and press **Download models**. Recording works before
    this; processing needs the models.
 
 > [!TIP]
@@ -136,7 +142,7 @@ id with its fix and troubleshooting: [`docs/runbooks/install.md`](docs/runbooks/
 
 ```bash
 ./install.sh --check   # read-only preflight: what is missing, why, and the exact command to fix it (add --json for agents)
-./install.sh           # everything: service, systemd user unit, D-Bus activation, review app, GNOME extension (alias: make install)
+./install.sh           # everything: service, systemd user unit, D-Bus activation, review app, GNOME extension or tray (alias: make install)
 ./uninstall.sh         # reverse it (keeps your meetings, `.env`, `settings.json`, the keyring items and the downloaded models)
 ```
 
@@ -149,11 +155,12 @@ refused, 2 usage error, 10 blocked by a fixable prerequisite, 11 blocked only by
 
 You never start the service by hand. `make install` does the following, and is safe to re-run to upgrade. It runs the preflight first
 (exit 10 or 11 and no change when a prerequisite is missing), then checks the recording: while a recording is in progress, or its state cannot be read, it changes nothing and exits with an
-error (stop the recording from the top-bar menu, then run it again). If only the state is unreadable, `FORCE=1 make install`
+error (stop the recording from the Meeting Scribe menu, then run it again). If only the state is unreadable, `FORCE=1 make install`
 overrides that (never a positive recording). The state is re-checked right before the service restarts; if a recording started
 meanwhile the restart is skipped with a warning and the new version applies on the next restart or login. If the service
-fails to start (for example a `make run` instance owns the bus name), it still installs the extension, reports the service
-as NOT active and exits non-zero. A failing extension step is reported in the summary the same way (exit non-zero).
+fails to start (for example a `make run` instance owns the bus name), it still installs the extension (or the tray),
+reports the service as NOT active and exits non-zero. A failing extension or tray step is reported in the summary the
+same way (exit non-zero).
 
 1. Installs the service as a `uv` tool (Python 3.12) from this checkout into its own directory,
    `${XDG_DATA_HOME:-~/.local/share}/meeting-scribe/versions/<timestamp>-<pid>/` (`tools/` and `bin/`), then repoints the
@@ -171,7 +178,9 @@ as NOT active and exits non-zero. A failing extension step is reported in the su
    [`install.md`](docs/runbooks/install.md) and [`processing.md`](docs/runbooks/processing.md)). Processing runs offline
    (`HF_HUB_OFFLINE=1`) and needs no token.
 4. Packs, installs and enables the GNOME extension. On Wayland a brand-new extension is discovered only after you
-   log out and back in once; the installer tells you when that is needed.
+   log out and back in once; the installer tells you when that is needed. Outside GNOME Shell it installs the tray
+   instead: its icons, an autostart entry and a restart of the running tray (see
+   [`desktop-tray.md`](docs/runbooks/desktop-tray.md)).
 5. Installs the review app (F4) into the same version directory (`app/` and the `bin/meeting-scribe-review` launcher, which
    runs on the system Python) and a desktop entry, `dev.meetingscribe.Review.desktop`, in
    `${XDG_DATA_HOME:-~/.local/share}/applications/`. The preflight (`gtk.*` rows above) has already
@@ -195,7 +204,7 @@ Configure through Preferences (open it from the Meeting Scribe menu; the setting
 template: `.env.example`) is an optional developer override that wins over Preferences (every variable and its default is
 listed in [`ARCHITECTURE.md`](ARCHITECTURE.md) section 7); restart with `systemctl --user restart meeting-scribe.service`.
 
-Development: `make setup` (dev and ML dependencies: faster-whisper and the NVIDIA wheels come from the `ml` extra), `make check` (ruff, pyrefly, import-linter, pytest, wheel packaging test, extension tests),
+Development: `make setup` (dev and ML dependencies: faster-whisper and the NVIDIA wheels come from the `ml` extra), `make check` (ruff, pyrefly, import-linter, pytest, wheel packaging test, extension and tray tests),
 `make run` (foreground service on your session bus, stop the installed one first). `make help` lists all targets.
 
 ## Try the D-Bus API
@@ -229,6 +238,7 @@ stops the recording first.
 | [`docs/runbooks/preferences.md`](docs/runbooks/preferences.md) | The Preferences window: settings precedence, locked fields, restarting the service, the settings file |
 | [`docs/runbooks/store-cloud-api-key.md`](docs/runbooks/store-cloud-api-key.md) | Store the cloud API key in the GNOME Keyring (Preferences or `secret-tool`) |
 | [`docs/runbooks/gnome-extension.md`](docs/runbooks/gnome-extension.md) | Try the panel indicator in a nested shell and install it in your session |
+| [`docs/runbooks/desktop-tray.md`](docs/runbooks/desktop-tray.md) | The tray icon on KDE Plasma and other desktops: what it shows, how to run, test and troubleshoot it |
 | [`docs/`](docs/README.md) | Taxonomy: project scope and rules, architecture, ADRs, specs, runbooks, ideas |
 
 ## Safety
