@@ -86,7 +86,7 @@ when only those remain, 10 when a command can fix something). The first column i
 | Check id | What | If missing | How to get it (Fedora) |
 |---|---|---|---|
 | `session.desktop` | The desktop, read from the session bus: GNOME Shell gets the extension, any other desktop gets the tray | never blocks | Nothing to install |
-| `session.wayland` | A session on Wayland (`XDG_SESSION_TYPE=wayland`); outside GNOME Shell, X11 only warns (not tested) | human, blocks | Log out, pick "GNOME" (not "GNOME on Xorg"), run the installer from a terminal in that session |
+| `session.wayland` | A session on Wayland (`XDG_SESSION_TYPE=wayland`); outside GNOME Shell, X11 only warns (not tested) | human, blocks | Log out, pick a Wayland session ("GNOME", not "GNOME on Xorg"; on KDE "Plasma (Wayland)"), run the installer from a terminal in that session |
 | `session.gnome-shell` | On GNOME Shell only (skipped elsewhere): GNOME Shell of a version listed in the extension's `metadata.json` (`shell-version`) | human, blocks | Use a GNOME session with that version |
 | `session.bus` | The session bus (`DBUS_SESSION_BUS_ADDRESS` or `$XDG_RUNTIME_DIR/bus`) | human, blocks | Run the installer from a terminal inside your desktop session |
 | `session.tray-host` | Outside GNOME Shell, a tray host (`org.kde.StatusNotifierWatcher`: KDE Plasma, Xfce, Cinnamon, LXQt, waybar) | optional | Enable the desktop's status notifier or tray applet |
