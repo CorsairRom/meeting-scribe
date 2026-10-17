@@ -22,6 +22,7 @@ from tests.unit.install_sandbox import (
     UNINSTALL,
     UNIT,
     Env,
+    is_desktop_query,
     sandbox_fixture,  # noqa: F401  # the `sandbox` fixture
 )
 
@@ -906,7 +907,8 @@ def test_install_stops_with_zero_changes_when_a_prerequisite_is_missing(
     assert tag in result.stdout  # the preflight report is printed
     assert "fix:" in result.stdout or "steps:" in result.stdout
     assert sandbox.tree() == []  # the sandbox HOME is unchanged
-    calls = sandbox.calls()
+    # the read-only desktop detection asks the bus daemon, never the service
+    calls = [line for line in sandbox.calls() if not is_desktop_query(line)]
     for prefix in ("uv", "gnome-extensions", "gdbus", "sudo", "meeting-scribe", "ollama"):
         assert not any(line.startswith(prefix) for line in calls), (prefix, calls)
     # the only systemctl call a preflight makes reads whether Ollama is a system service
