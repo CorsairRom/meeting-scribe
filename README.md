@@ -22,16 +22,17 @@
 
 ---
 
-A local, GPU-accelerated meeting assistant for GNOME (Fedora, Wayland). Record from a panel button, get a transcript
-with speakers told apart, name or merge speakers in a native GNOME review app, and generate a summary with a local
-(Ollama) or opt-in cloud (OpenCode Go) LLM. Everything runs on your machine; nothing leaves it unless you explicitly ask
-for a cloud summary.
+A local, GPU-accelerated meeting assistant for GNOME (Fedora, Wayland). Record from a panel button (or from a tray
+icon on KDE Plasma and other desktops), get a transcript with speakers told apart, name or merge speakers in a native
+GNOME review app, and generate a summary with a local (Ollama) or opt-in cloud (OpenCode Go) LLM. Everything runs on
+your machine; nothing leaves it unless you explicitly ask for a cloud summary.
 
 ## Highlights
 
 | | |
 |---|---|
 | **One click from the top bar** | A GNOME Shell panel menu starts and stops the recording, shows the processing stage and opens the last review or summary. |
+| **Or from the tray** | On KDE Plasma and other desktops with a tray, a tray icon offers the same menu and turns red while recording. |
 | **Who said what** | Transcription with faster-whisper (`large-v3-turbo`) and speaker diarization with pyannote (`community-1`), on your NVIDIA GPU, with a "Me" label and a voice sample per speaker. |
 | **A native review app** | A GTK 4 + libadwaita window to listen to each speaker, name them, merge or unmerge them and read the transcript. |
 | **Summaries in the meeting's language** | Topics, decisions, tasks and open questions, from a local Ollama model by default or from OpenCode Go when you choose the cloud (labelled, and confirmed on every request). |
@@ -42,7 +43,7 @@ for a cloud summary.
 
 ```mermaid
 flowchart LR
-    A([Panel menu<br/>Start / Stop]) -->|D-Bus| B[meeting-scribe service<br/>systemd --user]
+    A([Panel or tray menu<br/>Start / Stop]) -->|D-Bus| B[meeting-scribe service<br/>systemd --user]
     B --> C[(Audio chunks)]
     C --> D[Transcribe<br/>faster-whisper]
     D --> E[Tell speakers apart<br/>pyannote]
@@ -54,7 +55,8 @@ flowchart LR
     I --> J
 ```
 
-The GNOME extension and the review app are thin clients of one service on the D-Bus session bus (no HTTP server).
+The GNOME extension (or, on other desktops, the tray) and the review app are thin clients of one service on the D-Bus
+session bus (no HTTP server).
 Transcription and diarization run in a GPU worker process, one model at a time, after you press Stop.
 
 ## Status
@@ -123,10 +125,10 @@ git clone https://github.com/CorsairRom/meeting-scribe.git && cd meeting-scribe
    session, the NVIDIA driver and reboot, the GPU itself (exit 11 when only those remain). An AI agent may run
    `--check`, but it runs a `sudo` fix only with your consent and hands every `HUMAN` item back to you.
 2. Run the fixes, then `./install.sh --check` again until it says `Summary: nothing blocks the install.`
-3. `./install.sh` installs the service, the review app and the GNOME extension (it repeats the check and never asks
-   anything). Log out and back in once if it says the extension needs it.
-4. Open **Preferences** from the Meeting Scribe menu in the top bar, then **Speech models**: accept the pyannote terms,
-   paste your Hugging Face token (it goes to the GNOME Keyring) and press **Download models**. Recording works before
+3. `./install.sh` installs the service, the review app and the GNOME extension, or the tray outside GNOME Shell (it
+   repeats the check and never asks anything). Log out and back in once if it says the extension needs it.
+4. Open **Preferences** from the Meeting Scribe menu in the top bar (or the tray), then **Speech models**: accept the
+   pyannote terms, paste your Hugging Face token (it goes to the GNOME Keyring) and press **Download models**. Recording works before
    this; processing needs the models.
 
 > [!TIP]
@@ -140,7 +142,7 @@ id with its fix and troubleshooting: [`docs/runbooks/install.md`](docs/runbooks/
 
 ```bash
 ./install.sh --check   # read-only preflight: what is missing, why, and the exact command to fix it (add --json for agents)
-./install.sh           # everything: service, systemd user unit, D-Bus activation, review app, GNOME extension (alias: make install)
+./install.sh           # everything: service, systemd user unit, D-Bus activation, review app, GNOME extension or tray (alias: make install)
 ./uninstall.sh         # reverse it (keeps your meetings, `.env`, `settings.json`, the keyring items and the downloaded models)
 ```
 
@@ -175,7 +177,9 @@ as NOT active and exits non-zero. A failing extension step is reported in the su
    [`install.md`](docs/runbooks/install.md) and [`processing.md`](docs/runbooks/processing.md)). Processing runs offline
    (`HF_HUB_OFFLINE=1`) and needs no token.
 4. Packs, installs and enables the GNOME extension. On Wayland a brand-new extension is discovered only after you
-   log out and back in once; the installer tells you when that is needed.
+   log out and back in once; the installer tells you when that is needed. Outside GNOME Shell it installs the tray
+   instead: its icons, an autostart entry and a restart of the running tray (see
+   [`desktop-tray.md`](docs/runbooks/desktop-tray.md)).
 5. Installs the review app (F4) into the same version directory (`app/` and the `bin/meeting-scribe-review` launcher, which
    runs on the system Python) and a desktop entry, `dev.meetingscribe.Review.desktop`, in
    `${XDG_DATA_HOME:-~/.local/share}/applications/`. The preflight (`gtk.*` rows above) has already
@@ -199,7 +203,7 @@ Configure through Preferences (open it from the Meeting Scribe menu; the setting
 template: `.env.example`) is an optional developer override that wins over Preferences (every variable and its default is
 listed in [`ARCHITECTURE.md`](ARCHITECTURE.md) section 7); restart with `systemctl --user restart meeting-scribe.service`.
 
-Development: `make setup` (dev and ML dependencies: faster-whisper and the NVIDIA wheels come from the `ml` extra), `make check` (ruff, pyrefly, import-linter, pytest, wheel packaging test, extension tests),
+Development: `make setup` (dev and ML dependencies: faster-whisper and the NVIDIA wheels come from the `ml` extra), `make check` (ruff, pyrefly, import-linter, pytest, wheel packaging test, extension and tray tests),
 `make run` (foreground service on your session bus, stop the installed one first). `make help` lists all targets.
 
 ## Try the D-Bus API
@@ -233,6 +237,7 @@ stops the recording first.
 | [`docs/runbooks/preferences.md`](docs/runbooks/preferences.md) | The Preferences window: settings precedence, locked fields, restarting the service, the settings file |
 | [`docs/runbooks/store-cloud-api-key.md`](docs/runbooks/store-cloud-api-key.md) | Store the cloud API key in the GNOME Keyring (Preferences or `secret-tool`) |
 | [`docs/runbooks/gnome-extension.md`](docs/runbooks/gnome-extension.md) | Try the panel indicator in a nested shell and install it in your session |
+| [`docs/runbooks/desktop-tray.md`](docs/runbooks/desktop-tray.md) | The tray icon on KDE Plasma and other desktops: what it shows, how to run, test and troubleshoot it |
 | [`docs/`](docs/README.md) | Taxonomy: project scope and rules, architecture, ADRs, specs, runbooks, ideas |
 
 ## Safety

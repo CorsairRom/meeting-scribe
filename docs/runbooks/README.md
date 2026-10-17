@@ -1,7 +1,7 @@
 ---
 type: index
 status: living
-last_updated: 2026-10-12
+last_updated: 2026-10-17
 ---
 
 # Runbooks
@@ -25,3 +25,4 @@ A runbook gives exact commands, preconditions and what to verify afterwards.
 | [Change settings in Preferences](preferences.md) | F5 | active |
 | [Store the cloud API key in the GNOME Keyring](store-cloud-api-key.md) | F5 | active |
 | [Install, update, uninstall and troubleshoot](install.md) | F6 | active |
+| [Run and troubleshoot the desktop tray](desktop-tray.md) | F6.5 | active |

@@ -1,7 +1,7 @@
 ---
 type: architecture
 status: active
-last_updated: 2026-10-12
+last_updated: 2026-10-17
 mvp: true
 verifiable_by:
   - src/meeting_scribe/recording/infrastructure/dbus/recording_interface.py
@@ -15,6 +15,9 @@ verifiable_by:
   - src/meeting_scribe/model_setup/infrastructure/dbus/models_interface.py
   - tests/e2e/model_setup/test_models_over_dbus.py
   - "busctl --user introspect dev.meetingscribe.Service /dev/meetingscribe/Service"
+  - desktop-tray/tests/main.test.js
+  - desktop-tray/tests/statusNotifierItem.test.js
+  - desktop-tray/tests/dbusMenu.test.js
 ai_instructions:
   - "This doc is the SOURCE OF TRUTH for D-Bus contracts. If a method, property or signal changes, update THIS file in the same commit."
   - "No client or server work starts without this doc updated."
@@ -243,6 +246,47 @@ gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meeting
   --method dev.meetingscribe.Models1.GetStatus
 gdbus call --session --dest dev.meetingscribe.Service --object-path /dev/meetingscribe/Service \
   --method dev.meetingscribe.Models1.CancelDownload
+```
+
+---
+
+## Desktop tray: client and exporter (F6.5)
+
+The tray (`desktop-tray/`, [spec](../specs/desktop-tray.md),
+[ADR-012](../decisions/012-cross-desktop-tray-in-standalone-gjs.md)) changes nothing in the service API. It is a
+client of the service and an exporter of two standard desktop interfaces.
+
+**As a client** it consumes `Recording1`, `Meetings1` and `Summaries1` unchanged, through the extension's shared
+clients (`recordingClient.js`, `meetingsClient.js`): the same members, timeouts and rules as the extension, and no
+autostart, so it never starts the service. It also calls `org.freedesktop.DBus.NameHasOwner("org.gnome.Shell")` once
+at start (on GNOME Shell it exits 0, because the extension is the client there) and
+`org.freedesktop.Notifications.Notify` for the controller's messages (app name `Meeting Scribe`, no actions, no hints,
+the server's default timeout).
+
+**Bus names it owns**:
+
+| Name | Flags | Purpose |
+|---|---|---|
+| `dev.meetingscribe.Tray` | `DO_NOT_QUEUE` | One tray per session: a second tray finds the name taken and exits 0. The installer and the uninstaller find the running tray's PID with `org.freedesktop.DBus.GetConnectionUnixProcessID` on this name and stop it by PID, never with `pkill -f` (spec section 7). Renaming it changes the install too |
+| `org.kde.StatusNotifierItem-<pid>-1` | `DO_NOT_QUEUE` | The item's name, in the form KDE's own `KStatusNotifierItem` uses; registered with the watcher only after the tray owns it |
+
+**Objects it exports** (on its connection, so reachable through either name):
+
+| Object path | Interface | Contract |
+|---|---|---|
+| `/StatusNotifierItem` | `org.kde.StatusNotifierItem` | Properties of spec section 3 (`Category` `ApplicationStatus`, `Id` `meeting-scribe`, `Title` `Meeting Scribe`, `Status` always `Active`, `IconName`, `IconThemePath`, `ToolTip`, `ItemIsMenu` `true`, `Menu` `/MenuBar`). `Activate`, `SecondaryActivate`, `ContextMenu` and `Scroll` do nothing: a click never records (CR-014). `NewIcon` and `NewToolTip` are emitted only when that value changed; `NewStatus` is never emitted |
+| `/MenuBar` | `com.canonical.dbusmenu` (`Version` 3) | `GetLayout`, `GetGroupProperties`, `GetProperty`, `Event`, `EventGroup`, `AboutToShow`, `AboutToShowGroup`; signals `LayoutUpdated` and `ItemsPropertiesUpdated`. Items map the view model's kinds (`status`: a disabled label, `action`: an enabled label whose `clicked` event runs the action, `separator`); `AboutToShow` on the root refreshes the last summary. Ids stay stable while only labels change and are never reused across layout revisions (GO-069) |
+
+**Registration**: `org.kde.StatusNotifierWatcher.RegisterStatusNotifierItem(s)` with the item's bus name, sent to the
+watcher's unique name with `NO_AUTO_START` and a 5 s timeout; again whenever the watcher name gets a new owner, and
+every 2 s after a failed registration while the same watcher owns the name. With no watcher the tray logs one line and
+waits.
+
+Example (documentation only, read-only, against your own session bus):
+
+```bash
+gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
+  --method org.freedesktop.DBus.GetConnectionUnixProcessID dev.meetingscribe.Tray
 ```
 
 ---
