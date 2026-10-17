@@ -35,7 +35,8 @@ Usage: ./install.sh [--check [--json]] [--help]   (alias: make install ARGS=--ch
 
 Installs the service, the systemd user unit, the D-Bus activation file, the review app and the
 GNOME extension (outside GNOME Shell, the tray instead). It first checks every prerequisite
-(read-only) and stops with zero changes when one is missing. It never elevates privileges and never asks anything: it prints the commands to run.
+(read-only) and stops with zero changes when one is missing. It never elevates privileges and
+never asks anything: it prints the commands to run.
 
   --check   Run only the preflight, change nothing, call no service.
   --json    With --check: print one JSON document on stdout (the prose goes to stderr).
