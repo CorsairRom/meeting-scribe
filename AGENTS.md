@@ -5,9 +5,9 @@
 **meeting-scribe** — a local, GPU-accelerated meeting assistant for GNOME (Fedora, Wayland). A Python service
 (`systemd --user`, D-Bus session bus API) records meetings, transcribes (faster-whisper) and diarizes (pyannote)
 after stop, and summarizes through an OpenAI-compatible LLM (Ollama local / OpenCode Go cloud opt-in). A thin GNOME
-Shell extension is the recording trigger, and a native GTK4/libadwaita app (opened from the extension menu) lets the
-user name/merge speakers. Both are thin D-Bus clients. Python 3.12, `uv`, strict layered domains enforced by
-import-linter, errors as `returns.Result`.
+Shell extension is the recording trigger (on KDE Plasma and other desktops, a standalone GJS tray icon with the same
+menu), and a native GTK4/libadwaita app (opened from the extension menu) lets the user name/merge speakers. All are
+thin D-Bus clients. Python 3.12, `uv`, strict layered domains enforced by import-linter, errors as `returns.Result`.
 
 ## Core conventions (NEVER violate)
 
@@ -55,6 +55,7 @@ import-linter, errors as `returns.Result`.
 | Package or activate the service      | `packaging/` + `docs/runbooks/record-via-gdbus.md`             |
 | Set up or debug processing and models | `docs/runbooks/processing.md`                                 |
 | Pack, try or install the extension   | `docs/runbooks/gnome-extension.md`                             |
+| Run, test or debug the desktop tray  | `docs/runbooks/desktop-tray.md`                                |
 | Install, open or debug the review app | `docs/runbooks/review-app.md`                                 |
 | Set up or debug summaries (Ollama, cloud key) | `docs/runbooks/summaries.md`                          |
 | Change settings (Preferences window, settings.json) | `docs/runbooks/preferences.md`                  |

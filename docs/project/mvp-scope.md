@@ -1,7 +1,7 @@
 ---
 type: scope
 status: draft
-last_updated: 2026-10-12
+last_updated: 2026-10-17
 ai_instructions:
   - "This is the contract of what IS and IS NOT implemented in the current release (v1)."
   - "If a deliverable is not in 'IN SCOPE', do NOT build it now even if it appears in the PRD."
@@ -67,7 +67,7 @@ and generate a summary — all running locally on the developer's machine.
 |---|---|
 | Cloud sync / sharing | Meetings are private by design; nothing leaves the machine except an explicit LLM call |
 | Multi-user / accounts | Single-user tool, per-user D-Bus session bus only |
-| Non-GNOME desktops | The recording trigger is a GNOME Shell extension; the D-Bus API could serve other clients later |
+| Desktops with neither GNOME Shell nor a tray host | The recording triggers are the GNOME Shell extension and, on other desktops, the tray (F6.5), which needs a StatusNotifierItem host; the D-Bus API could serve other clients later |
 
 ---
 
@@ -82,6 +82,7 @@ and generate a summary — all running locally on the developer's machine.
 | Configurable log level | F0 scaffold | `src/meeting_scribe/base/infrastructure/logging.py` | `tests/unit/base/test_logging.py` |
 | FR-1 start/stop recording | F1 | `src/meeting_scribe/recording/`, `src/meeting_scribe/main.py` | `tests/unit/recording/`, `tests/e2e/` |
 | FR-2 panel button | F2 | `gnome-extension/meeting-scribe@meetingscribe.dev/` | `gnome-extension/tests/` (`make test-extension`), `tests/unit/test_extension_pack.py` |
+| FR-2 panel button on other desktops (tray) | F6.5 | `desktop-tray/` | `desktop-tray/tests/` (`make test-tray`) |
 | FR-3 transcribe + diarize after stop | F3 | `src/meeting_scribe/meetings/`, `src/meeting_scribe/transcription/`, `src/meeting_scribe/speakers/`, `src/meeting_scribe/worker.py` | `tests/unit/meetings/`, `tests/unit/transcription/`, `tests/unit/speakers/` |
 | FR-4 voice samples, notification | F3 | `src/meeting_scribe/speakers/` (samples); `src/meeting_scribe/meetings/` (notification, `Meetings1`) | `tests/unit/speakers/` |
 | FR-5 review: listen, rename, merge | F4 | `src/meeting_scribe/speakers/`, `src/meeting_scribe/meetings/`, `review-app/src/meeting_scribe_review/`, `gnome-extension/` | `tests/unit/speakers/`, `tests/unit/review_app/`, `tests/e2e/meetings/`, `gnome-extension/tests/` |
@@ -102,3 +103,4 @@ and generate a summary — all running locally on the developer's machine.
 | 2026-10-11 | F4 done (tracker #82 merged); F5 in progress. |
 | 2026-10-12 | F5 done (tracker #99 merged); F6 in progress and renamed from Hardening to Install (owner decisions of 2026-10-12). |
 | 2026-10-16 | F6.5 Desktop tray inserted before F7 and in progress (owner decision of 2026-10-16: a tester runs Fedora KDE); F7 Polish back to pending, not started. |
+| 2026-10-17 | Traceability row for the tray (FR-2 on other desktops); the "indefinitely out of scope" desktops narrowed to those with neither GNOME Shell nor a tray host. |

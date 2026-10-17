@@ -15,7 +15,7 @@ verifiable_by:
   - gnome-extension/tests/
   - tests/unit/test_preflight.py
   - tests/unit/test_install_scripts.py
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 ai_instructions:
   - "This spec is a contract. Do NOT implement anything that is not in it."
   - "If you need to change the spec, update this doc FIRST and ask for confirmation."
@@ -399,3 +399,18 @@ THEN the extension is packed, installed and enabled as before, and no tray file,
 
 - 2026-10-16: the recording state is a red icon with the elapsed time in the menu and the tooltip, not a counter next
   to the icon — the Plasma 6 tray cannot show text (owner decision, ADR-012).
+- 2026-10-16: `trayModel.js` imports only the shared view-model constants (`ICON_RECORDING`, `ICON_FAILED`,
+  `ICON_UNAVAILABLE`, `PROCESSING_HINT` from the extension's `indicatorModel.js`), so the glyph-to-icon mapping and
+  the elapsed-time detection follow the extension's own values and the module stays pure (no `gi://` imports).
+- 2026-10-16: dbusmenu ids are never reused across layout changes. Section 5 keeps ids stable while the kinds and
+  actions are unchanged; any other change gives every item a fresh id from a counter that only grows, because the
+  libdbusmenu-qt importer keeps the type of an id it already knows, so a reused id (for example a former separator
+  that becomes an action) would be drawn as the old kind (GO-069).
+- 2026-10-17: the item registers again every 2 s after a failed `RegisterStatusNotifierItem` (a timeout or an error
+  from a busy watcher) while the same watcher owns the name, and logs only the first failure per watcher; a new
+  watcher owner cancels the retry and registers afresh. Section 2 only covered a new owner; a watcher busy at login
+  would otherwise leave the icon missing until the next restart (finding of the native review, #155).
+- 2026-10-17: the launchers use `GioUnix.DesktopAppInfo` (section 6 names `Gio.DesktopAppInfo`) and the signal
+  handlers use `GLibUnix.signal_add`, because gjs 1.88 deprecates the `Gio` and `GLib` aliases of these Unix-only
+  APIs and prints a warning when they are used. The `GioUnix` and `GLibUnix` namespaces exist since GLib 2.80, so
+  the tray needs GLib 2.80 or later.
