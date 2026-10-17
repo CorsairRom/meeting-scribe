@@ -32,7 +32,13 @@ TRAY_LAUNCHER_NAME="meeting-scribe-tray"
 TRAY_AUTOSTART_NAME="$TRAY_BUS_NAME.desktop"
 TRAY_AUTOSTART_PATH="$CONFIG_HOME/autostart/$TRAY_AUTOSTART_NAME"
 TRAY_ICONS_DIR="$DATA_HOME/icons/hicolor/scalable/status"
-TRAY_WAIT_SECONDS=5 # how long the tray name may take to go after a stop, or to come after a start
+# How long the tray name may take to go after a stop, or to come after a start: 5 s, or the
+# positive whole number of seconds in MEETING_SCRIBE_TRAY_WAIT_SECONDS (tests shorten it).
+TRAY_WAIT_SECONDS=5
+if [[ "${MEETING_SCRIBE_TRAY_WAIT_SECONDS:-}" =~ ^[1-9][0-9]*$ ]]; then
+  TRAY_WAIT_SECONDS="$MEETING_SCRIBE_TRAY_WAIT_SECONDS"
+fi
+TRAY_POLL_SECONDS=0.2 # the pause between two questions about the tray name
 
 # Prints $1 as one Exec argument of a desktop entry: double-quoted, with `"`, a backtick, `$` and
 # `\` escaped for the quoting level, `%` doubled (field codes), and every `\` doubled again for the
@@ -137,14 +143,18 @@ bus_name_owner() {
 # Why the last stop_tray or start_tray call failed, for the summary or a warning.
 TRAY_ERROR=""
 
-# tray_wait_owner yes|no: polls until the tray name's owner state is $1, for TRAY_WAIT_SECONDS.
+# tray_wait_owner yes|no: asks every TRAY_POLL_SECONDS until the tray name's owner state is $1.
+# The wait is bounded by elapsed time, not by a count of questions, so a slow bus (each question
+# may take up to GDBUS_TIMEOUT) does not stretch it. Bash's SECONDS counts whole seconds, hence
+# the extra second: the wait lasts at least TRAY_WAIT_SECONDS and less than one second more, plus
+# the last question.
 tray_wait_owner() {
-  local tries=$((TRAY_WAIT_SECONDS * 5))
-  while ((tries-- > 0)); do
+  local deadline=$((SECONDS + TRAY_WAIT_SECONDS + 1))
+  while true; do
     if [[ "$(bus_name_owner "$TRAY_BUS_NAME")" == "$1" ]]; then return 0; fi
-    sleep 0.2
+    if ((SECONDS >= deadline)); then return 1; fi
+    sleep "$TRAY_POLL_SECONDS"
   done
-  return 1
 }
 
 # Stops the running tray, if any: its PID comes from the bus daemon (a read-only
@@ -161,6 +171,8 @@ stop_tray() {
   answer="$(gdbus call --session --timeout "$GDBUS_TIMEOUT" --dest org.freedesktop.DBus \
     --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.GetConnectionUnixProcessID \
     "$TRAY_BUS_NAME" 2>/dev/null)" || answer=""
+  # A PID at or below 1 is refused: `kill 0` would signal this script's whole process group, and
+  # PID 1 is init.
   if [[ ! "$answer" =~ ^\(uint32\ ([0-9]+),\)$ ]] || ((BASH_REMATCH[1] <= 1)); then
     # The name may have gone between the two questions: nothing is left to stop then.
     if [[ "$(bus_name_owner "$TRAY_BUS_NAME")" == no ]]; then return 0; fi

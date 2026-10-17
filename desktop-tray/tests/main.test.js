@@ -175,6 +175,34 @@ test('destroy during start ends it as stopped, with no item and no name (a signa
     });
 });
 
+test('destroy while the tray name request is pending settles it: stopped, and the name is released', async () => {
+    await withBus(async ({watcher, host, newTray}) => {
+        const {tray} = await newTray();
+        // The GNOME Shell probe has answered once the name is requested. destroy() runs in the
+        // next microtask: after start() stored the request, before the bus daemon's answer
+        // (delivered by the main loop) can reach its callbacks.
+        const ownName = Gio.bus_own_name_on_connection;
+        let requests = 0;
+        Gio.bus_own_name_on_connection = (...args) => {
+            requests += 1;
+            Promise.resolve().then(() => tray.destroy());
+            return ownName(...args);
+        };
+        let result;
+        try {
+            result = await withTimeout(tray.start(), 'start() after destroy', WAIT_LIMIT_MS);
+        } finally {
+            Gio.bus_own_name_on_connection = ownName;
+        }
+        assertDeepEqual(result, {started: false, reason: 'stopped'});
+        assertEqual(requests, 1, 'the tray name was requested once: ');
+        await until(async () => !await hasOwner(host, TRAY_BUS_NAME), 'the tray name released');
+        await sleep(QUIET_MS);
+        assertEqual(await hasOwner(host, TRAY_BUS_NAME), false, 'the tray name stays free: ');
+        assertDeepEqual(watcher.registrations, [], 'registrations: ');
+    });
+});
+
 /** Run `gjs -m desktop-tray/main.js` on the private bus; killed by PID after the test. */
 function spawnMain(bus) {
     const launcher = new Gio.SubprocessLauncher({

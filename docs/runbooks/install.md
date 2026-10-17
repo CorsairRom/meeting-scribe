@@ -95,7 +95,8 @@ The ids are stable; the fields only grow in a later `schema_version`.
 
 Environment: `FORCE=1` (above), `REVIEW_APP_PYTHON` (the system interpreter the review app and the toolkit checks use,
 default `/usr/bin/python3`), `MEETING_SCRIBE_NVIDIA_SMI_TIMEOUT` (default 10 s), `MEETING_SCRIBE_OLLAMA_TIMEOUT`
-(default 3 s), `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT` (default 30 s), `SUMMARIES_LOCAL_BASE_URL` (a non-default Ollama address) and `HF_HUB_CACHE` or `HF_HOME` (where `disk.space` looks for the model cache).
+(default 3 s), `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT` (default 30 s), `MEETING_SCRIBE_TRAY_WAIT_SECONDS` (default 5 s:
+how long the install and the uninstall wait for the tray to stop, and the install for the new tray to start), `SUMMARIES_LOCAL_BASE_URL` (a non-default Ollama address) and `HF_HUB_CACHE` or `HF_HOME` (where `disk.space` looks for the model cache).
 
 ## Check ids and fixes
 

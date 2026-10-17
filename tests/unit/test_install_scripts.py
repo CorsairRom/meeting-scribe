@@ -5,8 +5,10 @@ The scripts run in a throwaway HOME with a PATH that holds only fake ``uv``, ``s
 never run. Every fake appends its argv to a log file, which is also the proof the fakes were used.
 """
 
+import os
 import re
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -1127,11 +1129,18 @@ def test_the_runbook_keep_list_is_the_text_uninstall_prints(sandbox: Env) -> Non
 TRAY = {"FAKE_GNOME_SHELL_OWNER": "0", "XDG_CURRENT_DESKTOP": "KDE"}
 TRAY_LAUNCHER = "meeting-scribe-tray"
 SHARED_LIB = Path("gnome-extension") / EXTENSION / "lib"
-PID_QUERY = (
-    "gdbus call --session --timeout 5 --dest org.freedesktop.DBus "
-    "--object-path /org/freedesktop/DBus --method "
-    f"org.freedesktop.DBus.GetConnectionUnixProcessID {TRAY_BUS_NAME}"
+# The read-only question for the running tray's PID; the timeout is any number of seconds, so a
+# different GDBUS_TIMEOUT does not change what counts as this question.
+PID_QUERY = re.compile(
+    r"gdbus call --session --timeout [1-9][0-9]* --dest org\.freedesktop\.DBus "
+    r"--object-path /org/freedesktop/DBus --method "
+    rf"org\.freedesktop\.DBus\.GetConnectionUnixProcessID {re.escape(TRAY_BUS_NAME)}"
 )
+
+
+def _pid_queries(calls: list[str]) -> list[int]:
+    """The positions of the logged PID questions about the tray."""
+    return [i for i, line in enumerate(calls) if PID_QUERY.fullmatch(line)]
 
 
 def _files(folder: Path) -> dict[str, bytes]:
@@ -1211,8 +1220,9 @@ def test_tray_path_update_is_idempotent_and_replaces_the_tray_by_pid(sandbox: En
     assert "  tray: running" in _summary(second).splitlines()
     calls = sandbox.calls()
     # the running tray is found by its bus name and stopped by its PID before the new one starts
-    assert [line for line in calls if "GetConnectionUnixProcessID" in line] == [PID_QUERY]
-    assert calls.index(PID_QUERY) < _index(calls, "gjs ")
+    (pid_query,) = _pid_queries(calls)
+    assert [line for line in calls if "GetConnectionUnixProcessID" in line] == [calls[pid_query]]
+    assert pid_query < _index(calls, "gjs ")
     assert not sandbox.is_sandbox_tray(old_pid)
     new_pid = sandbox.tray_pid()
     assert new_pid != old_pid
@@ -1273,7 +1283,7 @@ def test_tray_path_uninstall_stops_the_tray_and_removes_its_files(sandbox: Env) 
     sandbox.log.write_text("")
     result = sandbox.run(UNINSTALL, **TRAY, **ACTIVE)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert PID_QUERY in sandbox.calls()
+    assert _pid_queries(sandbox.calls())
     assert not sandbox.is_sandbox_tray(pid)  # stopped by its PID
     assert not sandbox.autostart_entry.exists()
     assert not list(sandbox.tray_icons.glob("*.svg"))
@@ -1317,3 +1327,115 @@ def test_gnome_path_uninstall_removes_a_leftover_tray_entry_and_icons(sandbox: E
     assert f"gnome-extensions uninstall {EXTENSION}" in sandbox.calls()
     # on GNOME Shell nothing else is stopped: not even a question about the tray's bus name
     assert _tray_bus_calls(sandbox) == []
+
+
+def test_the_installed_autostart_entry_carries_no_placeholder_and_no_template_note(
+    sandbox: Env,
+) -> None:
+    result = sandbox.run(INSTALL, **TRAY, **ACTIVE)
+    assert result.returncode == 0, result.stdout + result.stderr
+    text = sandbox.autostart_entry.read_text()
+    assert "@EXEC@" not in text
+    assert "Template" not in text
+    assert [line for line in text.splitlines() if line.startswith("#")] == []
+    assert text.startswith("[Desktop Entry]\n")
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(None, "5"), ("", "5"), ("2", "2"), ("abc", "5"), ("0", "5"), ("-1", "5"), ("1.5", "5")],
+)
+def test_the_tray_wait_comes_from_the_environment_with_a_5_second_default(
+    sandbox: Env, value: str | None, expected: str
+) -> None:
+    extra = {} if value is None else {"MEETING_SCRIBE_TRAY_WAIT_SECONDS": value}
+    result = sandbox.snippet('printf %s "$TRAY_WAIT_SECONDS"', **extra)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == expected
+
+
+def test_the_tray_wait_is_bounded_by_elapsed_time_even_on_a_slow_bus(sandbox: Env) -> None:
+    # Each question about the tray name takes 1 s: the wait still ends after about
+    # TRAY_WAIT_SECONDS of elapsed time, not after a fixed number of questions (5 x 1.2 s).
+    slow = "bus_name_owner() { sleep 1; echo yes; }; TRAY_WAIT_SECONDS=1; tray_wait_owner no"
+    started = time.monotonic()
+    result = sandbox.snippet(slow)
+    elapsed = time.monotonic() - started
+    assert result.returncode == 1
+    assert elapsed < 4
+    # A fast bus that never gives the awaited answer: the wait lasts at least TRAY_WAIT_SECONDS.
+    fast = "bus_name_owner() { echo yes; }; TRAY_WAIT_SECONDS=1; tray_wait_owner no"
+    started = time.monotonic()
+    result = sandbox.snippet(fast)
+    elapsed = time.monotonic() - started
+    assert result.returncode == 1
+    assert 1 <= elapsed < 3
+
+
+# Every way the stop of the running tray can fail (docs/specs/install.md, decision log 2026-10-17):
+# the environment of the install that started the old tray, the environment of the failing run,
+# the reason (with {pid} for the old tray's PID) and the SIGTERMs the old tray must have received.
+NOT_OWNED = f"the session bus did not say whether {TRAY_BUS_NAME} is running"
+NO_PID = f"the PID of the running {TRAY_BUS_NAME} could not be read"
+STOP_FAILURES = [
+    pytest.param({}, {"FAKE_TRAY_OWNER": "fail"}, NOT_OWNED, [], id="bus-does-not-answer"),
+    pytest.param({}, {"FAKE_TRAY_PID_ANSWER": "fail"}, NO_PID, [], id="pid-query-fails"),
+    pytest.param({}, {"FAKE_TRAY_PID_ANSWER": "what"}, NO_PID, [], id="pid-unreadable"),
+    # PID 1 is refused like an unreadable answer. Never PID 0 here: if the guard broke, `kill 0`
+    # would signal the test run's own process group.
+    pytest.param(
+        {},
+        {"FAKE_TRAY_PID_ANSWER": "(uint32 1,)"},
+        NO_PID,
+        [],
+        id="pid-is-init",
+        marks=pytest.mark.skipif(os.geteuid() == 0, reason="never risk signalling init as root"),
+    ),
+    pytest.param(
+        {"FAKE_TRAY_IGNORE_TERM": "1"},
+        {"MEETING_SCRIBE_TRAY_WAIT_SECONDS": "1"},
+        f"the running {TRAY_BUS_NAME} (pid {{pid}}) did not stop within 1 s",
+        ["TERM"],
+        id="survives-sigterm",
+    ),
+]
+
+
+@pytest.mark.parametrize(("before", "failing", "reason", "signals"), STOP_FAILURES)
+def test_a_tray_that_cannot_be_stopped_fails_the_install_and_is_left_running(
+    sandbox: Env, before: dict[str, str], failing: dict[str, str], reason: str, signals: list[str]
+) -> None:
+    first = sandbox.run(INSTALL, **before, **TRAY, **ACTIVE)
+    assert first.returncode == 0, first.stdout + first.stderr
+    old_pid = sandbox.tray_pid()
+    sandbox.log.write_text("")
+    result = sandbox.run(INSTALL, **failing, **TRAY, **ACTIVE)
+    assert result.returncode == 1
+    summary = _summary(result).splitlines()
+    assert f"  tray: FAILED ({reason.format(pid=old_pid)})" in summary
+    assert any(line.startswith("  service:") for line in summary)  # the summary is complete
+    # no second tray while the old one may still run, and the old one got SIGTERM at most: it
+    # still runs, so no SIGKILL was sent
+    assert _tray_starts(sandbox) == []
+    assert sandbox.is_sandbox_tray(old_pid)
+    assert sandbox.tray_signals() == signals
+
+
+@pytest.mark.parametrize(("before", "failing", "reason", "signals"), STOP_FAILURES)
+def test_a_tray_that_cannot_be_stopped_is_a_warning_of_the_uninstall(
+    sandbox: Env, before: dict[str, str], failing: dict[str, str], reason: str, signals: list[str]
+) -> None:
+    first = sandbox.run(INSTALL, **before, **TRAY, **ACTIVE)
+    assert first.returncode == 0, first.stdout + first.stderr
+    old_pid = sandbox.tray_pid()
+    result = sandbox.run(UNINSTALL, **failing, **TRAY, **ACTIVE)
+    assert result.returncode == 0, result.stdout + result.stderr
+    warning = f"warning: {reason.format(pid=old_pid)}; it stops at the next log out."
+    assert warning in result.stderr.splitlines()
+    assert sandbox.is_sandbox_tray(old_pid)  # never SIGKILL
+    assert sandbox.tray_signals() == signals
+    # everything else is removed anyway; the autostart entry no longer starts it at a login
+    assert not sandbox.autostart_entry.exists()
+    assert not list(sandbox.tray_icons.glob("*.svg"))
+    assert not sandbox.root.exists()
+    assert "meeting-scribe uninstalled." in result.stdout
