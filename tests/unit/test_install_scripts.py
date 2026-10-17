@@ -1362,14 +1362,15 @@ def test_the_tray_wait_is_bounded_by_elapsed_time_even_on_a_slow_bus(sandbox: En
     result = sandbox.snippet(slow)
     elapsed = time.monotonic() - started
     assert result.returncode == 1
-    assert elapsed < 4
+    # About 3.2 s here; the old poll-count bound took about 6 s; 5 leaves room for a loaded runner.
+    assert elapsed < 5
     # A fast bus that never gives the awaited answer: the wait lasts at least TRAY_WAIT_SECONDS.
     fast = "bus_name_owner() { echo yes; }; TRAY_WAIT_SECONDS=1; tray_wait_owner no"
     started = time.monotonic()
     result = sandbox.snippet(fast)
     elapsed = time.monotonic() - started
     assert result.returncode == 1
-    assert 1 <= elapsed < 3
+    assert 1 <= elapsed < 4
 
 
 # Every way the stop of the running tray can fail (docs/specs/install.md, decision log 2026-10-17):

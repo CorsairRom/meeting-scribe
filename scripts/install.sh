@@ -303,8 +303,8 @@ if [[ "$PF_DESKTOP" == tray ]]; then
     rm -f "$TRAY_AUTOSTART_PATH"
     tray_failed="the version in charge has no tray launcher"
   else
-    # The template is copied as is, so it holds no comment: its Exec placeholder @EXEC@ becomes
-    # the stable path of the tray launcher (<data home>/meeting-scribe/current/bin/
+    # The whole template becomes the installed entry, so it holds no comment lines; only its Exec
+    # placeholder @EXEC@ is replaced, by the stable path of the tray launcher (<data home>/meeting-scribe/current/bin/
     # meeting-scribe-tray), which starts the tray at every login. There is no NotShowIn, because
     # on GNOME Shell the tray exits by itself (docs/specs/desktop-tray.md section 7).
     autostart_template="$(<"$REPO_ROOT/packaging/autostart/$TRAY_AUTOSTART_NAME.in")"
