@@ -705,7 +705,8 @@ Owner decisions of 2026-10-12 are binding (backlog F6 epic); the F5 leftovers ar
 
 Inserted before F7 by the owner on 2026-10-16: a tester runs Fedora KDE. Delivery: integration branch
 `feat/desktop-tray` from `main`, tracker PR to `main` that the owner merges; work-unit PRs target the integration
-branch. TDD: strict, runners `uv run pytest` / `make check` and `make test-extension` (`gjs -m`, private `dbus-daemon`).
+branch. TDD: strict, runners `uv run pytest` / `make check`, `make test-extension` and `make test-tray` (`gjs -m`,
+private `dbus-daemon`).
 Research of 2026-10-16 (source-verified, Engram topic `architecture/desktop-portability`): the Plasma 6 tray never reads
 `XAyatanaLabel` and its cells are fixed squares, so no text can sit next to a tray icon on KDE; only a Plasma panel
 widget could, and the owner chose the minimal tray instead.
@@ -880,4 +881,4 @@ F1 merged to `main` (#15, merge commit 7301d96). F2 started on `feat/gnome-exten
 
 F6 merged to `main` (#130, 2026-10-12): v1 complete, tag `v1.0.0`; the repository is public with `main` protected. Next: F7 Polish.
 
-F6.5 Desktop tray inserted before F7 (2026-10-16) on integration branch `feat/desktop-tray`. F6.5.1 done (#148); the tray test runner (#149) and the tray model with its icons (#150, part of F6.5.3) merged. 2026-10-17: F6.5.2 to F6.5.5 done (#152-#158); review follow-ups in progress. Next: F6.5.6, the docs gate, then the owner check on Fedora KDE.
+F6.5 Desktop tray inserted before F7 (2026-10-16) on integration branch `feat/desktop-tray`. F6.5.1 done (#148); the tray test runner (#149) and the tray model with its icons (#150, part of F6.5.3) merged. 2026-10-17: F6.5.2 to F6.5.5 done (#152-#158); review follow-ups merged (#159; #160, d682c12). F6.5.6: the docs gate is in progress (branch `f6.5/docs-gate`). Next: the owner check on Fedora KDE.

@@ -99,7 +99,7 @@ when only those remain, 10 when a command can fix something). The first column i
 | `tool.systemctl` | `systemctl`, runs the service as a `systemd --user` unit | blocks | `sudo dnf install systemd` |
 | `tool.gdbus` | `gdbus`, reads the recording state before an update | blocks | `sudo dnf install glib2` |
 | `tool.gnome-extensions` | On GNOME Shell only (skipped elsewhere): `gnome-extensions`, packs, installs and enables the extension | blocks | `sudo dnf install gnome-shell` |
-| `tool.gjs` | `gjs`, runs the tray outside GNOME Shell (GNOME Shell ships it) | blocks | `sudo dnf install gjs` |
+| `tool.gjs` | `gjs`, runs the tray outside GNOME Shell (needs GLib 2.80 or later; GNOME Shell ships it) | blocks | `sudo dnf install gjs` |
 | `gtk.pygobject` | PyGObject (`gi`) on the system Python, for the review app | blocks | `sudo dnf install python3-gobject` |
 | `gtk.gtk4` | GTK 4 typelib | blocks | `sudo dnf install gtk4` |
 | `gtk.libadwaita` | libadwaita typelib | blocks | `sudo dnf install libadwaita` |
@@ -121,14 +121,14 @@ git clone https://github.com/CorsairRom/meeting-scribe.git && cd meeting-scribe
 ```
 
 1. Read what `--check` prints. Each blocker says what is missing, why it is needed and the exact command to fix it. An item
-   tagged `FIX` is fixed by a command (exit 10); an item tagged `HUMAN` has no command, only you can do it: the GNOME
+   tagged `FIX` is fixed by a command (exit 10); an item tagged `HUMAN` has no command, only you can do it: your desktop
    session, the NVIDIA driver and reboot, the GPU itself (exit 11 when only those remain). An AI agent may run
    `--check`, but it runs a `sudo` fix only with your consent and hands every `HUMAN` item back to you.
 2. Run the fixes, then `./install.sh --check` again until it says `Summary: nothing blocks the install.`
 3. `./install.sh` installs the service, the review app and the GNOME extension, or the tray outside GNOME Shell (it
    repeats the check and never asks anything). Log out and back in once if it says the extension needs it.
 4. Open **Preferences** from the Meeting Scribe menu in the top bar (or the tray), then **Speech models**: accept the
-   pyannote terms, paste your Hugging Face token (it goes to the GNOME Keyring) and press **Download models**. Recording works before
+   pyannote terms, paste your Hugging Face token (it goes to the keyring through the Secret Service) and press **Download models**. Recording works before
    this; processing needs the models.
 
 > [!TIP]
@@ -155,11 +155,12 @@ refused, 2 usage error, 10 blocked by a fixable prerequisite, 11 blocked only by
 
 You never start the service by hand. `make install` does the following, and is safe to re-run to upgrade. It runs the preflight first
 (exit 10 or 11 and no change when a prerequisite is missing), then checks the recording: while a recording is in progress, or its state cannot be read, it changes nothing and exits with an
-error (stop the recording from the top-bar menu, then run it again). If only the state is unreadable, `FORCE=1 make install`
+error (stop the recording from the Meeting Scribe menu, then run it again). If only the state is unreadable, `FORCE=1 make install`
 overrides that (never a positive recording). The state is re-checked right before the service restarts; if a recording started
 meanwhile the restart is skipped with a warning and the new version applies on the next restart or login. If the service
-fails to start (for example a `make run` instance owns the bus name), it still installs the extension, reports the service
-as NOT active and exits non-zero. A failing extension step is reported in the summary the same way (exit non-zero).
+fails to start (for example a `make run` instance owns the bus name), it still installs the extension (or the tray),
+reports the service as NOT active and exits non-zero. A failing extension or tray step is reported in the summary the
+same way (exit non-zero).
 
 1. Installs the service as a `uv` tool (Python 3.12) from this checkout into its own directory,
    `${XDG_DATA_HOME:-~/.local/share}/meeting-scribe/versions/<timestamp>-<pid>/` (`tools/` and `bin/`), then repoints the

@@ -1,7 +1,7 @@
 ---
 type: runbook
 status: active
-last_updated: 2026-10-12
+last_updated: 2026-10-17
 phase: F3
 verifiable_by:
   - gnome-extension/meeting-scribe@meetingscribe.dev/lib/indicatorModel.js
@@ -92,8 +92,12 @@ make extension-pack
 
 This runs `gnome-extensions pack` and writes
 `dist/meeting-scribe@meetingscribe.dev.shell-extension.zip` (`dist/` is gitignored). The bundle holds
-`metadata.json`, `extension.js`, `stylesheet.css` and `lib/*.js`, and nothing else (checked by
+`metadata.json`, `extension.js`, `prefs.js`, `stylesheet.css` and `lib/*.js`, and nothing else (checked by
 `tests/unit/test_extension_pack.py`).
+
+The Shell-free `lib/` modules are shared with the desktop tray
+([ADR-012](../decisions/012-cross-desktop-tray-in-standalone-gjs.md)): after changing them, run `make test-tray` too,
+not only `make test-extension`.
 
 ## Try it in a nested shell (your session is not touched)
 

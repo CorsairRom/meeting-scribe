@@ -1,7 +1,7 @@
 ---
 type: spec
 feature: desktop-tray
-status: approved  # draft | approved | in-progress | done | blocked
+status: in-progress  # draft | approved | in-progress | done | blocked
 mvp: false     # v1.1 phase F6.5
 prd_ref: FR-1, FR-2, FR-5, FR-6, FR-7, safety requirement 1
 depends_on:
@@ -68,11 +68,13 @@ GNOME Shell.
 | Path | Role |
 |---|---|
 | `gnome-extension/meeting-scribe@meetingscribe.dev/lib/indicatorModel.js`, `indicatorController.js`, `recordingClient.js`, `meetingsClient.js`, `glibScheduler.js`, `preferencesLauncher.js` | Shared, unchanged: the view model, the controller, the D-Bus clients, the scheduler |
-| `desktop-tray/main.js` | Entry point (`gjs -m`): main loop, single instance, wiring, shutdown on SIGTERM/SIGINT |
+| `desktop-tray/main.js` | Entry point (`gjs -m`): its own `GLib.MainLoop`, creates the scheduler and the `Tray`, a clean exit 0 on SIGTERM/SIGINT |
+| `desktop-tray/lib/tray.js` | Composition (`Tray`): exits at once on GNOME Shell, single instance (`dev.meetingscribe.Tray`, `DO_NOT_QUEUE`), wires the menu, the item, the clients, the controller and the launchers; `destroy()` releases everything |
 | `desktop-tray/lib/statusNotifierItem.js` | Exports `org.kde.StatusNotifierItem` and registers with the watcher |
 | `desktop-tray/lib/dbusMenu.js` | Exports `com.canonical.dbusmenu` from a list of menu items |
 | `desktop-tray/lib/trayModel.js` | Pure: turns the extension's view model into the tray's icon, tooltip and menu (no `gi://` imports; it imports only the shared view-model constants) |
 | `desktop-tray/lib/trayView.js` | The `view` the controller renders into: applies `trayModel` to the item and the menu |
+| `desktop-tray/lib/notifier.js` | Sends the controller's messages through `org.freedesktop.Notifications` |
 | `desktop-tray/icons/` | Five colored SVG status icons (section 4) |
 | `desktop-tray/tests/` | Tests, reusing `gnome-extension/tests/harness.js` and `privateBus.js` |
 
@@ -170,7 +172,9 @@ lost.
 ### 7. Install, update, uninstall and preflight
 
 **Desktop detection**: the GNOME path applies when `org.gnome.Shell` owns a name on the session bus; otherwise the
-tray path applies. The same rule is used by the preflight, the install and the tray process.
+tray path applies. The preflight, the install, the uninstall and the tray process use this rule. They differ only when
+the session bus cannot be asked: the preflight (and the install and the uninstall, which follow it) then assumes the
+GNOME path, as before the tray existed, while the tray process exits.
 
 **Preflight** (`scripts/preflight.sh`, check ids pinned in `tests/unit/test_preflight.py` and `specs/install.md`
 section 4):
@@ -178,7 +182,7 @@ section 4):
 | Check id | GNOME path | Tray path |
 |---|---|---|
 | `session.desktop` (new) | OK "GNOME Shell: the extension will be installed" | OK "<XDG_CURRENT_DESKTOP>: the tray will be installed" |
-| `session.wayland` | unchanged (HUMAN when not Wayland) | OK on Wayland; WARN on X11 ("not tested") |
+| `session.wayland` | unchanged (HUMAN when not Wayland) | OK on Wayland; WARN on X11 ("not tested"); HUMAN for any other value |
 | `session.gnome-shell` | unchanged | SKIP "not a GNOME Shell session" |
 | `tool.gnome-extensions` | unchanged | SKIP "not a GNOME Shell session" |
 | `tool.gjs` (new) | OK (GNOME Shell ships gjs) | FIX when missing: `sudo dnf install gjs` |
@@ -386,11 +390,11 @@ THEN the extension is packed, installed and enabled as before, and no tray file,
 
 ## Definition of Done
 
-- [ ] All acceptance criteria pass in `make check` (including `make test-tray`)
-- [ ] Unit tests written first (RED), then implementation (GREEN)
-- [ ] Lint, format, type check and import contracts clean
-- [ ] Traceability updated in `project/mvp-scope.md`
-- [ ] CR-014 and GO-069 added to `project/rules-registry.md`
+- [x] All acceptance criteria pass in `make check` (including `make test-tray`)
+- [x] Unit tests written first (RED), then implementation (GREEN)
+- [x] Lint, format, type check and import contracts clean
+- [x] Traceability updated in `project/mvp-scope.md`
+- [x] CR-014 and GO-069 added to `project/rules-registry.md`
 - [ ] Owner check on Fedora KDE: install, record with the red icon, stop, process, open the review app, the last summary and Preferences from the tray
 
 ---

@@ -110,9 +110,9 @@ on its own, `AudioCapture.exit_detail()` gives the exit code plus the `ffmpeg.lo
 as the session `failure_reason` (generic text only when empty). Opening `ffmpeg.log` and spawning ffmpeg fail with
 distinct messages. Wired in `main.py`.
 
-The GNOME extension lives in `gnome-extension/` (F2, done), the desktop tray in `desktop-tray/` (F6.5) and the GTK review app in a separate top-level directory `review-app/` (F4), all outside the Python package. Packaging files (systemd `--user` unit template and D-Bus activation file, installed by `make install`) live in `packaging/`.
+The GNOME extension lives in `gnome-extension/` (F2, done), the desktop tray in `desktop-tray/` (F6.5) and the GTK review app in a separate top-level directory `review-app/` (F4), all outside the Python package. Packaging files live in `packaging/` and are installed by `make install`: the systemd `--user` unit template (`packaging/systemd/`), the D-Bus activation file (`packaging/dbus/`), the review app's desktop entry template (`packaging/applications/`) and the tray's autostart entry template (`packaging/autostart/`, tray path only).
 
-Extension layout (`gnome-extension/`): the extension itself is `meeting-scribe@meetingscribe.dev/`. Presentation logic (view model, elapsed formatting, D-Bus error to message mapping) lives in pure ES modules under `lib/` with no `gi://` or `resource:///org/gnome/shell/` imports, translated through an injected `_` function, and is unit-tested with `gjs -m` (`make test-extension`, tests in `gnome-extension/tests/`). Code that touches the Shell (`extension.js`, `lib/panelIndicator.js`, `lib/glibScheduler.js`) stays thin and only wires those modules.
+Extension layout (`gnome-extension/`): the extension itself is `meeting-scribe@meetingscribe.dev/`. Presentation logic (view model, elapsed formatting, D-Bus error to message mapping) lives in pure ES modules under `lib/` with no `gi://` or `resource:///org/gnome/shell/` imports, translated through an injected `_` function, and is unit-tested with `gjs -m` (`make test-extension`, tests in `gnome-extension/tests/`). Code that touches the Shell (`extension.js`, `lib/panelIndicator.js`) stays thin and only wires those modules. `lib/glibScheduler.js` imports only `gi://GLib` (no Shell module), so the tray reuses it unchanged.
 
 Extension layering is model, then controller, then Shell glue. `lib/indicatorModel.js` turns a client snapshot into a view model. `lib/indicatorController.js` (pure, with injected `client`, `view`, `scheduler`, `notify` and `_`) renders on every client change, runs a 1 s tick only while the state is `RECORDING` (cancelled on stop, failure, service loss and `destroy()`), performs the model's `clickAction`, and reports failed calls through `notify` with `errorMessage()`. `lib/panelIndicator.js` is the `PanelMenu.Button` that renders the model; it replaces the button's menu with a subclass whose `toggle()` asks the controller first, and every state opens the menu: starting and stopping are always explicit menu actions, so a stray click never records (CR-013). `extension.js` creates the scheduler, indicator, client and controller in `enable()`, adds the button with `Main.panel.addToStatusArea()` and destroys everything in reverse order in `disable()` (GO-030). Shell-only files are never executed by tests: `make test-extension` parses them with `node --check` and validates `metadata.json` (GO-031).
 
@@ -223,7 +223,7 @@ Names are frozen as of F6 (owner decision 2026-10-12); a later rename needs an A
 | `dev.meetingscribe.Speakers1` | rename, merge, sample path |
 | `dev.meetingscribe.Summaries1` (implemented, F5.5) | `Providers`, `Summarize`, `CancelSummary`, `GetSummaryStatus`, `GetSummary`, `LastSummary`; property `ActiveSummaryMeetingId`; signals `SummaryProgress`, `SummaryFinished` ([spec](docs/specs/summaries.md) section 10) |
 | `dev.meetingscribe.Settings1` (implemented, F5.10) | `GetAll`, `Set` (all or nothing, per-field error rows), `Restart` (systemd, only when idle), `ListModels` (installed Ollama models, or the cloud provider's models behind the keyring key; unsupported cloud models are listed but flagged); property `RestartRequired`; signal `SettingsChanged` ([spec](docs/specs/preferences.md) section 4). The API key never crosses it |
-| `dev.meetingscribe.Models1` (implemented, F6.5) | `GetStatus`, `Download`, `CancelDownload`; property `ActiveDownload`; signals `ModelsProgress`, `ModelsFinished`. The service reads the Hugging Face token from the keyring and writes it to the download child's stdin; the token crosses no D-Bus message ([spec](docs/specs/install.md) section 7) |
+| `dev.meetingscribe.Models1` (implemented, F6) | `GetStatus`, `Download`, `CancelDownload`; property `ActiveDownload`; signals `ModelsProgress`, `ModelsFinished`. The service reads the Hugging Face token from the keyring and writes it to the download child's stdin; the token crosses no D-Bus message ([spec](docs/specs/install.md) section 7) |
 | Errors | `dev.meetingscribe.Error.<ERROR_CODE>` (see [error codes](docs/architecture/error-codes-catalog.md)) |
 | Activation | `systemd --user` unit plus D-Bus session activation file, installed by `make install` |
 
@@ -241,7 +241,7 @@ its current poll before stopping, so controller calls never overlap.
 
 ## 7. Configuration
 
-Installer-only timeout knobs (`MEETING_SCRIBE_NVIDIA_SMI_TIMEOUT`, `MEETING_SCRIBE_OLLAMA_TIMEOUT`, `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT`, `REVIEW_APP_PYTHON`) are not settings: see [`docs/runbooks/install.md`](docs/runbooks/install.md).
+Installer-only timeout knobs (`MEETING_SCRIBE_NVIDIA_SMI_TIMEOUT`, `MEETING_SCRIBE_OLLAMA_TIMEOUT`, `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT`, `MEETING_SCRIBE_TRAY_WAIT_SECONDS` (how long the install and the uninstall wait for the tray to stop or to take `dev.meetingscribe.Tray`; a positive whole number of seconds, default 5, set in `scripts/_common.sh`), `REVIEW_APP_PYTHON`) are not settings: see [`docs/runbooks/install.md`](docs/runbooks/install.md).
 
 `Settings` (root) composes per-domain classes via `Field(default_factory=...)`. All inherit the shared
 `MeetingScribeSettings` base (`extra="ignore"`, `case_sensitive=False`, utf-8) and only set their own
@@ -332,5 +332,6 @@ caller" instead of re-resolving. Under `systemd --user` the CWD is not the proje
 | [009](docs/decisions/009-cloud-summaries-through-opencode-go.md) | Cloud summaries go through OpenCode Go |
 | [010](docs/decisions/010-install-never-uses-sudo.md) | The install checks first, never uses sudo and never prompts |
 | [011](docs/decisions/011-hugging-face-token-in-keyring-and-models-from-preferences.md) | The Hugging Face token lives in the keyring; models are downloaded from Preferences |
+| [012](docs/decisions/012-cross-desktop-tray-in-standalone-gjs.md) | A cross-desktop tray in standalone GJS reuses the extension's modules |
 
 Related: [error codes](docs/architecture/error-codes-catalog.md) · [rules registry](docs/project/rules-registry.md) · [scope](docs/project/mvp-scope.md).

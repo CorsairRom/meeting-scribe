@@ -436,11 +436,11 @@ ai_instructions:
 |---|---|---|---|
 | BR | 4 | 0 | 0 |
 | CR | 14 | 0 | 0 |
-| GO | 68 | 1 | 0 |
+| GO | 69 | 1 | 0 |
 | AP | 4 | 0 | 0 |
 
-**Last rule added**: GO-069 — 2026-10-17
-**Next available IDs**: BR-006, CR-015, GO-070, AP-005
+**Last rule added**: GO-070 — 2026-10-17
+**Next available IDs**: BR-006, CR-015, GO-071, AP-005
 
 ---
 
@@ -611,3 +611,10 @@ with `Supersedes: <ID>`. Never delete rules.
 - **Detail**: Facts the desktop tray depends on, read in the upstream sources and found while building it. (1) **No text next to the icon**: the Plasma 6 system tray never reads a StatusNotifierItem's `XAyatanaLabel` (`plasma-workspace` `applets/systemtray/statusnotifieritemsource.cpp`) and draws every item in a fixed square cell (`applets/systemtray/qml/main.qml`); a wide pixmap is scaled down until text is unreadable. So the recording state is the red icon and the elapsed time lives in the tooltip and the first menu row (ADR-012). (2) **Symbolic icons are recolored**: Plasma paints `-symbolic` icons in the theme color, so the five status icons are full-color SVGs whose names do not end in `-symbolic`; otherwise the red recording icon would turn gray. (3) **dbusmenu ids are never reused**: the libdbusmenu-qt importer keeps the type of an item id it already knows (a separator stays a separator), so an id reused for another kind of item after a layout change is drawn wrong. `DBusMenu` keeps ids while only labels change (the elapsed time is one `ItemsPropertiesUpdated`, the open menu stays put) and gives every item of a new layout revision a fresh id from a counter that only grows. (4) **Own the name before registering**: the watcher drops a registration whose bus name has no owner, so the item exports `/StatusNotifierItem`, then owns `org.kde.StatusNotifierItem-<pid>-1`, and only then calls `RegisterStatusNotifierItem`, sent to the watcher's unique name (a reply never comes from a later watcher). (5) **Retry while the same watcher runs**: a watcher can be busy or time out at login, so a failed registration is retried every 2 s while the same watcher owns the name, logged once per watcher; a new watcher owner (a `plasmashell` restart) cancels the retry and registers afresh. `Status` stays `Active`: `NeedsAttention` makes Plasma pulse the icon endlessly.
 - **Source**: [ADR-012](../decisions/012-cross-desktop-tray-in-standalone-gjs.md) (Context, research of 2026-10-16); [desktop tray spec](../specs/desktop-tray.md) sections 3 to 5 and "Decisions taken during implementation"; F6.5.2, F6.5.3, native review finding fixed in #155
 - **Verifiable in**: `desktop-tray/tests/trayModel.test.js` (icon names never symbolic), `desktop-tray/tests/dbusMenu.test.js` (a change of kinds never reuses an id; a label change keeps ids and revision), `desktop-tray/tests/statusNotifierItem.test.js` (registers once the name is owned, never a name it does not own; a failed registration is retried with the same watcher; a restarted watcher gets a new registration); the Plasma rendering itself needs the owner check on Fedora KDE (F6.5.6)
+
+### GO-070 — The tray uses `GioUnix` and `GLibUnix`, so it needs GLib 2.80 or later
+- **Date**: 2026-10-17
+- **Status**: active
+- **Detail**: gjs 1.88 deprecates the `Gio` and `GLib` aliases of the Unix-only APIs and prints a warning when they are used, among them `Gio.DesktopAppInfo` and `GLib.unix_signal_add`. The tray uses the `GioUnix` and `GLibUnix` namespaces instead: `GioUnix.DesktopAppInfo.new(...)` for the review app and Preferences launchers (`desktop-tray/lib/tray.js`) and `GLibUnix.signal_add(...)` for SIGTERM and SIGINT (`desktop-tray/main.js`). Those namespaces exist since GLib 2.80, so the tray needs GLib 2.80 or later; on an older GLib, gjs fails at import with a missing `GioUnix` or `GLibUnix` typelib, before any `meeting-scribe-tray:` line. The shared modules stay free of both: `preferencesLauncher.js` takes the lookup as an injected function. The extension keeps `Gio.DesktopAppInfo` (`extension.js`, `prefs.js`, pinned by `gnome-extension/tests/shellGlue.test.js`), because it runs inside GNOME Shell's own gjs.
+- **Source**: [desktop tray spec](../specs/desktop-tray.md) "Decisions taken during implementation" (2026-10-17); F6.5.3, #156
+- **Verifiable in**: `desktop-tray/lib/tray.js`, `desktop-tray/main.js`; `make test-tray` runs `main.js` under `gjs` (`desktop-tray/tests/main.test.js`) and imports `tray.js` (`desktop-tray/tests/tray.test.js`), so a missing namespace fails it; no test asserts that the deprecation warning is absent

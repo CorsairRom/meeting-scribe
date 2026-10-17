@@ -1,7 +1,7 @@
 ---
 type: prd
 status: approved
-last_updated: 2026-10-12
+last_updated: 2026-10-17
 ai_instructions:
   - "This PRD describes the full product vision. What is built NOW is defined by docs/project/mvp-scope.md; if they conflict, mvp-scope.md wins."
   - "Safety requirements (section 6) are non-negotiable and override any convenience."
@@ -10,7 +10,7 @@ ai_instructions:
 
 # PRD: meeting-scribe
 
-> **A local, GPU-accelerated meeting assistant for GNOME: record, transcribe, tell speakers apart, summarize. Nothing leaves the PC unless you say so.**
+> **A local, GPU-accelerated meeting assistant for GNOME and other Linux desktops: record, transcribe, tell speakers apart, summarize. Nothing leaves the PC unless you say so.**
 
 **Version**: 0.1.0-draft
 **Author**: Richard
@@ -37,8 +37,8 @@ split into speakers in about 3 minutes on the local GPU. It has no service, UI, 
 
 ## 2. Goal
 
-Turn the prototype into a daily-use tool: a GNOME panel menu to start and stop a recording,
-automatic transcription and diarization afterwards, a native GTK4 review app, opened from the GNOME extension menu, to name and merge speakers, and an
+Turn the prototype into a daily-use tool: a GNOME panel menu (a tray icon on other desktops) to start and stop a recording,
+automatic transcription and diarization afterwards, a native GTK4 review app, opened from that menu, to name and merge speakers, and an
 optional LLM summary with a fixed reference structure. Everything runs locally; the only thing that may
 leave the machine is the transcript sent to an explicitly configured LLM provider.
 
@@ -72,12 +72,12 @@ GPU (8 GB). No accounts, no multi-user, no remote access.
 | ID | Requirement | Phase |
 |---|---|---|
 | FR-1 | Start, stop and query status of a recording through the D-Bus session-bus API | F1 |
-| FR-2 | GNOME panel button with start/stop, timer and status | F2 |
+| FR-2 | Panel button with start/stop, timer and status: the GNOME Shell extension (F2); on other desktops a tray icon with the same menu (F6.5, ADR-012) | F2, F6.5 |
 | FR-3 | On stop, enqueue a job that transcribes (word timestamps) and diarizes, one GPU job at a time | F3 |
 | FR-4 | Extract a voice sample per speaker; send a desktop notification on completion | F3 |
-| FR-5 | Review app (GTK4, opened from the extension menu): listen per speaker, rename, merge speakers, view transcript | F4 |
+| FR-5 | Review app (GTK4, opened from the extension or tray menu): listen per speaker, rename, merge speakers, view transcript | F4 |
 | FR-6 | Summary through a `SummaryProvider` (Ollama local default, OpenCode Go cloud opt-in), export `.md` | F5 |
-| FR-7 | Installable as a `systemd --user` service plus GNOME extension | F2.5, F6 |
+| FR-7 | Installable as a `systemd --user` service plus the GNOME extension, or the tray outside GNOME Shell | F2.5, F6, F6.5 |
 
 ### 5.2 Non-functional
 
@@ -106,7 +106,7 @@ These come from the project history: a test once played speech into the user's h
 - Chat with the meeting (IDEA-002)
 - Cloud sync or sharing
 - Multi-user, accounts, remote access
-- Non-GNOME desktops
+- Non-GNOME desktops (v1; v1.1 adds the tray for desktops with a StatusNotifierItem host, F6.5)
 
 ## 8. Success metrics
 

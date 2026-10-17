@@ -2,13 +2,14 @@
 type: runbook
 status: active
 last_updated: 2026-10-17
-phase: F6
+phase: F6, F6.5
 verifiable_by:
   - install.sh
   - uninstall.sh
   - scripts/install.sh
   - scripts/uninstall.sh
   - scripts/preflight.sh
+  - scripts/_common.sh
   - tests/unit/test_install_scripts.py
   - tests/unit/test_preflight.py
   - tests/unit/test_readme_prerequisites.py
@@ -30,9 +31,10 @@ prerequisite without changing anything, never runs `sudo` and never asks a quest
 
 ## Preconditions
 
-- Fedora with GNOME on Wayland, an NVIDIA GPU with at least 8 GB of VRAM and a working driver, and a clone of this
-  repository. The full list is the prerequisites table in the [README](../../README.md); the preflight tests every row.
-- A terminal opened inside the GNOME session (not over SSH).
+- Fedora on Wayland, with GNOME Shell (the extension) or another desktop with a tray host such as KDE Plasma (the
+  tray), an NVIDIA GPU with at least 8 GB of VRAM and a working driver, and a clone of this repository. The full list
+  is the prerequisites table in the [README](../../README.md); the preflight tests every row.
+- A terminal opened inside your desktop session (not over SSH).
 
 ## Steps
 
@@ -52,8 +54,9 @@ prerequisite without changing anything, never runs `sudo` and never asks a quest
    ```
 
    `make install` is an alias (`make install ARGS=--check` passes the option). The install repeats the preflight and
-   stops with zero changes when something blocks. Then it refuses while a recording is in progress (stop it from the
-   top-bar menu and run it again). `FORCE=1 ./install.sh` overrides only an unreadable recording state, never a recording.
+   stops with zero changes when something blocks. Then it refuses while a recording is in progress: stop it from the
+   Meeting Scribe menu (top bar, or the tray outside GNOME Shell) and run it again. `FORCE=1 ./install.sh` overrides
+   only an unreadable recording state, never a recording.
 3. Read the summary. `service: active`, `extension: enabled` (or "will appear after you log out and back in": on Wayland a
    new extension is discovered after one log out and log in), `review app: ready`, and the `models:` line. Outside GNOME
    Shell the line `tray: running` replaces the extension line: the installer copied the tray into the version
@@ -62,10 +65,10 @@ prerequisite without changing anything, never runs `sudo` and never asks a quest
    login.
 4. Add the speech models (human steps, from Preferences). The line `models: PENDING` is not a failure: recording works
    at once, processing waits for the models.
-   1. Open Preferences from the Meeting Scribe menu in the top bar.
+   1. Open Preferences from the Meeting Scribe menu (top bar, or the tray outside GNOME Shell).
    2. In **Speech models**, press **Accept the pyannote terms** and accept them in the browser, signed in to Hugging Face.
    3. Create a read token on Hugging Face (Settings, Access Tokens), paste it in **Hugging Face token** and apply it.
-      It is stored in the GNOME Keyring and never leaves it except to the download process.
+      It is stored in the keyring through the Secret Service and never leaves it except to the download process.
    4. Press **Download models** (about 1.65 GiB). The group shows step 1 of 2 and step 2 of 2 and has **Cancel**.
 
    If you already ran `hf auth login`, you can skip the token: with no keyring token the download uses that login.
@@ -119,7 +122,7 @@ applies (the extension); if not, the tray path applies. Where the tray path diff
 | `tool.systemctl` | FIX | `sudo dnf install systemd` |
 | `tool.gdbus` | FIX | `sudo dnf install glib2` |
 | `tool.gnome-extensions` | FIX; SKIP on the tray path | `sudo dnf install gnome-shell` |
-| `tool.gjs` | FIX | `sudo dnf install gjs` (the tray runs on it; GNOME Shell ships it) |
+| `tool.gjs` | FIX | `sudo dnf install gjs` (the tray runs on it and needs GLib 2.80 or later; GNOME Shell ships it) |
 | `gtk.pygobject` | FIX | `sudo dnf install python3-gobject` (the three `gtk.*` items below are skipped until it passes) |
 | `gtk.gtk4` | FIX | `sudo dnf install gtk4` |
 | `gtk.libadwaita` | FIX | `sudo dnf install libadwaita` |
@@ -187,7 +190,7 @@ Kept (not removed):
 |---|---|
 | Exit 10 | At least one `FIX` item: run the printed commands, then `./install.sh --check` |
 | Exit 11 | Only `HUMAN` items remain: do the printed steps yourself, then `./install.sh --check` |
-| "a recording is in progress" (exit 1) | Stop the recording from the top-bar menu, then run the installer again |
+| "a recording is in progress" (exit 1) | Stop the recording from the Meeting Scribe menu (top bar, or the tray outside GNOME Shell), then run the installer again |
 | "the recording state could not be read" (exit 1) | Stop any recording, then `systemctl --user stop meeting-scribe.service` and run again, or `FORCE=1 ./install.sh` |
 | `service: NOT active` | Another instance (for example `make run`) owns the bus name: stop it with Ctrl+C, then `systemctl --user restart meeting-scribe.service`. Otherwise read `journalctl --user -u meeting-scribe.service` |
 | "rolled back" in the summary | The new version failed to start; the previous one runs. The new directory is kept in `versions/` for inspection; read the journal, fix the cause, run `./install.sh` again |

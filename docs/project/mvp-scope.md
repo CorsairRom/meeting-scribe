@@ -23,7 +23,7 @@ and generate a summary — all running locally on the developer's machine.
 
 **v1 status**: complete on 2026-10-12 (F6 merged, #130; tag `v1.0.0`).
 
-**Non-goals**: live transcription, chat with the meeting, cloud sync/sharing, multi-user, non-GNOME desktops.
+**Non-goals**: live transcription, chat with the meeting, cloud sync/sharing, multi-user, non-GNOME desktops (v1; v1.1 adds the tray, F6.5).
 
 ---
 
@@ -87,7 +87,7 @@ and generate a summary — all running locally on the developer's machine.
 | FR-4 voice samples, notification | F3 | `src/meeting_scribe/speakers/` (samples); `src/meeting_scribe/meetings/` (notification, `Meetings1`) | `tests/unit/speakers/` |
 | FR-5 review: listen, rename, merge | F4 | `src/meeting_scribe/speakers/`, `src/meeting_scribe/meetings/`, `review-app/src/meeting_scribe_review/`, `gnome-extension/` | `tests/unit/speakers/`, `tests/unit/review_app/`, `tests/e2e/meetings/`, `gnome-extension/tests/` |
 | FR-6 summary via LLM provider | F5 | `src/meeting_scribe/summaries/`, `src/meeting_scribe/preferences/`, `src/meeting_scribe/meetings/` (`SummaryController`, `Summaries1`), `review-app/src/meeting_scribe_review/`, `gnome-extension/` | `tests/unit/summaries/`, `tests/unit/preferences/`, `tests/unit/meetings/`, `tests/unit/review_app/`, `tests/e2e/summaries/`, `tests/e2e/preferences/`, `tests/e2e/meetings/`, `gnome-extension/tests/` |
-| FR-7 install | F2.5, F6 | `install.sh`, `uninstall.sh`, `scripts/install.sh`, `scripts/uninstall.sh`, `scripts/preflight.sh`, `src/meeting_scribe/model_setup/`, `src/meeting_scribe/prefetch.py`, `review-app/src/meeting_scribe_review/` (Speech models), `docs/runbooks/install.md` | `tests/unit/test_install_scripts.py`, `tests/unit/test_preflight.py`, `tests/unit/test_readme_prerequisites.py`, `tests/unit/model_setup/`, `tests/e2e/model_setup/`, `tests/unit/review_app/test_models_presenter.py`, `tests/unit/test_prefetch.py` |
+| FR-7 install | F2.5, F6, F6.5 | `install.sh`, `uninstall.sh`, `scripts/install.sh`, `scripts/uninstall.sh`, `scripts/preflight.sh`, `scripts/_common.sh`, `packaging/autostart/`, `desktop-tray/`, `src/meeting_scribe/model_setup/`, `src/meeting_scribe/prefetch.py`, `review-app/src/meeting_scribe_review/` (Speech models), `docs/runbooks/install.md` | `tests/unit/test_install_scripts.py`, `tests/unit/test_preflight.py`, `tests/unit/test_readme_prerequisites.py`, `tests/unit/model_setup/`, `tests/e2e/model_setup/`, `tests/unit/review_app/test_models_presenter.py`, `tests/unit/test_prefetch.py` |
 
 > When you add a deliverable, fill its row. If a column is empty, that deliverable is not finished.
 
