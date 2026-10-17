@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 
 from tests.unit.install_sandbox import (
-    DESKTOP_QUERY,
     INSTALL,
     ROOT,
     ROOT_INSTALL,
@@ -21,6 +20,7 @@ from tests.unit.install_sandbox import (
     SCRIPTS,
     UNINSTALL,
     Env,
+    desktop_query_name,
     is_desktop_query,
     sandbox_fixture,  # noqa: F401  # the `sandbox` fixture
 )
@@ -1253,6 +1253,52 @@ def test_when_the_bus_cannot_be_asked_the_gnome_path_applies(sandbox: Env, cause
     assert checks["session.gnome-shell"]["status"] == "OK"
 
 
+@pytest.mark.parametrize("cause", ["no-answer", "no-gdbus"])
+def test_an_assumed_gnome_path_does_not_state_gnome_shell_as_a_fact(
+    sandbox: Env, cause: str
+) -> None:
+    if cause == "no-gdbus":
+        _remove(sandbox, "gdbus")
+    _, checks = _check(sandbox, FAKE_GNOME_SHELL_OWNER="fail")
+    assert checks["session.tray-host"]["summary"] == (
+        "skipped: the desktop could not be read, so the GNOME path was assumed"
+    )
+
+
+def test_a_known_gnome_path_skips_the_tray_host_because_of_gnome_shell(sandbox: Env) -> None:
+    _, checks = _check(sandbox)
+    assert checks["session.tray-host"]["summary"] == (
+        "skipped: on GNOME Shell the extension is the client"
+    )
+
+
+def _spec_why(ident: str) -> str:
+    """The "Why it is needed" cell of a check row in docs/specs/install.md section 4."""
+    spec = (ROOT / "docs" / "specs" / "install.md").read_text()
+    row = next(line for line in spec.splitlines() if line.startswith(f"| `{ident}` |"))
+    return row.split(" | ")[3]
+
+
+@pytest.mark.parametrize("env", [{}, TRAY], ids=["gnome", "tray"])
+def test_the_session_type_reason_is_the_spec_wording_on_both_paths(
+    sandbox: Env, env: dict[str, str]
+) -> None:
+    _, checks = _check(sandbox, **env)
+    assert checks["session.wayland"]["why"].lower() in _spec_why("session.wayland").lower()
+
+
+def test_a_different_gdbus_timeout_is_still_read_as_the_desktop_query(sandbox: Env) -> None:
+    result = sandbox.snippet("GDBUS_TIMEOUT=7; preflight_run", **TRAY)
+    assert result.returncode == 0, result.stderr
+    gdbus = [line for line in sandbox.calls() if line.startswith("gdbus")]
+    assert all("--timeout 7 " in line for line in gdbus), gdbus
+    assert [desktop_query_name(line) for line in gdbus] == [
+        "org.gnome.Shell",
+        "org.kde.StatusNotifierWatcher",
+    ]
+    assert _service_calls(sandbox.calls()) == []
+
+
 @pytest.mark.parametrize(("owner", "desktop"), [("1", "gnome"), ("0", "tray"), ("fail", "gnome")])
 def test_the_detected_desktop_is_exposed_to_the_install(
     sandbox: Env, owner: str, desktop: str
@@ -1272,7 +1318,8 @@ def test_the_desktop_is_read_from_the_bus_daemon_only(
 ) -> None:
     sandbox.run(INSTALL, "--check", **env)
     gdbus = [line for line in sandbox.calls() if line.startswith("gdbus")]
-    assert gdbus == [DESKTOP_QUERY.format(name=name) for name in asked]
+    assert [desktop_query_name(line) for line in gdbus] == asked
+    assert all("--timeout 5 " in line for line in gdbus)  # the default bound
 
 
 def test_the_session_bus_and_keyring_wording_names_no_desktop(sandbox: Env) -> None:

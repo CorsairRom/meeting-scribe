@@ -5,8 +5,12 @@ whitelist of coreutils, so the real tools can never run. Every fake appends its 
 which is also the proof the fakes were used.
 """
 
+import os
+import re
 import shutil
+import signal
 import subprocess
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,6 +52,7 @@ COREUTILS = [
     "readlink",
     "timeout",
     "sleep",
+    "setsid",
 ]
 
 FAKES = {
@@ -159,8 +164,16 @@ done
 exit 1
 """,
     "secret-tool": "",
-    # The tray runs on it; present by default, a test removes the file to make it "missing".
-    "gjs": "",
+    # The tray runs on it; present by default, a test removes the file to make it "missing". Run
+    # by the tray launcher, it stands in for the tray process: it records its PID (the owner of
+    # dev.meetingscribe.Tray for the fake gdbus) and stays alive FAKE_TRAY_LIFETIME seconds.
+    # FAKE_TRAY_START_FAIL=1 makes it exit at once without taking the name.
+    "gjs": """
+[ "${FAKE_TRAY_START_FAIL:-0}" = 1 ] && exit 1
+echo $$ > "$FAKE_LOG.tray-pid"
+echo $$ >> "$FAKE_LOG.tray-pids"
+exec sleep "${FAKE_TRAY_LIFETIME:-30}"
+""",
     "gnome-shell": 'echo "GNOME Shell ${FAKE_SHELL_VERSION:-50.4}"',
     # `rpm -q <package>`: the voice sample plugin is installed unless FAKE_GSTREAMER=0.
     "rpm": '[ "${FAKE_GSTREAMER:-1}" = 1 ]',
@@ -168,6 +181,8 @@ exit 1
     # The desktop names (docs/specs/desktop-tray.md section 7) answer apart from the service:
     # FAKE_GNOME_SHELL_OWNER and FAKE_TRAY_HOST_OWNER are 1 (default, owned), 0 (no owner) or
     # fail (the bus does not answer). The default is a GNOME Shell session.
+    # dev.meetingscribe.Tray is owned while the process the fake gjs recorded is alive (a zombie
+    # counts as gone), and GetConnectionUnixProcessID answers that PID.
     "gdbus": """
 mode="${FAKE_GDBUS_MODE:-noowner}"
 desktop_owner() {
@@ -177,9 +192,21 @@ desktop_owner() {
     *) echo "Error: timeout" >&2; exit 1 ;;
   esac
 }
+tray_pid=""
+tray_alive() {
+  local state
+  tray_pid="$(cat "$FAKE_LOG.tray-pid" 2>/dev/null)" || return 1
+  [ -n "$tray_pid" ] || return 1
+  state="$(sed -E 's/^.*\\) (.).*$/\\1/' "/proc/$tray_pid/stat" 2>/dev/null)" || return 1
+  [ -n "$state" ] && [ "$state" != Z ] && [ "$state" != X ]
+}
 case "$*" in
   *"NameHasOwner org.gnome.Shell") desktop_owner "${FAKE_GNOME_SHELL_OWNER:-1}" ;;
   *"NameHasOwner org.kde.StatusNotifierWatcher") desktop_owner "${FAKE_TRAY_HOST_OWNER:-1}" ;;
+  *"NameHasOwner dev.meetingscribe.Tray") tray_alive && echo "(true,)" || echo "(false,)" ;;
+  *"GetConnectionUnixProcessID dev.meetingscribe.Tray")
+    tray_alive || { echo "Error: the name has no owner" >&2; exit 1; }
+    echo "(uint32 $tray_pid,)" ;;
   *NameHasOwner*)
     case "$mode" in
       idle-then-none)
@@ -208,17 +235,26 @@ esac
 }
 
 # The read-only questions the preflight asks the bus daemon to detect the desktop (never the
-# service). Any other gdbus call during a preflight is a call to the service.
+# service). Any other gdbus call during a preflight is a call to the service. The timeout is any
+# number of seconds, so a different GDBUS_TIMEOUT does not change what counts as a desktop query.
 DESKTOP_NAMES = ("org.gnome.Shell", "org.kde.StatusNotifierWatcher")
-DESKTOP_QUERY = (
-    "gdbus call --session --timeout 5 --dest org.freedesktop.DBus "
-    "--object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner {name}"
+DESKTOP_QUERY = re.compile(
+    r"gdbus call --session --timeout [1-9][0-9]* --dest org\.freedesktop\.DBus "
+    r"--object-path /org/freedesktop/DBus --method org\.freedesktop\.DBus\.NameHasOwner (\S+)"
 )
+TRAY_BUS_NAME = "dev.meetingscribe.Tray"
+TRAY_ICONS = ROOT / "desktop-tray" / "icons"
+
+
+def desktop_query_name(line: str) -> str:
+    """The name a logged desktop detection call asks about, or "" for any other line."""
+    match = DESKTOP_QUERY.fullmatch(line)
+    return match.group(1) if match and match.group(1) in DESKTOP_NAMES else ""
 
 
 def is_desktop_query(line: str) -> bool:
     """True for exactly one of the logged desktop detection calls, and nothing else."""
-    return any(line == DESKTOP_QUERY.format(name=name) for name in DESKTOP_NAMES)
+    return bool(desktop_query_name(line))
 
 
 @dataclass
@@ -242,6 +278,29 @@ class Env:
     @property
     def desktop_entry(self) -> Path:
         return self.home / ".local" / "share" / "applications" / DESKTOP_ENTRY
+
+    @property
+    def autostart_entry(self) -> Path:
+        return self.home / ".config" / "autostart" / f"{TRAY_BUS_NAME}.desktop"
+
+    @property
+    def tray_icons(self) -> Path:
+        return self.home / ".local" / "share" / "icons" / "hicolor" / "scalable" / "status"
+
+    def tray_pid(self) -> int:
+        """The PID of the last process the fake gjs started, or 0 when none was started."""
+        path = Path(f"{self.log}.tray-pid")
+        return int(path.read_text()) if path.exists() else 0
+
+    def is_sandbox_tray(self, pid: int) -> bool:
+        """True while PID is alive (not a zombie) and was started by this sandbox's fake gjs."""
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text()
+            environ = Path(f"/proc/{pid}/environ").read_bytes()
+        except OSError:
+            return False
+        state = stat.rsplit(")", 1)[1].split()[0]
+        return state not in {"Z", "X"} and f"FAKE_LOG={self.log}".encode() in environ.split(b"\0")
 
     @property
     def exe(self) -> Path:
@@ -291,7 +350,7 @@ class Env:
 
 
 @pytest.fixture(name="sandbox")
-def sandbox_fixture(tmp_path: Path) -> Env:
+def sandbox_fixture(tmp_path: Path) -> Iterator[Env]:
     home = tmp_path / "home"
     home.mkdir()
     fakes = tmp_path / "fakes"
@@ -319,4 +378,11 @@ def sandbox_fixture(tmp_path: Path) -> Env:
         "XDG_SESSION_TYPE": "wayland",
         "DBUS_SESSION_BUS_ADDRESS": "unix:path=/nonexistent/bus",
     }
-    return Env(home=home, log=log, env=env)
+    sandbox = Env(home=home, log=log, env=env)
+    yield sandbox
+    # A fake tray started detached by an install outlives it: stop each one by its PID, and only
+    # while that PID is still this sandbox's fake (never a reused PID).
+    started = Path(f"{log}.tray-pids")
+    for pid in map(int, started.read_text().split() if started.exists() else []):
+        if sandbox.is_sandbox_tray(pid):
+            os.kill(pid, signal.SIGTERM)
