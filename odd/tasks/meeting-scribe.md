@@ -737,6 +737,7 @@ Tasks:
       `review-84e4682ceaa87bfe` with three advisories fixed; owner approval 2026-10-16)
 - [ ] F6.5.2 StatusNotifierItem and dbusmenu exporter in GJS, tested against a private `dbus-daemon` (S1, S4)
 - [ ] F6.5.3 Tray app: the reused model and controller, five colored status icons, launchers, notifications; no translations (S1, S2, S6)
+  - [x] Tray model and the five icons (#150, inline; RED then GREEN, 8 tray tests); native review `review-7fa07fa687ec9603` approved (readability, reliability) with stale-status advisories fixed in the next docs PR
 - [ ] F6.5.4 Install, update, uninstall and preflight that detect the desktop; autostart entry (S3)
 - [ ] F6.5.5 Tray runbook and docs (ARCHITECTURE, rules registry, README prerequisites) (S3, S4)
 - [ ] F6.5.6 Docs gate and owner check on Fedora KDE (S1-S3)
@@ -779,6 +780,8 @@ Scope: the backlog F7 epic (summary quality, Preferences and model-setup polish 
 | gitignore fix | inline | one mechanical file, root cause already understood |
 | F6.5 research | delegated (3 researchers, parallel) | KDE tray rendering, Plasma widgets, Fedora KDE defaults: beyond the inline evidence budget |
 | F6.5.0 | inline | mechanical phase-start doc edits; no writer reason |
+| F6.5.2 + F6.5.4 (preflight) | delegated (3 writers in isolated worktrees, launched together) | parallel units with disjoint edit surfaces: dbusMenu.js, statusNotifierItem.js, preflight |
+| F6.5.3 (model, icons) | inline | written while the parallel writers ran; no writer reason |
 | F6.5.1 | inline (1 Explore mapper first) | the seam map exceeded the inline evidence budget; the spec and ADR were written inline (no writer reason) |
 | F0.3 + F0.4 | delegated (1 writer, ran in parallel with the code review — disjoint files) | 30+ doc files |
 | review suggestions | inline | two mechanical one-line doc edits |
@@ -869,4 +872,4 @@ F1 merged to `main` (#15, merge commit 7301d96). F2 started on `feat/gnome-exten
 
 F6 merged to `main` (#130, 2026-10-12): v1 complete, tag `v1.0.0`; the repository is public with `main` protected. Next: F7 Polish.
 
-F6.5 Desktop tray inserted before F7 (2026-10-16) on integration branch `feat/desktop-tray`. Next: F6.5.1, the approved design.
+F6.5 Desktop tray inserted before F7 (2026-10-16) on integration branch `feat/desktop-tray`. F6.5.1 done (#148); the tray test runner (#149) and the tray model with its icons (#150, part of F6.5.3) merged. Next: F6.5.2 (dbusmenu and StatusNotifierItem) and the preflight half of F6.5.4, written in parallel.

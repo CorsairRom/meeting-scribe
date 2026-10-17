@@ -7,7 +7,7 @@ prd_ref: FR-1, FR-2, FR-5, FR-6, FR-7, safety requirement 1
 depends_on:
   - decisions/001-thin-gnome-extension-dbus-service.md (thin clients over the D-Bus session bus)
   - decisions/010-install-never-uses-sudo.md (the preflight prints fixes, never runs them)
-  - decisions/012-cross-desktop-tray-in-standalone-gjs.md (proposed with this spec)
+  - decisions/012-cross-desktop-tray-in-standalone-gjs.md (active; approved with this spec on 2026-10-16)
   - specs/install.md (preflight checks, install layout, update and uninstall)
   - architecture/api-contracts.md (Recording1, Meetings1 and Summaries1, consumed unchanged)
 verifiable_by:
