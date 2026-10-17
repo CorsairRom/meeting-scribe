@@ -91,6 +91,8 @@ async function subscribeSignals(host, sender) {
 async function withFixture(body, {
     watcher: watcherFirst = true,
     beforeStart = async () => {},
+    failRegistrations = 0,
+    itemOptions = {},
 } = {}) {
     const bus = await PrivateBus.start();
     const watchers = [];
@@ -99,6 +101,7 @@ async function withFixture(body, {
         const newWatcher = async () => {
             const watcher = new FakeStatusNotifierWatcher(await bus.connect());
             watchers.push(watcher);
+            watcher.failNext = failRegistrations;
             await watcher.start();
             return watcher;
         };
@@ -112,6 +115,7 @@ async function withFixture(body, {
             iconName: IDLE_ICON,
             tooltip: IDLE_TOOLTIP,
             logError: message => logged.push(message),
+            ...itemOptions,
         });
         await beforeStart(bus);
         item.start();
@@ -265,6 +269,17 @@ test('without a watcher the item logs one line, waits, and registers when one ap
         assertEqual(watcher.registrations[0].ownedAtRegistration, true, 'owned: ');
         assertEqual(logged.length, 1, 'log lines after registering: ');
     }, {watcher: false});
+});
+
+test('a failed registration is retried with the same watcher and logs one line', async () => {
+    await withFixture(async ({watcher, logged}) => {
+        await until(registered(watcher), 'registered after the watcher stopped failing');
+        assertEqual(watcher.failed, 2, 'failed attempts: ');
+        assertEqual(watcher.registrations.length, 1, 'successful registrations: ');
+        assertEqual(watcher.registrations[0].service, ITEM_BUS_NAME, 'service: ');
+        assertEqual(logged.length, 1, `log lines: ${JSON.stringify(logged)}: `);
+        assertEqual(logged[0].includes('could not register'), true, `log line: ${logged[0]}: `);
+    }, {failRegistrations: 2, itemOptions: {retryDelayMs: 50}});
 });
 
 test('an item that cannot own its bus name logs one line and never registers a name it does not own', async () => {
