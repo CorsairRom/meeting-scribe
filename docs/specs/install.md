@@ -29,7 +29,7 @@ verifiable_by:
   - tests/e2e/model_setup/test_keyring_token_source.py
   - tests/e2e/base/test_secret_service_reader.py
   - tests/unit/review_app/test_models_presenter.py
-last_updated: 2026-10-12
+last_updated: 2026-10-16
 ai_instructions:
   - "This spec is a contract. Do NOT implement anything that is not in it."
   - "If you need to change the spec, update this doc FIRST and ask for confirmation."
@@ -345,7 +345,7 @@ AND the keep-list is the same text in the runbook
 
 | Case | Expected behavior |
 |---|---|
-| The installer is run over SSH, from a TTY or from a tool without the session variables | `session.wayland` and `session.bus` are HUMAN items that say to run it from a terminal inside the GNOME session |
+| The installer is run over SSH, from a TTY or from a tool without the session variables | `session.wayland` and `session.bus` are HUMAN items that say to run it from a terminal inside your desktop session |
 | `nvidia-smi` hangs | Bounded by a timeout (10 s); the item is HUMAN with "nvidia-smi did not answer" |
 | Several GPUs | The first row decides; the detail line lists the others; VRAM is the largest total |
 | Free VRAM is lower than total (a game or browser holds some) | Not checked: the total is the requirement; the report prints the free amount as information |
@@ -444,26 +444,31 @@ The preflight lives in a new `scripts/preflight.sh`, sourced by `scripts/install
 | `WARN` | Optional or advisory (sample playback plugin, `secret-tool`) | no |
 | `FIX` | Missing, and commands fix it; the report prints them | yes |
 | `HUMAN` | Only the user can resolve it (hardware, driver and reboot, session type, shell version, accepting terms) | yes |
-| `SKIP` | Depends on a failed check (for example `ollama.reachable` when Ollama is not installed) | no |
+| `SKIP` | Depends on a failed check (for example `ollama.reachable` when Ollama is not installed), or does not apply to this desktop (for example `session.gnome-shell` outside GNOME Shell) | no |
 
-**Checks** (stable ids; the README table has one row per id that can block):
+**Desktop detection** ([desktop-tray.md](desktop-tray.md) section 7). The preflight first asks the bus daemon, read-only, whether `org.gnome.Shell` owns a name on the session bus (`gdbus call --session --timeout 5 --dest org.freedesktop.DBus ... NameHasOwner org.gnome.Shell`). If it does, the GNOME path applies; if it does not, the tray path applies. If the bus cannot be asked (no `gdbus`, no answer), the GNOME path applies, as before the tray existed, and `session.bus` or `tool.gdbus` says what is missing. On the tray path a second question asks whether `org.kde.StatusNotifierWatcher` has an owner. These questions go to the bus daemon only: `--check` still never calls the service. `preflight_run` leaves the result in `PF_DESKTOP` (`gnome` or `tray`) for the install.
+
+**Checks** (stable ids; the README table has one row per id that can block). Where the tray path differs, the row says so:
 
 | Id | Check (non-sudo) | Status when it fails | Why it is needed | Fix (printed, never run) |
 |---|---|---|---|---|
-| `session.wayland` | `$XDG_SESSION_TYPE` is `wayland` | HUMAN | The extension and the review app target GNOME on Wayland | Log out, choose "GNOME" (not "GNOME on Xorg"), run the installer from a terminal in that session |
-| `session.gnome-shell` | `gnome-shell --version` major is in the `shell-version` list of `gnome-extension/.../metadata.json` (today 50) | HUMAN | GNOME Shell refuses to load an extension for another version | Use GNOME Shell 50 (Fedora 44) |
-| `session.bus` | `$DBUS_SESSION_BUS_ADDRESS` set or `$XDG_RUNTIME_DIR/bus` exists | HUMAN | The service, the extension and the apps talk over the session bus; `systemctl --user` needs it | Run from a terminal inside the GNOME session |
+| `session.desktop` | The desktop detection above; always OK: "GNOME Shell: the extension will be installed", or "`$XDG_CURRENT_DESKTOP`: the tray will be installed" | never fails | On GNOME Shell the extension is the client; on other desktops the tray is | None |
+| `session.wayland` | `$XDG_SESSION_TYPE` is `wayland` | HUMAN; on the tray path WARN on `x11` ("not tested"), HUMAN for any other value | The extension and the review app target GNOME on Wayland | Log out, choose "GNOME" (not "GNOME on Xorg"), run the installer from a terminal in that session; on the tray path, log in to your desktop on Wayland |
+| `session.gnome-shell` | `gnome-shell --version` major is in the `shell-version` list of `gnome-extension/.../metadata.json` (today 50); SKIP on the tray path ("not a GNOME Shell session") | HUMAN | GNOME Shell refuses to load an extension for another version | Use GNOME Shell 50 (Fedora 44) |
+| `session.bus` | `$DBUS_SESSION_BUS_ADDRESS` set or `$XDG_RUNTIME_DIR/bus` exists | HUMAN | The service, the extension and the apps talk over the session bus; `systemctl --user` needs it | Run from a terminal inside your desktop session |
+| `session.tray-host` | Tray path: `org.kde.StatusNotifierWatcher` has an owner on the session bus; SKIP on the GNOME path | WARN ("the desktop shows no tray icons; enable its status notifier or tray applet") | The tray icon shows only where a StatusNotifierItem host runs (KDE Plasma, Xfce, Cinnamon, LXQt, waybar); without one the tray runs and waits | Enable the desktop's status notifier or tray applet |
 | `tool.uv` | `command -v uv` | FIX | Installs the service and its Python 3.12 environment | `sudo dnf install uv` |
 | `tool.curl` | `command -v curl` | FIX | Local Ollama probe | `sudo dnf install curl` |
 | `tool.ffmpeg` | `command -v ffmpeg` | FIX | Captures the audio | `sudo dnf install ffmpeg-free` (or the RPM Fusion `ffmpeg`) |
 | `tool.pactl` | `command -v pactl` | FIX | Finds the microphone and the system-audio monitor | `sudo dnf install pulseaudio-utils` |
 | `tool.systemctl` | `command -v systemctl` | FIX | Runs the service as a `systemd --user` unit | `sudo dnf install systemd` |
 | `tool.gdbus` | `command -v gdbus` | FIX | Reads the recording state before an update | `sudo dnf install glib2` |
-| `tool.gnome-extensions` | `command -v gnome-extensions` | FIX | Packs, installs and enables the extension | `sudo dnf install gnome-shell` |
+| `tool.gnome-extensions` | `command -v gnome-extensions`; SKIP on the tray path ("not a GNOME Shell session") | FIX | Packs, installs and enables the extension | `sudo dnf install gnome-shell` |
+| `tool.gjs` | `command -v gjs` (on the GNOME path it is always present: GNOME Shell ships it) | FIX | The tray runs on it outside GNOME Shell | `sudo dnf install gjs` |
 | `gtk.pygobject` | `$REVIEW_APP_PYTHON -c 'import gi'` | FIX | The review app runs on the system Python | `sudo dnf install python3-gobject` |
 | `gtk.gtk4` | `gi.require_version("Gtk", "4.0")` | FIX | Review app UI | `sudo dnf install gtk4` |
 | `gtk.libadwaita` | `gi.require_version("Adw", "1")` | FIX | Review app UI | `sudo dnf install libadwaita` |
-| `gtk.libsecret` | `gi.require_version("Secret", "1")` | FIX | Stores the cloud key and the Hugging Face token in the GNOME Keyring | `sudo dnf install libsecret` |
+| `gtk.libsecret` | `gi.require_version("Secret", "1")` | FIX | Stores the cloud key and the Hugging Face token in the keyring through the Secret Service | `sudo dnf install libsecret` |
 | `gtk.gstreamer` | the `gstreamer1-plugins-good` package is present (`rpm -q`) or a `GStreamer` plugin probe | WARN | Voice sample playback | `sudo dnf install gstreamer1-plugins-good` |
 | `tool.secret-tool` | `command -v secret-tool` | WARN | Optional: store a key from a terminal (runbook) | `sudo dnf install libsecret` |
 | `gpu.driver` | `nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader` lists a GPU (10 s timeout) | HUMAN | Transcription and diarization run on the local NVIDIA GPU; there is no automatic CPU fallback | Install the NVIDIA driver (for example from RPM Fusion), reboot, run `nvidia-smi` |
@@ -688,4 +693,5 @@ About 400 authored changed lines per task (advisory, counting additions plus del
 - 2026-10-12 (F6.7): the terms row opens `TERMS_URL` with `Gtk.UriLauncher` over the review window; when no handler opens it a toast names the page (it is public). `TERMS_URL` is the page of the default `SPEAKERS_PIPELINE` (a drift test); a developer who overrides the pipeline knows the page, as section 6 says. The row's text says that accepting the terms and creating the token are human steps.
 - 2026-10-12 (F6.7): the interim `(until then: meeting-scribe prefetch-models)` line of the install summary and its assertion are gone; the summary now only says to add the token in Preferences and press Download models. The window was exercised without a display session on a private Broadway display (widgets built, states applied, the apply signal emitted); a real session check is the manual one in `docs/runbooks/preferences.md`.
 - 2026-10-12 (F6 fix): `GetStatus` and `Download` wait `MODELS_CALL_TIMEOUT_MS` (45 s, the service's 30 s cache-check bound plus 15 s; a drift test ties the bound to `SubprocessCacheProbe`), so the client timeout no longer races the check; other calls keep 30 s. A status that fails for a transient reason shows "Try again", which reads the status in place; a missing or older service is not retried in place (the service coming back reloads, an older one needs the restart). A keyring write still running survives a close and a reopen (only its own end frees the field and Download, and no second write starts on top of it), which replaces the earlier stale-attempt rules, since attempts can no longer overlap. The terms drift test compares against the field default of `SPEAKERS_PIPELINE`, not the environment.
+- 2026-10-16 (F6.5.4, desktop tray preflight): the preflight detects the desktop as [desktop-tray.md](desktop-tray.md) section 7 says and adds `session.desktop`, `session.tray-host` and `tool.gjs` (section 4). Three cases the design left open were decided here. When the bus cannot be asked (no `gdbus`, no answer), the GNOME path applies, as before the tray existed, so a GNOME install never changes because of a bus hiccup; `session.desktop` notes it in `detail`. On the tray path only `x11` is relaxed to WARN; any other session type (a TTY, SSH, unset) stays HUMAN, as on the GNOME path, because the tray needs a graphical session. `tool.gjs` uses the same FIX on both paths (`pf_tool`); on the GNOME path it never fails in practice, because GNOME Shell depends on `gjs`. The desktop questions are read-only `NameHasOwner` calls to the bus daemon, so the guarantee that `--check` never calls the service holds, and the tests now allow exactly those two calls and no other `gdbus` call.
 

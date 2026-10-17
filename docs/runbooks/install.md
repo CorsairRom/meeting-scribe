@@ -1,7 +1,7 @@
 ---
 type: runbook
 status: active
-last_updated: 2026-10-12
+last_updated: 2026-10-16
 phase: F6
 verifiable_by:
   - install.sh
@@ -97,18 +97,24 @@ default `/usr/bin/python3`), `MEETING_SCRIBE_NVIDIA_SMI_TIMEOUT` (default 10 s),
 
 `FIX` means a command resolves it (printed, never run by the installer). `HUMAN` means no command does. `WARN` is optional.
 
+The preflight first asks the session bus whether GNOME Shell runs (`org.gnome.Shell`): if it does, the GNOME path
+applies (the extension); if not, the tray path applies. Where the tray path differs, the row says so.
+
 | Check id | Status when it fails | Fix or steps |
 |---|---|---|
-| `session.wayland` | HUMAN | Log out, choose "GNOME" (not "GNOME on Xorg") on the login screen, run the installer from a terminal in that session |
-| `session.gnome-shell` | HUMAN | Use a GNOME session with the Shell version listed in the extension's `metadata.json` (`shell-version`, today 50) |
-| `session.bus` | HUMAN | Run the installer from a terminal inside the GNOME session (not over SSH or from a tool without the session variables) |
+| `session.desktop` | never fails | Information only: "GNOME Shell: the extension will be installed" or "`<desktop>`: the tray will be installed" |
+| `session.wayland` | HUMAN; on the tray path WARN on X11 (not tested) | Log out, choose "GNOME" (not "GNOME on Xorg") on the login screen, run the installer from a terminal in that session; on the tray path, log in to your desktop on Wayland |
+| `session.gnome-shell` | HUMAN; SKIP on the tray path | Use a GNOME session with the Shell version listed in the extension's `metadata.json` (`shell-version`, today 50) |
+| `session.bus` | HUMAN | Run the installer from a terminal inside your desktop session (not over SSH or from a tool without the session variables) |
+| `session.tray-host` | WARN on the tray path; SKIP on GNOME Shell | The desktop shows no tray icons: enable its status notifier or tray applet (the tray runs and waits for it) |
 | `tool.uv` | FIX | `sudo dnf install uv` |
 | `tool.curl` | FIX | `sudo dnf install curl` |
 | `tool.ffmpeg` | FIX | `sudo dnf install ffmpeg-free` (the RPM Fusion `ffmpeg` works instead) |
 | `tool.pactl` | FIX | `sudo dnf install pulseaudio-utils` |
 | `tool.systemctl` | FIX | `sudo dnf install systemd` |
 | `tool.gdbus` | FIX | `sudo dnf install glib2` |
-| `tool.gnome-extensions` | FIX | `sudo dnf install gnome-shell` |
+| `tool.gnome-extensions` | FIX; SKIP on the tray path | `sudo dnf install gnome-shell` |
+| `tool.gjs` | FIX | `sudo dnf install gjs` (the tray runs on it; GNOME Shell ships it) |
 | `gtk.pygobject` | FIX | `sudo dnf install python3-gobject` (the three `gtk.*` items below are skipped until it passes) |
 | `gtk.gtk4` | FIX | `sudo dnf install gtk4` |
 | `gtk.libadwaita` | FIX | `sudo dnf install libadwaita` |
@@ -122,8 +128,9 @@ default `/usr/bin/python3`), `MEETING_SCRIBE_NVIDIA_SMI_TIMEOUT` (default 10 s),
 | `ollama.reachable` | FIX | `sudo systemctl start ollama` when Ollama is a system service, else `ollama serve` in a terminal |
 | `ollama.model` | FIX | `ollama pull <model>` (the default `qwen3:4b-instruct-2507-q4_K_M` is about 2.5 GB); the installer never pulls |
 
-Human-only steps in the whole flow: the three `session.*` items, `gpu.driver`, `gpu.vram`, accepting the pyannote
-terms, creating the Hugging Face token, and the one log out and log in that makes GNOME Shell discover a new extension.
+Human-only steps in the whole flow: `session.wayland`, `session.gnome-shell`, `session.bus`, `gpu.driver`, `gpu.vram`,
+accepting the pyannote terms, creating the Hugging Face token, and the one log out and log in that makes GNOME Shell
+discover a new extension.
 
 ## Update
 

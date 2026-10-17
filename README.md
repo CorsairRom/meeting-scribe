@@ -78,27 +78,30 @@ source of truth.
 
 ## Prerequisites
 
-Fedora with GNOME on Wayland. `./install.sh --check` tests every row below, changes nothing and prints, for each
+Fedora on Wayland, with GNOME (the top-bar extension) or another desktop such as KDE Plasma (the tray icon). `./install.sh --check` tests every row below, changes nothing and prints, for each
 missing one, what is missing, why it is needed and the exact command to fix it (the installer never runs `sudo`: it
 prints the command and you run it). A row marked "human" has no command: only you can do it (`./install.sh` exits 11
 when only those remain, 10 when a command can fix something). The first column is the check id in the report.
 
 | Check id | What | If missing | How to get it (Fedora) |
 |---|---|---|---|
-| `session.wayland` | A GNOME session on Wayland (`XDG_SESSION_TYPE=wayland`) | human, blocks | Log out, pick "GNOME" (not "GNOME on Xorg"), run the installer from a terminal in that session |
-| `session.gnome-shell` | GNOME Shell of a version listed in the extension's `metadata.json` (`shell-version`) | human, blocks | Use a GNOME session with that version |
-| `session.bus` | The session bus (`DBUS_SESSION_BUS_ADDRESS` or `$XDG_RUNTIME_DIR/bus`) | human, blocks | Run the installer from a terminal inside the GNOME session |
+| `session.desktop` | The desktop, read from the session bus: GNOME Shell gets the extension, any other desktop gets the tray | never blocks | Nothing to install |
+| `session.wayland` | A session on Wayland (`XDG_SESSION_TYPE=wayland`); outside GNOME Shell, X11 only warns (not tested) | human, blocks | Log out, pick a Wayland session ("GNOME", not "GNOME on Xorg"; on KDE "Plasma (Wayland)"), run the installer from a terminal in that session |
+| `session.gnome-shell` | On GNOME Shell only (skipped elsewhere): GNOME Shell of a version listed in the extension's `metadata.json` (`shell-version`) | human, blocks | Use a GNOME session with that version |
+| `session.bus` | The session bus (`DBUS_SESSION_BUS_ADDRESS` or `$XDG_RUNTIME_DIR/bus`) | human, blocks | Run the installer from a terminal inside your desktop session |
+| `session.tray-host` | Outside GNOME Shell, a tray host (`org.kde.StatusNotifierWatcher`: KDE Plasma, Xfce, Cinnamon, LXQt, waybar) | optional | Enable the desktop's status notifier or tray applet |
 | `tool.uv` | [`uv`](https://docs.astral.sh/uv/), installs the service and its Python 3.12 | blocks | `sudo dnf install uv` |
 | `tool.curl` | `curl`, probes the local Ollama API | blocks | `sudo dnf install curl` |
 | `tool.ffmpeg` | `ffmpeg`, captures the audio | blocks | `sudo dnf install ffmpeg-free` (or the RPM Fusion `ffmpeg`) |
 | `tool.pactl` | `pactl` (PipeWire's PulseAudio shim), finds the microphone and the system-audio monitor | blocks | `sudo dnf install pulseaudio-utils` |
 | `tool.systemctl` | `systemctl`, runs the service as a `systemd --user` unit | blocks | `sudo dnf install systemd` |
 | `tool.gdbus` | `gdbus`, reads the recording state before an update | blocks | `sudo dnf install glib2` |
-| `tool.gnome-extensions` | `gnome-extensions`, packs, installs and enables the extension | blocks | `sudo dnf install gnome-shell` |
+| `tool.gnome-extensions` | On GNOME Shell only (skipped elsewhere): `gnome-extensions`, packs, installs and enables the extension | blocks | `sudo dnf install gnome-shell` |
+| `tool.gjs` | `gjs`, runs the tray outside GNOME Shell (GNOME Shell ships it) | blocks | `sudo dnf install gjs` |
 | `gtk.pygobject` | PyGObject (`gi`) on the system Python, for the review app | blocks | `sudo dnf install python3-gobject` |
 | `gtk.gtk4` | GTK 4 typelib | blocks | `sudo dnf install gtk4` |
 | `gtk.libadwaita` | libadwaita typelib | blocks | `sudo dnf install libadwaita` |
-| `gtk.libsecret` | libsecret typelib, stores keys in the GNOME Keyring | blocks | `sudo dnf install libsecret` |
+| `gtk.libsecret` | libsecret typelib, stores keys in the keyring through the Secret Service | blocks | `sudo dnf install libsecret` |
 | `gtk.gstreamer` | `gstreamer1-plugins-good`, plays the voice samples | optional | `sudo dnf install gstreamer1-plugins-good` |
 | `tool.secret-tool` | `secret-tool`, stores a key from a terminal | optional | `sudo dnf install libsecret` |
 | `gpu.driver` | The NVIDIA driver: `nvidia-smi` lists a GPU (transcription and diarization run on the local GPU, there is no automatic CPU fallback) | human, blocks | Install the NVIDIA driver (for example from RPM Fusion), reboot, run `nvidia-smi` |

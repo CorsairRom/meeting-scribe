@@ -159,13 +159,27 @@ done
 exit 1
 """,
     "secret-tool": "",
+    # The tray runs on it; present by default, a test removes the file to make it "missing".
+    "gjs": "",
     "gnome-shell": 'echo "GNOME Shell ${FAKE_SHELL_VERSION:-50.4}"',
     # `rpm -q <package>`: the voice sample plugin is installed unless FAKE_GSTREAMER=0.
     "rpm": '[ "${FAKE_GSTREAMER:-1}" = 1 ]',
     "update-desktop-database": "",
+    # The desktop names (docs/specs/desktop-tray.md section 7) answer apart from the service:
+    # FAKE_GNOME_SHELL_OWNER and FAKE_TRAY_HOST_OWNER are 1 (default, owned), 0 (no owner) or
+    # fail (the bus does not answer). The default is a GNOME Shell session.
     "gdbus": """
 mode="${FAKE_GDBUS_MODE:-noowner}"
+desktop_owner() {
+  case "$1" in
+    1) echo "(true,)" ;;
+    0) echo "(false,)" ;;
+    *) echo "Error: timeout" >&2; exit 1 ;;
+  esac
+}
 case "$*" in
+  *"NameHasOwner org.gnome.Shell") desktop_owner "${FAKE_GNOME_SHELL_OWNER:-1}" ;;
+  *"NameHasOwner org.kde.StatusNotifierWatcher") desktop_owner "${FAKE_TRAY_HOST_OWNER:-1}" ;;
   *NameHasOwner*)
     case "$mode" in
       idle-then-none)
@@ -192,6 +206,19 @@ case "$*" in
 esac
 """,
 }
+
+# The read-only questions the preflight asks the bus daemon to detect the desktop (never the
+# service). Any other gdbus call during a preflight is a call to the service.
+DESKTOP_NAMES = ("org.gnome.Shell", "org.kde.StatusNotifierWatcher")
+DESKTOP_QUERY = (
+    "gdbus call --session --timeout 5 --dest org.freedesktop.DBus "
+    "--object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner {name}"
+)
+
+
+def is_desktop_query(line: str) -> bool:
+    """True for exactly one of the logged desktop detection calls, and nothing else."""
+    return any(line == DESKTOP_QUERY.format(name=name) for name in DESKTOP_NAMES)
 
 
 @dataclass

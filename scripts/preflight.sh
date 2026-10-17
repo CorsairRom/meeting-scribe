@@ -1,10 +1,12 @@
 # Preflight library for install.sh (sourced, not executed). Everything here is READ-ONLY: it never
-# creates a file, never runs sudo, never prompts and never calls a service. It collects one item per
-# check (stable id, status, summary, why, printed fix commands or manual steps) and renders them as
-# text or as one JSON document. Contract: docs/specs/install.md section 4 and ADR-010.
+# creates a file, never runs sudo, never prompts and never calls a service. Its only bus traffic is
+# read-only NameHasOwner questions to the bus daemon that tell the desktop (pf_detect_desktop). It
+# collects one item per check (stable id, status, summary, why, printed fix commands or manual
+# steps) and renders them as text or as one JSON document. Contract: docs/specs/install.md
+# section 4, docs/specs/desktop-tray.md section 7 and ADR-010.
 #
 # Statuses: OK, WARN (advisory), FIX (a command fixes it), HUMAN (only the user can), SKIP (depends
-# on a failed check). FIX and HUMAN block the install.
+# on a failed check, or does not apply to this desktop). FIX and HUMAN block the install.
 # Exit codes (pf_exit_code): 0 nothing blocks, 10 at least one FIX, 11 only HUMAN items remain.
 # External commands come from PATH so tests can substitute fakes.
 
@@ -250,10 +252,108 @@ pf_declared_shell_majors() {
   printf '%s' "$out"
 }
 
+# -- the desktop ----------------------------------------------------------------------------------
+
+# The desktop path (docs/specs/desktop-tray.md section 7), set by pf_detect_desktop: `gnome` when
+# org.gnome.Shell owns a name on the session bus (the extension is the client), `tray` otherwise.
+# The install reads it after preflight_run.
+PF_DESKTOP=""
+PF_DESKTOP_ASSUMED=0 # 1 when the bus could not be asked and the GNOME path was assumed
+
+# pf_bus_name_owner NAME: prints yes, no or unknown (no gdbus, no answer, or an unreadable one).
+# One read-only question to the bus daemon, bounded by GDBUS_TIMEOUT; never a call to a service.
+pf_bus_name_owner() {
+  local answer
+  if ! pf_have gdbus; then
+    echo unknown
+    return 0
+  fi
+  answer="$(gdbus call --session --timeout "${GDBUS_TIMEOUT:-5}" --dest org.freedesktop.DBus \
+    --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner "$1" \
+    2>/dev/null)" || {
+    echo unknown
+    return 0
+  }
+  case "$answer" in
+    *true*) echo yes ;;
+    *false*) echo no ;;
+    *) echo unknown ;;
+  esac
+}
+
+# When the bus cannot be asked, the GNOME path applies, as it did before the tray existed; the
+# session.bus or tool.gdbus item then says what is missing.
+pf_detect_desktop() {
+  PF_DESKTOP_ASSUMED=0
+  case "$(pf_bus_name_owner org.gnome.Shell)" in
+    no) PF_DESKTOP=tray ;;
+    yes) PF_DESKTOP=gnome ;;
+    *)
+      PF_DESKTOP=gnome
+      PF_DESKTOP_ASSUMED=1
+      ;;
+  esac
+}
+
+pf_check_desktop() {
+  local why="on GNOME Shell the extension is the client; on other desktops the tray is"
+  local name="${XDG_CURRENT_DESKTOP:-}"
+  if [[ "$PF_DESKTOP" == gnome ]]; then
+    pf_add OK session.desktop "GNOME Shell: the extension will be installed" "$why"
+    if ((PF_DESKTOP_ASSUMED)); then
+      pf_detail "the session bus could not be asked whether org.gnome.Shell runs, so the GNOME path applies"
+    fi
+  else
+    pf_add OK session.desktop \
+      "${name:-this desktop (XDG_CURRENT_DESKTOP is unset)}: the tray will be installed" "$why"
+  fi
+}
+
+# Outside GNOME Shell a missing tray host is only a warning: the tray runs and waits for one.
+pf_check_tray_host() {
+  local owner why="the tray icon shows only where a StatusNotifierItem host runs (KDE Plasma, Xfce, Cinnamon, LXQt, waybar)"
+  if [[ "$PF_DESKTOP" != tray ]]; then
+    pf_add SKIP session.tray-host "skipped: on GNOME Shell the extension is the client" "$why"
+    return 0
+  fi
+  owner="$(pf_bus_name_owner org.kde.StatusNotifierWatcher)"
+  if [[ "$owner" == yes ]]; then
+    pf_add OK session.tray-host "a tray host runs (org.kde.StatusNotifierWatcher has an owner)" "$why"
+  else
+    pf_add WARN session.tray-host \
+      "the desktop shows no tray icons; enable its status notifier or tray applet" "$why"
+    if [[ "$owner" == no ]]; then
+      pf_detail "org.kde.StatusNotifierWatcher has no owner on the session bus; the tray waits for one"
+    else
+      pf_detail "the session bus did not answer for org.kde.StatusNotifierWatcher; the tray waits for one"
+    fi
+  fi
+}
+
+# -- the session ----------------------------------------------------------------------------------
+
+# session.wayland on the tray path: Wayland passes, X11 is only a warning (not tested), and any
+# other session type (a TTY, SSH, unset) still needs the user, as on the GNOME path.
+pf_check_session_type_tray() {
+  local session="$1" why="the tray and the review app are tested on Wayland"
+  if [[ "$session" == wayland ]]; then
+    pf_add OK session.wayland "XDG_SESSION_TYPE is wayland" "$why"
+  elif [[ "$session" == x11 ]]; then
+    pf_add WARN session.wayland "XDG_SESSION_TYPE is x11; the tray is not tested on X11" "$why"
+  else
+    pf_add HUMAN session.wayland \
+      "XDG_SESSION_TYPE is '${session:-unset}'; a graphical desktop session is required" "$why"
+    pf_step "Log in to your desktop on Wayland, then run ./install.sh from a terminal in that session"
+  fi
+}
+
 pf_check_session() {
   local session="${XDG_SESSION_TYPE:-}" required majors version major wanted found=0 shell_out
+  local why_shell="GNOME Shell refuses to load an extension for another version"
 
-  if [[ "$session" == wayland ]]; then
+  if [[ "$PF_DESKTOP" == tray ]]; then
+    pf_check_session_type_tray "$session"
+  elif [[ "$session" == wayland ]]; then
     pf_add OK session.wayland "XDG_SESSION_TYPE is wayland" \
       "the extension and the review app target GNOME on Wayland"
   else
@@ -264,7 +364,9 @@ pf_check_session() {
 
   majors="$(pf_declared_shell_majors)"
   required="${majors// /, }"
-  if [[ -z "$majors" ]]; then
+  if [[ "$PF_DESKTOP" == tray ]]; then
+    pf_add SKIP session.gnome-shell "skipped: not a GNOME Shell session" "$why_shell"
+  elif [[ -z "$majors" ]]; then
     pf_add HUMAN session.gnome-shell "the shell-version list could not be read from the extension metadata" \
       "GNOME Shell refuses to load an extension for another version, and the required versions are read from the metadata"
     pf_step "Check that the checkout is complete: $PF_EXTENSION_METADATA must list \"shell-version\""
@@ -295,8 +397,10 @@ pf_check_session() {
   else
     pf_add HUMAN session.bus "no session bus was found (DBUS_SESSION_BUS_ADDRESS is unset and there is no socket at XDG_RUNTIME_DIR/bus)" \
       "the service, the extension and the apps talk over the session bus, and systemctl --user needs it"
-    pf_step "Run ./install.sh from a terminal inside the GNOME session (not over SSH or from a tool without the session variables)"
+    pf_step "Run ./install.sh from a terminal inside your desktop session (not over SSH or from a tool without the session variables)"
   fi
+
+  pf_check_tray_host
 }
 
 pf_check_tools() {
@@ -307,7 +411,13 @@ pf_check_tools() {
   pf_tool tool.pactl pactl FIX pulseaudio-utils "it finds the microphone and the system-audio monitor"
   pf_tool tool.systemctl systemctl FIX systemd "it runs the service as a systemd --user unit"
   pf_tool tool.gdbus gdbus FIX glib2 "it reads the recording state before an update"
-  pf_tool tool.gnome-extensions gnome-extensions FIX gnome-shell "it packs, installs and enables the extension"
+  if [[ "$PF_DESKTOP" == tray ]]; then
+    pf_add SKIP tool.gnome-extensions "skipped: not a GNOME Shell session" \
+      "it packs, installs and enables the extension"
+  else
+    pf_tool tool.gnome-extensions gnome-extensions FIX gnome-shell "it packs, installs and enables the extension"
+  fi
+  pf_tool tool.gjs gjs FIX gjs "the tray runs on it outside GNOME Shell (GNOME Shell ships it)"
 }
 
 # The review app runs on the system Python (REVIEW_APP_PYTHON), never on the uv environment, so its
@@ -333,7 +443,7 @@ pf_check_gtk() {
 
   for row in "gtk.gtk4|Gtk|4.0|gtk4|GTK 4|the review app UI is built on GTK 4" \
     "gtk.libadwaita|Adw|1|libadwaita|libadwaita|the review app is built on libadwaita" \
-    "gtk.libsecret|Secret|1|libsecret|libsecret|it stores the cloud API key and the Hugging Face token in the GNOME Keyring"; do
+    "gtk.libsecret|Secret|1|libsecret|libsecret|it stores the cloud API key and the Hugging Face token in the keyring through the Secret Service"; do
     IFS='|' read -r id namespace version package label why <<<"$row"
     if ((!gi_ok)); then
       pf_add SKIP "$id" "skipped: PyGObject is not available" "$why"
@@ -651,8 +761,11 @@ pf_check_ollama() {
 }
 
 # Runs every check, in the order of the documented table. Each group only calls pf_add and its
-# modifiers; nothing here writes, runs sudo, prompts or calls a service.
+# modifiers; nothing here writes, runs sudo, prompts or calls a service. The desktop is detected
+# first because the session and tool checks depend on it.
 preflight_run() {
+  pf_detect_desktop
+  pf_check_desktop
   pf_check_session
   pf_check_tools
   pf_check_gtk
