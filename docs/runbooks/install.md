@@ -1,7 +1,7 @@
 ---
 type: runbook
 status: active
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 phase: F6
 verifiable_by:
   - install.sh
@@ -22,10 +22,10 @@ ai_instructions:
 
 ## Purpose
 
-Install the service, the review app and the GNOME extension from a clone of this repository, update them with
-`git pull`, remove them, and fix what goes wrong. The installer first checks every prerequisite without changing
-anything, never runs `sudo` and never asks a question: it prints the commands and you (or an AI agent, with your
-consent) run them. Design: [`../specs/install.md`](../specs/install.md), [ADR-010](../decisions/010-install-never-uses-sudo.md),
+Install the service, the review app and the GNOME extension (outside GNOME Shell, the tray) from a clone of this
+repository, update them with `git pull`, remove them, and fix what goes wrong. The installer first checks every
+prerequisite without changing anything, never runs `sudo` and never asks a question: it prints the commands and you
+(or an AI agent, with your consent) run them. Design: [`../specs/install.md`](../specs/install.md), [ADR-010](../decisions/010-install-never-uses-sudo.md),
 [ADR-011](../decisions/011-hugging-face-token-in-keyring-and-models-from-preferences.md).
 
 ## Preconditions
@@ -55,7 +55,11 @@ consent) run them. Design: [`../specs/install.md`](../specs/install.md), [ADR-01
    stops with zero changes when something blocks. Then it refuses while a recording is in progress (stop it from the
    top-bar menu and run it again). `FORCE=1 ./install.sh` overrides only an unreadable recording state, never a recording.
 3. Read the summary. `service: active`, `extension: enabled` (or "will appear after you log out and back in": on Wayland a
-   new extension is discovered after one log out and log in), `review app: ready`, and the `models:` line.
+   new extension is discovered after one log out and log in), `review app: ready`, and the `models:` line. Outside GNOME
+   Shell the line `tray: running` replaces the extension line: the installer copied the tray into the version
+   directory, wrote its autostart entry (`~/.config/autostart/dev.meetingscribe.Tray.desktop`) and its five icons
+   (`~/.local/share/icons/hicolor/scalable/status/`), and started it in the current session; it starts again at every
+   login.
 4. Add the speech models (human steps, from Preferences). The line `models: PENDING` is not a failure: recording works
    at once, processing waits for the models.
    1. Open Preferences from the Meeting Scribe menu in the top bar.
@@ -78,7 +82,7 @@ consent) run them. Design: [`../specs/install.md`](../specs/install.md), [ADR-01
 | Exit code | Meaning | What to do |
 |---|---|---|
 | 0 | Success: installed (models may be pending), or `--check` found nothing that blocks | Nothing |
-| 1 | An install stage failed or was refused: recording in progress or its state unreadable, the `systemctl --user daemon-reload` failed, the service did not start, the extension step failed | Read the summary; see Troubleshooting |
+| 1 | An install stage failed or was refused: recording in progress or its state unreadable, the `systemctl --user daemon-reload` failed, the service did not start, the extension or tray step failed | Read the summary; see Troubleshooting |
 | 2 | Usage error (unknown option, `--json` without `--check`) | Fix the command line |
 | 10 | Blocked by the preflight: at least one `FIX` item | Run the printed commands, run `--check` again |
 | 11 | Blocked by the preflight: only `HUMAN` items remain | Only you can resolve them; an agent hands them back |
@@ -142,8 +146,10 @@ git pull
 
 The update is idempotent. It builds a new `versions/<timestamp>-<pid>/` directory, switches `current` atomically,
 restarts the service when it is idle (never during a recording: the restart is skipped with a warning and the new version
-applies on the next restart or login), and prunes the old version only after the new one runs. Running it again leaves
-the same unit file, activation file and extension, and one version directory. It never touches your meetings,
+applies on the next restart or login), and prunes the old version only after the new one runs. Outside GNOME Shell it
+stops the running tray by its PID (asked from the bus for `dev.meetingscribe.Tray`) and starts the new one. Running it
+again leaves the same unit file, activation file and extension (or tray autostart entry and icons), and one version
+directory. It never touches your meetings,
 `settings.json`, `.env`, the keyring items or the downloaded models. If the new version cannot start, the installer rolls
 back to the previous one, keeps the failed directory for inspection and exits 1. After an update that adds a D-Bus
 interface the Preferences window may ask you to restart the service: `systemctl --user restart meeting-scribe.service`.
@@ -155,7 +161,8 @@ interface the Preferences window may ask you to restart the service: `systemctl 
 ```
 
 (`make uninstall` is an alias.) It stops and disables the unit, removes the unit, the activation file, the desktop entry,
-the extension and the installed versions, and prints what it keeps. It refuses while a recording runs
+the extension and the installed versions, and prints what it keeps. Outside GNOME Shell it stops the tray by its PID
+instead of removing the extension. On either desktop it removes the tray's autostart entry and icons when they exist. It refuses while a recording runs
 (`FORCE=1 ./uninstall.sh` overrides that, by intent).
 
 Kept (not removed):
@@ -185,6 +192,7 @@ Kept (not removed):
 | "rolled back" in the summary | The new version failed to start; the previous one runs. The new directory is kept in `versions/` for inspection; read the journal, fix the cause, run `./install.sh` again |
 | `extension: installed, will appear after you log out and back in` | Log out and back in once so GNOME Shell discovers the extension |
 | `extension: FAILED (...)` | Read the cause in the summary (`gnome-extensions pack` or `install` failed), see [`gnome-extension.md`](gnome-extension.md) |
+| `tray: FAILED (...)` | Read the cause in the summary. When the tray did not take `dev.meetingscribe.Tray`, run `~/.local/share/meeting-scribe/current/bin/meeting-scribe-tray` in a terminal to see its error (for example `gjs` missing); when the old tray did not stop, log out and back in |
 | `models: PENDING` | Expected after a first install: add the token and press Download models in Preferences. A meeting recorded meanwhile fails with `MODEL_UNAVAILABLE`; press Reprocess after the download |
 | Download fails with `DIARIZATION_MODEL_ACCESS_DENIED` | The terms were not accepted with the account that owns the token, or the token is wrong or revoked: accept the terms, paste a valid token, press Download models again |
 | Download fails with `MODEL_UNAVAILABLE` | No network or Hugging Face is unreachable: check the connection and press Download models (it resumes) |

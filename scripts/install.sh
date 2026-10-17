@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# One-command install: service (uv tool), systemd --user unit, D-Bus activation, GNOME extension.
+# One-command install: service (uv tool), systemd --user unit, D-Bus activation, review app, and the
+# GNOME extension on GNOME Shell or the tray (with its autostart entry) on any other desktop.
 # Run it as ./install.sh (the root wrapper) or `make install` (alias; `make install ARGS=--check`).
 # Idempotent; safe to re-run to upgrade. It first runs the read-only preflight (scripts/preflight.sh)
 # and stops with zero changes when a prerequisite is missing; it never runs sudo and never prompts.
@@ -33,8 +34,9 @@ usage() {
 Usage: ./install.sh [--check [--json]] [--help]   (alias: make install ARGS=--check)
 
 Installs the service, the systemd user unit, the D-Bus activation file, the review app and the
-GNOME extension. It first checks every prerequisite (read-only) and stops with zero changes when
-one is missing. It never elevates privileges and never asks anything: it prints the commands to run.
+GNOME extension (outside GNOME Shell, the tray instead). It first checks every prerequisite
+(read-only) and stops with zero changes when one is missing. It never elevates privileges and
+never asks anything: it prints the commands to run.
 
   --check   Run only the preflight, change nothing, call no service.
   --json    With --check: print one JSON document on stdout (the prose goes to stderr).
@@ -44,7 +46,7 @@ Environment: FORCE=1 installs over an unreadable recording state (never over a r
 
 Exit codes:
   0   success: installed, or --check found nothing that blocks
-  1   an install stage failed or was refused (recording in progress, service or extension step)
+  1   an install stage failed or was refused (recording in progress, service, extension or tray step)
   2   usage error
   10  blocked: at least one FIX item (a printed command fixes it)
   11  blocked: only HUMAN items remain (only the user can resolve them)
@@ -161,6 +163,31 @@ shopt -u globstar nullglob
 } >"$launcher"
 chmod +x "$launcher"
 
+# Outside GNOME Shell the tray goes into the same version directory (docs/specs/desktop-tray.md
+# section 1): desktop-tray/ without its tests, and the extension's shared lib/ at the same relative
+# path as in the repository, so the tray's relative imports resolve unchanged. Its launcher runs the
+# tray through the stable current/ path, as the autostart entry does.
+if [[ "$PF_DESKTOP" == tray ]]; then
+  echo "==> Installing the tray into $version_dir/desktop-tray"
+  tray_dir="$version_dir/desktop-tray"
+  shared_lib_parent="$version_dir/gnome-extension/$EXTENSION_UUID"
+  tray_copied=1
+  mkdir -p "$tray_dir" "$shared_lib_parent" || tray_copied=0
+  for entry in "$REPO_ROOT/desktop-tray"/*; do
+    if [[ "${entry##*/}" != tests ]]; then cp -r "$entry" "$tray_dir/" || tray_copied=0; fi
+  done
+  cp -r "$REPO_ROOT/gnome-extension/$EXTENSION_UUID/lib" "$shared_lib_parent/" || tray_copied=0
+  if ((!tray_copied)); then
+    abort_before_switch "the tray could not be copied"
+  fi
+  tray_launcher="$version_dir/bin/$TRAY_LAUNCHER_NAME"
+  {
+    echo '#!/usr/bin/env bash'
+    printf 'exec gjs -m %q "$@"\n' "$CURRENT_LINK/desktop-tray/main.js"
+  } >"$tray_launcher"
+  chmod +x "$tray_launcher"
+fi
+
 # Render in bash (no sed replacement): the path may contain '&', '|' or '\'. Check it before
 # anything is switched.
 template="$(<"$REPO_ROOT/packaging/systemd/$UNIT_NAME.in")"
@@ -264,23 +291,46 @@ if [[ -x "$CURRENT_LINK/bin/meeting-scribe" ]] \
   models_ready=1
 fi
 
-echo "==> Installing the GNOME extension"
+# The desktop client: the GNOME extension on GNOME Shell, the tray anywhere else.
 extension_failed=""
-extension_state="enabled"
-pack_dir="$(mktemp -d)"
-trap 'rm -rf "$pack_dir"' EXIT
-if ! gnome-extensions pack "$REPO_ROOT/gnome-extension/$EXTENSION_UUID" --extra-source=lib --force \
-  -o "$pack_dir"; then
-  extension_failed="pack failed (gnome-extensions pack)"
-elif ! gnome-extensions install --force "$pack_dir/$EXTENSION_UUID.shell-extension.zip"; then
-  extension_failed="install failed (gnome-extensions install)"
-elif ! gnome-extensions enable "$EXTENSION_UUID" 2>/dev/null \
-  || ! gnome-extensions info "$EXTENSION_UUID" >/dev/null 2>&1; then
-  extension_state="installed, will appear after you log out and back in"
-  if unit_active; then
-    echo "Extension installed: log out and back in once so GNOME Shell discovers it (the service is already running)."
+tray_failed=""
+if [[ "$PF_DESKTOP" == tray ]]; then
+  # The autostart entry and the icons follow the version in charge (after a rollback, the previous
+  # one); a restored version without a tray loses the entry, as the review app's entry does. Then
+  # the running tray is replaced: stopped by its PID, the new one started detached.
+  echo "==> Installing the tray autostart entry and icons, and restarting the tray"
+  if [[ ! -x "$CURRENT_LINK/bin/$TRAY_LAUNCHER_NAME" ]]; then
+    rm -f "$TRAY_AUTOSTART_PATH"
+    tray_failed="the version in charge has no tray launcher"
   else
-    echo "Extension installed: log out and back in once so GNOME Shell discovers it (the service is NOT active, see the summary)."
+    autostart_template="$(<"$REPO_ROOT/packaging/autostart/$TRAY_AUTOSTART_NAME.in")"
+    autostart_exec="$(desktop_exec_argument "$CURRENT_LINK/bin/$TRAY_LAUNCHER_NAME")"
+    if ! mkdir -p "$(dirname "$TRAY_AUTOSTART_PATH")" "$TRAY_ICONS_DIR" \
+      || ! printf '%s\n' "${autostart_template//@EXEC@/"$autostart_exec"}" >"$TRAY_AUTOSTART_PATH" \
+      || ! cp "$CURRENT_LINK/desktop-tray/icons/"*.svg "$TRAY_ICONS_DIR/"; then
+      tray_failed="the autostart entry or the icons could not be written"
+    elif ! stop_tray || ! start_tray; then
+      tray_failed="$TRAY_ERROR"
+    fi
+  fi
+else
+  echo "==> Installing the GNOME extension"
+  extension_state="enabled"
+  pack_dir="$(mktemp -d)"
+  trap 'rm -rf "$pack_dir"' EXIT
+  if ! gnome-extensions pack "$REPO_ROOT/gnome-extension/$EXTENSION_UUID" --extra-source=lib --force \
+    -o "$pack_dir"; then
+    extension_failed="pack failed (gnome-extensions pack)"
+  elif ! gnome-extensions install --force "$pack_dir/$EXTENSION_UUID.shell-extension.zip"; then
+    extension_failed="install failed (gnome-extensions install)"
+  elif ! gnome-extensions enable "$EXTENSION_UUID" 2>/dev/null \
+    || ! gnome-extensions info "$EXTENSION_UUID" >/dev/null 2>&1; then
+    extension_state="installed, will appear after you log out and back in"
+    if unit_active; then
+      echo "Extension installed: log out and back in once so GNOME Shell discovers it (the service is already running)."
+    else
+      echo "Extension installed: log out and back in once so GNOME Shell discovers it (the service is NOT active, see the summary)."
+    fi
   fi
 fi
 
@@ -313,7 +363,13 @@ fi
 if [[ -n "$migration_note" ]]; then
   echo "  migration: $migration_note"
 fi
-if [[ -n "$extension_failed" ]]; then
+if [[ "$PF_DESKTOP" == tray ]]; then
+  if [[ -n "$tray_failed" ]]; then
+    echo "  tray: FAILED ($tray_failed)"
+  else
+    echo "  tray: running"
+  fi
+elif [[ -n "$extension_failed" ]]; then
   echo "  extension: FAILED ($extension_failed)"
 else
   echo "  extension: $extension_state ($EXTENSION_UUID)"
@@ -328,6 +384,6 @@ fi
 echo "  ollama:    reachable at preflight; model $PF_OLLAMA_MODEL present"
 echo "  config:    open Preferences from the Meeting Scribe menu (saved in $CONFIG_HOME/meeting-scribe/settings.json)"
 echo "             .env in the same folder stays an optional developer override (see .env.example)"
-if ((start_failed || reload_failed)) || [[ -n "$extension_failed" ]]; then
+if ((start_failed || reload_failed)) || [[ -n "$extension_failed" || -n "$tray_failed" ]]; then
   exit 1
 fi

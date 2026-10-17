@@ -1,9 +1,10 @@
-# Preflight library for install.sh (sourced, not executed). Everything here is READ-ONLY: it never
-# creates a file, never runs sudo, never prompts and never calls a service. Its only bus traffic is
-# read-only NameHasOwner questions to the bus daemon that tell the desktop (pf_detect_desktop). It
-# collects one item per check (stable id, status, summary, why, printed fix commands or manual
-# steps) and renders them as text or as one JSON document. Contract: docs/specs/install.md
-# section 4, docs/specs/desktop-tray.md section 7 and ADR-010.
+# Preflight library for install.sh (sourced after _common.sh, not executed; uninstall.sh sources it
+# for pf_detect_desktop only). Everything here is READ-ONLY: it never creates a file, never runs
+# sudo, never prompts and never calls a service. Its only bus traffic is read-only NameHasOwner
+# questions to the bus daemon that tell the desktop (pf_detect_desktop). It collects one item per
+# check (stable id, status, summary, why, printed fix commands or manual steps) and renders them as
+# text or as one JSON document. Contract: docs/specs/install.md section 4,
+# docs/specs/desktop-tray.md section 7 and ADR-010.
 #
 # Statuses: OK, WARN (advisory), FIX (a command fixes it), HUMAN (only the user can), SKIP (depends
 # on a failed check, or does not apply to this desktop). FIX and HUMAN block the install.
@@ -260,32 +261,12 @@ pf_declared_shell_majors() {
 PF_DESKTOP=""
 PF_DESKTOP_ASSUMED=0 # 1 when the bus could not be asked and the GNOME path was assumed
 
-# pf_bus_name_owner NAME: prints yes, no or unknown (no gdbus, no answer, or an unreadable one).
-# One read-only question to the bus daemon, bounded by GDBUS_TIMEOUT; never a call to a service.
-pf_bus_name_owner() {
-  local answer
-  if ! pf_have gdbus; then
-    echo unknown
-    return 0
-  fi
-  answer="$(gdbus call --session --timeout "${GDBUS_TIMEOUT:-5}" --dest org.freedesktop.DBus \
-    --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner "$1" \
-    2>/dev/null)" || {
-    echo unknown
-    return 0
-  }
-  case "$answer" in
-    *true*) echo yes ;;
-    *false*) echo no ;;
-    *) echo unknown ;;
-  esac
-}
-
-# When the bus cannot be asked, the GNOME path applies, as it did before the tray existed; the
-# session.bus or tool.gdbus item then says what is missing.
+# When the bus cannot be asked (bus_name_owner in _common.sh answers unknown), the GNOME path
+# applies, as it did before the tray existed; the session.bus or tool.gdbus item then says what is
+# missing. uninstall.sh uses this same rule.
 pf_detect_desktop() {
   PF_DESKTOP_ASSUMED=0
-  case "$(pf_bus_name_owner org.gnome.Shell)" in
+  case "$(bus_name_owner org.gnome.Shell)" in
     no) PF_DESKTOP=tray ;;
     yes) PF_DESKTOP=gnome ;;
     *)
@@ -312,11 +293,15 @@ pf_check_desktop() {
 # Outside GNOME Shell a missing tray host is only a warning: the tray runs and waits for one.
 pf_check_tray_host() {
   local owner why="the tray icon shows only where a StatusNotifierItem host runs (KDE Plasma, Xfce, Cinnamon, LXQt, waybar)"
-  if [[ "$PF_DESKTOP" != tray ]]; then
+  if ((PF_DESKTOP_ASSUMED)); then
+    pf_add SKIP session.tray-host \
+      "skipped: the desktop could not be read, so the GNOME path was assumed" "$why"
+    return 0
+  elif [[ "$PF_DESKTOP" != tray ]]; then
     pf_add SKIP session.tray-host "skipped: on GNOME Shell the extension is the client" "$why"
     return 0
   fi
-  owner="$(pf_bus_name_owner org.kde.StatusNotifierWatcher)"
+  owner="$(bus_name_owner org.kde.StatusNotifierWatcher)"
   if [[ "$owner" == yes ]]; then
     pf_add OK session.tray-host "a tray host runs (org.kde.StatusNotifierWatcher has an owner)" "$why"
   else
