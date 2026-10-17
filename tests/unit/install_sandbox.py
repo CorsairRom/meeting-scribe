@@ -168,10 +168,18 @@ exit 1
     # by the tray launcher, it stands in for the tray process: it records its PID (the owner of
     # dev.meetingscribe.Tray for the fake gdbus) and stays alive FAKE_TRAY_LIFETIME seconds.
     # FAKE_TRAY_START_FAIL=1 makes it exit at once without taking the name.
+    # FAKE_TRAY_IGNORE_TERM=1 makes it survive SIGTERM: it logs each one to $FAKE_LOG.tray-signals
+    # and keeps running, so only SIGKILL could end it before its lifetime.
     "gjs": """
 [ "${FAKE_TRAY_START_FAIL:-0}" = 1 ] && exit 1
 echo $$ > "$FAKE_LOG.tray-pid"
 echo $$ >> "$FAKE_LOG.tray-pids"
+if [ "${FAKE_TRAY_IGNORE_TERM:-0}" = 1 ]; then
+  trap 'echo TERM >> "$FAKE_LOG.tray-signals"' TERM
+  end=$((SECONDS + ${FAKE_TRAY_LIFETIME:-30}))
+  while ((SECONDS < end)); do sleep 0.1; done
+  exit 0
+fi
 exec sleep "${FAKE_TRAY_LIFETIME:-30}"
 """,
     "gnome-shell": 'echo "GNOME Shell ${FAKE_SHELL_VERSION:-50.4}"',
@@ -182,7 +190,9 @@ exec sleep "${FAKE_TRAY_LIFETIME:-30}"
     # FAKE_GNOME_SHELL_OWNER and FAKE_TRAY_HOST_OWNER are 1 (default, owned), 0 (no owner) or
     # fail (the bus does not answer). The default is a GNOME Shell session.
     # dev.meetingscribe.Tray is owned while the process the fake gjs recorded is alive (a zombie
-    # counts as gone), and GetConnectionUnixProcessID answers that PID.
+    # counts as gone), and GetConnectionUnixProcessID answers that PID. FAKE_TRAY_OWNER=fail makes
+    # the bus not answer whether the tray name is owned; FAKE_TRAY_PID_ANSWER=fail makes the PID
+    # question fail, and any other value is printed as the answer instead of the PID.
     "gdbus": """
 mode="${FAKE_GDBUS_MODE:-noowner}"
 desktop_owner() {
@@ -203,8 +213,14 @@ tray_alive() {
 case "$*" in
   *"NameHasOwner org.gnome.Shell") desktop_owner "${FAKE_GNOME_SHELL_OWNER:-1}" ;;
   *"NameHasOwner org.kde.StatusNotifierWatcher") desktop_owner "${FAKE_TRAY_HOST_OWNER:-1}" ;;
-  *"NameHasOwner dev.meetingscribe.Tray") tray_alive && echo "(true,)" || echo "(false,)" ;;
+  *"NameHasOwner dev.meetingscribe.Tray")
+    [ "${FAKE_TRAY_OWNER:-}" = fail ] && { echo "Error: timeout" >&2; exit 1; }
+    tray_alive && echo "(true,)" || echo "(false,)" ;;
   *"GetConnectionUnixProcessID dev.meetingscribe.Tray")
+    case "${FAKE_TRAY_PID_ANSWER:-}" in
+      fail) echo "Error: timeout" >&2; exit 1 ;;
+      ?*) echo "$FAKE_TRAY_PID_ANSWER"; exit 0 ;;
+    esac
     tray_alive || { echo "Error: the name has no owner" >&2; exit 1; }
     echo "(uint32 $tray_pid,)" ;;
   *NameHasOwner*)
@@ -291,6 +307,11 @@ class Env:
         """The PID of the last process the fake gjs started, or 0 when none was started."""
         path = Path(f"{self.log}.tray-pid")
         return int(path.read_text()) if path.exists() else 0
+
+    def tray_signals(self) -> list[str]:
+        """The SIGTERMs a fake tray started with FAKE_TRAY_IGNORE_TERM=1 received, in order."""
+        path = Path(f"{self.log}.tray-signals")
+        return path.read_text().split() if path.exists() else []
 
     def is_sandbox_tray(self, pid: int) -> bool:
         """True while PID is alive (not a zombie) and was started by this sandbox's fake gjs."""
@@ -381,8 +402,9 @@ def sandbox_fixture(tmp_path: Path) -> Iterator[Env]:
     sandbox = Env(home=home, log=log, env=env)
     yield sandbox
     # A fake tray started detached by an install outlives it: stop each one by its PID, and only
-    # while that PID is still this sandbox's fake (never a reused PID).
+    # while that PID is still this sandbox's fake (never a reused PID). SIGKILL, because a fake
+    # started with FAKE_TRAY_IGNORE_TERM=1 survives SIGTERM.
     started = Path(f"{log}.tray-pids")
     for pid in map(int, started.read_text().split() if started.exists() else []):
         if sandbox.is_sandbox_tray(pid):
-            os.kill(pid, signal.SIGTERM)
+            os.kill(pid, signal.SIGKILL)

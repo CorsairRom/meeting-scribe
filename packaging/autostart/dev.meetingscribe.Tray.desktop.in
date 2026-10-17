@@ -1,7 +1,3 @@
-# Template rendered by ./install.sh on the tray path (docs/specs/desktop-tray.md section 7): the Exec
-# placeholder becomes the stable path of the tray launcher
-# (<data home>/meeting-scribe/current/bin/meeting-scribe-tray). It starts the tray at every login;
-# there is no NotShowIn, because on GNOME Shell the tray exits by itself.
 [Desktop Entry]
 Type=Application
 Name=Meeting Scribe tray
