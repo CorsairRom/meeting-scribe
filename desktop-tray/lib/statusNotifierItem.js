@@ -50,6 +50,7 @@ const TITLE = 'Meeting Scribe';
 const WATCHER_PATH = '/StatusNotifierWatcher';
 const WATCHER_INTERFACE = 'org.kde.StatusNotifierWatcher';
 const REGISTER_TIMEOUT_MS = 5000;
+const REGISTER_RETRY_MS = 2000; // a watcher can be busy at login; try again while it stays
 
 Gio._promisify(Gio.DBusConnection.prototype, 'call', 'call_finish');
 
@@ -74,15 +75,18 @@ export class StatusNotifierItem {
      * @param {string} [options.tooltip] - initial tooltip text
      * @param {string} [options.watcherName] - well-known name of the StatusNotifierWatcher
      * @param {Function} [options.logError] - called with one line of text per problem
+     * @param {number} [options.retryDelayMs] - wait before registering again after a failure
      */
     constructor({connection = Gio.DBus.session, objectPath = '/StatusNotifierItem',
         menuPath = '/MenuBar', iconThemePath = '', iconName = '', tooltip = '',
         watcherName = 'org.kde.StatusNotifierWatcher',
-        logError = message => printerr(`meeting-scribe-tray: ${message}`)} = {}) {
+        logError = message => printerr(`meeting-scribe-tray: ${message}`),
+        retryDelayMs = REGISTER_RETRY_MS} = {}) {
         this._connection = connection;
         this._objectPath = objectPath;
         this._watcherName = watcherName;
         this._logError = logError;
+        this._retryDelayMs = retryDelayMs;
         this._iconName = iconName;
         this._tooltip = tooltip;
         this._busName = itemBusName();
@@ -95,6 +99,8 @@ export class StatusNotifierItem {
         this._nameOwned = false;
         this._watcherOwner = ''; // unique name of the current watcher, '' while there is none
         this._registeredWith = ''; // the watcher owner this item last registered with
+        this._failedWith = ''; // the watcher owner a registration already failed with (logged)
+        this._retryId = 0;
         this._cancellable = null;
         this._implementation = this._dbusObject(menuPath, iconThemePath);
     }
@@ -144,8 +150,7 @@ export class StatusNotifierItem {
         if (this._destroyed)
             return;
         this._destroyed = true;
-        this._cancellable?.cancel();
-        this._cancellable = null;
+        this._cancelRegistration();
         if (this._watchId)
             Gio.bus_unwatch_name(this._watchId);
         this._watchId = 0;
@@ -218,19 +223,43 @@ export class StatusNotifierItem {
         if (this._destroyed)
             return;
         // A new owner, even the same connection again, has none of our registrations.
-        this._cancellable?.cancel();
-        this._cancellable = null;
+        this._cancelRegistration();
         this._watcherOwner = '';
         this._registeredWith = '';
+        this._failedWith = '';
         this._logError(`no ${this._watcherName} on the session bus; ` +
             'waiting for a tray host to show the icon');
+    }
+
+    _cancelRegistration() {
+        this._cancellable?.cancel();
+        this._cancellable = null;
+        if (this._retryId)
+            GLib.source_remove(this._retryId);
+        this._retryId = 0;
+    }
+
+    // A failed registration (a timeout or an error from a busy watcher) is tried again while the
+    // same watcher owns the name; only the first failure with that watcher is logged.
+    _retryAfterFailure(watcher, error) {
+        if (this._registeredWith === watcher)
+            this._registeredWith = '';
+        if (this._failedWith !== watcher)
+            this._logError(`could not register with ${this._watcherName}: ${error.message}`);
+        this._failedWith = watcher;
+        this._retryId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, this._retryDelayMs, () => {
+            this._retryId = 0;
+            this._register();
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     // Registers once per watcher owner, and only once the name is ours: the watcher drops a
     // registration whose name has no owner.
     async _register() {
         const watcher = this._watcherOwner;
-        if (!this._nameOwned || !watcher || this._registeredWith === watcher)
+        if (this._destroyed || !this._nameOwned || !watcher || this._registeredWith === watcher ||
+            this._retryId)
             return;
         this._registeredWith = watcher;
         const cancellable = new Gio.Cancellable();
@@ -241,8 +270,8 @@ export class StatusNotifierItem {
                 'RegisterStatusNotifierItem', new GLib.Variant('(s)', [this._busName]), null,
                 Gio.DBusCallFlags.NO_AUTO_START, REGISTER_TIMEOUT_MS, cancellable);
         } catch (e) {
-            if (!cancellable.is_cancelled())
-                this._logError(`could not register with ${this._watcherName}: ${e.message}`);
+            if (!cancellable.is_cancelled() && !this._destroyed)
+                this._retryAfterFailure(watcher, e);
         }
     }
 }

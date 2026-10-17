@@ -35,6 +35,8 @@ export class FakeStatusNotifierWatcher {
         this._impl = null;
         this.registrations = []; // {service, sender, ownedAtRegistration}, in call order
         this.hosts = [];
+        this.failNext = 0; // how many next registrations fail, as a busy watcher at login would
+        this.failed = 0;
     }
 
     get RegisteredStatusNotifierItems() {
@@ -77,6 +79,12 @@ export class FakeStatusNotifierWatcher {
     }
 
     RegisterStatusNotifierItemAsync([service], invocation) {
+        if (this.failNext > 0) {
+            this.failNext--;
+            this.failed++;
+            invocation.return_dbus_error('org.freedesktop.DBus.Error.Failed', 'the watcher is busy');
+            return;
+        }
         // Like Plasma's watcher, which drops a registration whose name has no owner yet.
         this.registrations.push({
             service,
