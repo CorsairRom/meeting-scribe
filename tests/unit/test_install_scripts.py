@@ -5,8 +5,10 @@ The scripts run in a throwaway HOME with a PATH that holds only fake ``uv``, ``s
 never run. Every fake appends its argv to a log file, which is also the proof the fakes were used.
 """
 
+import os
 import re
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -19,9 +21,12 @@ from tests.unit.install_sandbox import (
     INSTALL,
     ROOT,
     SCRIPTS,
+    TRAY_BUS_NAME,
+    TRAY_ICONS,
     UNINSTALL,
     UNIT,
     Env,
+    is_desktop_query,
     sandbox_fixture,  # noqa: F401  # the `sandbox` fixture
 )
 
@@ -906,7 +911,8 @@ def test_install_stops_with_zero_changes_when_a_prerequisite_is_missing(
     assert tag in result.stdout  # the preflight report is printed
     assert "fix:" in result.stdout or "steps:" in result.stdout
     assert sandbox.tree() == []  # the sandbox HOME is unchanged
-    calls = sandbox.calls()
+    # the read-only desktop detection asks the bus daemon, never the service
+    calls = [line for line in sandbox.calls() if not is_desktop_query(line)]
     for prefix in ("uv", "gnome-extensions", "gdbus", "sudo", "meeting-scribe", "ollama"):
         assert not any(line.startswith(prefix) for line in calls), (prefix, calls)
     # the only systemctl call a preflight makes reads whether Ollama is a system service
@@ -1114,3 +1120,323 @@ def test_the_runbook_keep_list_is_the_text_uninstall_prints(sandbox: Env) -> Non
         return [line.strip("- ").replace("`", "") for line in text.splitlines() if "- " in line]
 
     assert bullets(printed) == bullets(documented) != []
+
+
+# --- F6.5: the tray outside GNOME Shell (docs/specs/desktop-tray.md section 7, AC-10, AC-11) ---
+
+# A Plasma session: org.gnome.Shell owns no name on the bus, so the tray path applies. The fake
+# gnome-extensions stays on PATH, so any call to it would be logged.
+TRAY = {"FAKE_GNOME_SHELL_OWNER": "0", "XDG_CURRENT_DESKTOP": "KDE"}
+TRAY_LAUNCHER = "meeting-scribe-tray"
+SHARED_LIB = Path("gnome-extension") / EXTENSION / "lib"
+# The read-only question for the running tray's PID; the timeout is any number of seconds, so a
+# different GDBUS_TIMEOUT does not change what counts as this question.
+PID_QUERY = re.compile(
+    r"gdbus call --session --timeout [1-9][0-9]* --dest org\.freedesktop\.DBus "
+    r"--object-path /org/freedesktop/DBus --method "
+    rf"org\.freedesktop\.DBus\.GetConnectionUnixProcessID {re.escape(TRAY_BUS_NAME)}"
+)
+
+
+def _pid_queries(calls: list[str]) -> list[int]:
+    """The positions of the logged PID questions about the tray."""
+    return [i for i, line in enumerate(calls) if PID_QUERY.fullmatch(line)]
+
+
+def _files(folder: Path) -> dict[str, bytes]:
+    return {
+        str(path.relative_to(folder)): path.read_bytes()
+        for path in sorted(folder.rglob("*"))
+        if path.is_file()
+    }
+
+
+def _tray_starts(sandbox: Env) -> list[str]:
+    return [line for line in sandbox.calls() if line.startswith("gjs ")]
+
+
+def _tray_bus_calls(sandbox: Env) -> list[str]:
+    return [line for line in sandbox.calls() if TRAY_BUS_NAME in line]
+
+
+def test_tray_path_install_copies_the_tray_launcher_entry_and_icons(sandbox: Env) -> None:  # AC-10
+    result = sandbox.run(INSTALL, **TRAY, **ACTIVE)
+    assert result.returncode == 0, result.stdout + result.stderr
+    version = _version_dir(sandbox)
+    current = sandbox.root / "current"
+    # desktop-tray/ without its tests, and the shared lib/ at the path the tray imports it from
+    tray = {k: v for k, v in _files(ROOT / "desktop-tray").items() if not k.startswith("tests/")}
+    assert _files(version / "desktop-tray") == tray
+    assert not (version / "desktop-tray" / "tests").exists()
+    assert _files(version / SHARED_LIB) == _files(ROOT / SHARED_LIB)
+    assert [p.name for p in (version / "gnome-extension").iterdir()] == [EXTENSION]
+    assert [p.name for p in (version / "gnome-extension" / EXTENSION).iterdir()] == ["lib"]
+    # the launcher runs the copied entry point through the stable current path
+    main = version / "desktop-tray" / "main.js"
+    assert main.read_bytes() == (ROOT / "desktop-tray" / "main.js").read_bytes()
+    launcher = version / "bin" / TRAY_LAUNCHER
+    assert launcher.stat().st_mode & 0o111
+    assert f"exec gjs -m {current}/desktop-tray/main.js" in launcher.read_text()
+    assert (current / "desktop-tray" / "main.js").resolve() == main.resolve()
+    # the autostart entry starts that launcher at every login
+    entry = sandbox.autostart_entry.read_text().splitlines()
+    assert _exec_argv(sandbox.autostart_entry) == [str(current / "bin" / TRAY_LAUNCHER)]
+    for expected in ("Type=Application", "Name=Meeting Scribe tray", "NoDisplay=true"):
+        assert expected in entry
+    assert not any(line.startswith("NotShowIn=") for line in entry)
+    assert not any("@" in line for line in entry)  # every placeholder was rendered
+    # the five status icons
+    icons = {p.name: p.read_bytes() for p in sorted(TRAY_ICONS.glob("*.svg"))}
+    assert len(icons) == 5
+    assert _files(sandbox.tray_icons) == icons
+    # no GNOME Shell step, and the tray now runs in this session
+    assert not any(line.startswith("gnome-extensions") for line in sandbox.calls())
+    assert _tray_starts(sandbox) == [f"gjs -m {current}/desktop-tray/main.js"]
+    assert sandbox.is_sandbox_tray(sandbox.tray_pid())
+    summary = _summary(result)
+    assert "  tray: running" in summary.splitlines()
+    assert "extension:" not in summary
+
+
+def test_the_tray_launcher_passes_its_arguments_to_gjs(sandbox: Env) -> None:
+    sandbox.run(INSTALL, **TRAY, **IDLE)
+    sandbox.log.write_text("")
+    launcher = sandbox.root / "current" / "bin" / TRAY_LAUNCHER
+    done = sandbox.run(launcher, "--flag", "a b", FAKE_TRAY_LIFETIME="0")
+    assert done.returncode == 0, done.stderr
+    main = sandbox.root / "current" / "desktop-tray" / "main.js"
+    assert _tray_starts(sandbox) == [f"gjs -m {main} --flag a b"]
+
+
+def test_tray_path_update_is_idempotent_and_replaces_the_tray_by_pid(sandbox: Env) -> None:  # AC-10
+    seeded = _seed_user_files(sandbox)
+    first = sandbox.run(INSTALL, **TRAY, **ACTIVE)
+    assert first.returncode == 0, first.stdout + first.stderr
+    old_pid = sandbox.tray_pid()
+    entry, icons = sandbox.autostart_entry.read_bytes(), _files(sandbox.tray_icons)
+    sandbox.log.write_text("")
+    second = sandbox.run(INSTALL, **TRAY, **ACTIVE)
+    assert second.returncode == 0, second.stdout + second.stderr
+    assert "  tray: running" in _summary(second).splitlines()
+    calls = sandbox.calls()
+    # the running tray is found by its bus name and stopped by its PID before the new one starts
+    (pid_query,) = _pid_queries(calls)
+    assert [line for line in calls if "GetConnectionUnixProcessID" in line] == [calls[pid_query]]
+    assert pid_query < _index(calls, "gjs ")
+    assert not sandbox.is_sandbox_tray(old_pid)
+    new_pid = sandbox.tray_pid()
+    assert new_pid != old_pid
+    assert sandbox.is_sandbox_tray(new_pid)
+    assert len(_tray_starts(sandbox)) == 1
+    # the same files, one version, no GNOME Shell step, the user's data untouched
+    assert sandbox.autostart_entry.read_bytes() == entry
+    assert _files(sandbox.tray_icons) == icons
+    (version,) = sandbox.versions
+    assert (version / "desktop-tray").is_dir()
+    assert not any(line.startswith("gnome-extensions") for line in calls)
+    user_files = {k: v for k, v in _user_tree(sandbox).items() if "/icons/" not in k}
+    assert user_files == {str(p.relative_to(sandbox.home)): t for p, t in seeded.items()}
+
+
+def test_a_tray_that_does_not_start_is_reported_and_fails_the_install(sandbox: Env) -> None:
+    result = sandbox.run(INSTALL, FAKE_TRAY_START_FAIL="1", **TRAY, **IDLE)
+    assert result.returncode == 1
+    summary = _summary(result).splitlines()
+    (tray,) = [line for line in summary if line.startswith("  tray:")]
+    assert tray.startswith("  tray: FAILED (")
+    assert TRAY_BUS_NAME in tray
+    assert any(line.startswith("  service:") for line in summary)  # the summary is complete
+
+
+def test_a_tray_path_rollback_runs_the_tray_of_the_restored_version(sandbox: Env) -> None:
+    sandbox.run(INSTALL, **TRAY, **IDLE)
+    (first,) = sandbox.versions
+    result = sandbox.run(INSTALL, FAKE_SYSTEMCTL_FAIL="restart", **TRAY, **ACTIVE)
+    assert result.returncode == 1
+    assert f"rolled back to {first.name}" in result.stdout
+    assert (sandbox.root / "current").resolve() == first.resolve()
+    launcher = sandbox.root / "current" / "bin" / TRAY_LAUNCHER
+    assert _exec_argv(sandbox.autostart_entry) == [str(launcher)]
+    assert "  tray: running" in _summary(result).splitlines()
+    assert sandbox.is_sandbox_tray(sandbox.tray_pid())
+
+
+def test_a_rollback_to_a_version_without_the_tray_removes_its_autostart_entry(
+    sandbox: Env,
+) -> None:
+    sandbox.run(INSTALL, **IDLE)  # installed on GNOME Shell: that version has no tray
+    sandbox.autostart_entry.parent.mkdir(parents=True)
+    sandbox.autostart_entry.write_text("[Desktop Entry]\n")  # left from an earlier tray install
+    result = sandbox.run(INSTALL, FAKE_SYSTEMCTL_FAIL="restart", **TRAY, **ACTIVE)
+    assert result.returncode == 1
+    assert "rolled back" in result.stdout
+    assert not sandbox.autostart_entry.exists()
+    assert "  tray: FAILED (the version in charge has no tray launcher)" in _summary(result)
+    assert _tray_starts(sandbox) == []
+
+
+def test_tray_path_uninstall_stops_the_tray_and_removes_its_files(sandbox: Env) -> None:  # AC-10
+    seeded = _seed_user_files(sandbox)
+    sandbox.run(INSTALL, **TRAY, **ACTIVE)
+    pid = sandbox.tray_pid()
+    assert sandbox.is_sandbox_tray(pid)
+    sandbox.log.write_text("")
+    result = sandbox.run(UNINSTALL, **TRAY, **ACTIVE)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _pid_queries(sandbox.calls())
+    assert not sandbox.is_sandbox_tray(pid)  # stopped by its PID
+    assert not sandbox.autostart_entry.exists()
+    assert not list(sandbox.tray_icons.glob("*.svg"))
+    assert not sandbox.root.exists()
+    assert not any(line.startswith("gnome-extensions") for line in sandbox.calls())
+    assert _user_tree(sandbox) == {str(p.relative_to(sandbox.home)): t for p, t in seeded.items()}
+    assert "Kept (not removed):" in result.stdout
+
+
+def test_gnome_path_install_installs_no_tray(sandbox: Env) -> None:  # AC-11
+    result = sandbox.run(INSTALL, **ACTIVE)
+    assert result.returncode == 0, result.stdout + result.stderr
+    version = _version_dir(sandbox)
+    assert not (version / "desktop-tray").exists()
+    assert not (version / "gnome-extension").exists()
+    assert not (version / "bin" / TRAY_LAUNCHER).exists()
+    assert not sandbox.autostart_entry.exists()
+    assert not (sandbox.home / ".local" / "share" / "icons").exists()
+    assert _tray_starts(sandbox) == []
+    assert _tray_bus_calls(sandbox) == []
+    summary = _summary(result)
+    assert f"  extension: enabled ({EXTENSION})" in summary.splitlines()
+    assert "tray:" not in summary
+
+
+def test_gnome_path_uninstall_removes_a_leftover_tray_entry_and_icons(sandbox: Env) -> None:
+    _installed(sandbox)
+    sandbox.autostart_entry.parent.mkdir(parents=True)
+    sandbox.autostart_entry.write_text("[Desktop Entry]\n")
+    other_entry = sandbox.autostart_entry.parent / "other.desktop"
+    other_entry.write_text("[Desktop Entry]\n")
+    sandbox.tray_icons.mkdir(parents=True)
+    for icon in TRAY_ICONS.glob("*.svg"):
+        (sandbox.tray_icons / icon.name).write_text("<svg/>")
+    (sandbox.tray_icons / "other-app.svg").write_text("<svg/>")
+    result = sandbox.run(UNINSTALL, **ACTIVE)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not sandbox.autostart_entry.exists()
+    assert [p.name for p in sandbox.tray_icons.iterdir()] == ["other-app.svg"]
+    assert other_entry.exists()
+    assert f"gnome-extensions uninstall {EXTENSION}" in sandbox.calls()
+    # on GNOME Shell nothing else is stopped: not even a question about the tray's bus name
+    assert _tray_bus_calls(sandbox) == []
+
+
+def test_the_installed_autostart_entry_carries_no_placeholder_and_no_template_note(
+    sandbox: Env,
+) -> None:
+    result = sandbox.run(INSTALL, **TRAY, **ACTIVE)
+    assert result.returncode == 0, result.stdout + result.stderr
+    text = sandbox.autostart_entry.read_text()
+    assert "@EXEC@" not in text
+    assert "Template" not in text
+    assert [line for line in text.splitlines() if line.startswith("#")] == []
+    assert text.startswith("[Desktop Entry]\n")
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(None, "5"), ("", "5"), ("2", "2"), ("abc", "5"), ("0", "5"), ("-1", "5"), ("1.5", "5")],
+)
+def test_the_tray_wait_comes_from_the_environment_with_a_5_second_default(
+    sandbox: Env, value: str | None, expected: str
+) -> None:
+    extra = {} if value is None else {"MEETING_SCRIBE_TRAY_WAIT_SECONDS": value}
+    result = sandbox.snippet('printf %s "$TRAY_WAIT_SECONDS"', **extra)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == expected
+
+
+def test_the_tray_wait_is_bounded_by_elapsed_time_even_on_a_slow_bus(sandbox: Env) -> None:
+    # Each question about the tray name takes 1 s: the wait still ends after about
+    # TRAY_WAIT_SECONDS of elapsed time, not after a fixed number of questions (5 x 1.2 s).
+    slow = "bus_name_owner() { sleep 1; echo yes; }; TRAY_WAIT_SECONDS=1; tray_wait_owner no"
+    started = time.monotonic()
+    result = sandbox.snippet(slow)
+    elapsed = time.monotonic() - started
+    assert result.returncode == 1
+    # About 3.2 s here; the old poll-count bound took about 6 s; 5 leaves room for a loaded runner.
+    assert elapsed < 5
+    # A fast bus that never gives the awaited answer: the wait lasts at least TRAY_WAIT_SECONDS.
+    fast = "bus_name_owner() { echo yes; }; TRAY_WAIT_SECONDS=1; tray_wait_owner no"
+    started = time.monotonic()
+    result = sandbox.snippet(fast)
+    elapsed = time.monotonic() - started
+    assert result.returncode == 1
+    assert 1 <= elapsed < 4
+
+
+# Every way the stop of the running tray can fail (docs/specs/install.md, decision log 2026-10-17):
+# the environment of the install that started the old tray, the environment of the failing run,
+# the reason (with {pid} for the old tray's PID) and the SIGTERMs the old tray must have received.
+NOT_OWNED = f"the session bus did not say whether {TRAY_BUS_NAME} is running"
+NO_PID = f"the PID of the running {TRAY_BUS_NAME} could not be read"
+STOP_FAILURES = [
+    pytest.param({}, {"FAKE_TRAY_OWNER": "fail"}, NOT_OWNED, [], id="bus-does-not-answer"),
+    pytest.param({}, {"FAKE_TRAY_PID_ANSWER": "fail"}, NO_PID, [], id="pid-query-fails"),
+    pytest.param({}, {"FAKE_TRAY_PID_ANSWER": "what"}, NO_PID, [], id="pid-unreadable"),
+    # PID 1 is refused like an unreadable answer. Never PID 0 here: if the guard broke, `kill 0`
+    # would signal the test run's own process group.
+    pytest.param(
+        {},
+        {"FAKE_TRAY_PID_ANSWER": "(uint32 1,)"},
+        NO_PID,
+        [],
+        id="pid-is-init",
+        marks=pytest.mark.skipif(os.geteuid() == 0, reason="never risk signalling init as root"),
+    ),
+    pytest.param(
+        {"FAKE_TRAY_IGNORE_TERM": "1"},
+        {"MEETING_SCRIBE_TRAY_WAIT_SECONDS": "1"},
+        f"the running {TRAY_BUS_NAME} (pid {{pid}}) did not stop within 1 s",
+        ["TERM"],
+        id="survives-sigterm",
+    ),
+]
+
+
+@pytest.mark.parametrize(("before", "failing", "reason", "signals"), STOP_FAILURES)
+def test_a_tray_that_cannot_be_stopped_fails_the_install_and_is_left_running(
+    sandbox: Env, before: dict[str, str], failing: dict[str, str], reason: str, signals: list[str]
+) -> None:
+    first = sandbox.run(INSTALL, **before, **TRAY, **ACTIVE)
+    assert first.returncode == 0, first.stdout + first.stderr
+    old_pid = sandbox.tray_pid()
+    sandbox.log.write_text("")
+    result = sandbox.run(INSTALL, **failing, **TRAY, **ACTIVE)
+    assert result.returncode == 1
+    summary = _summary(result).splitlines()
+    assert f"  tray: FAILED ({reason.format(pid=old_pid)})" in summary
+    assert any(line.startswith("  service:") for line in summary)  # the summary is complete
+    # no second tray while the old one may still run, and the old one got SIGTERM at most: it
+    # still runs, so no SIGKILL was sent
+    assert _tray_starts(sandbox) == []
+    assert sandbox.is_sandbox_tray(old_pid)
+    assert sandbox.tray_signals() == signals
+
+
+@pytest.mark.parametrize(("before", "failing", "reason", "signals"), STOP_FAILURES)
+def test_a_tray_that_cannot_be_stopped_is_a_warning_of_the_uninstall(
+    sandbox: Env, before: dict[str, str], failing: dict[str, str], reason: str, signals: list[str]
+) -> None:
+    first = sandbox.run(INSTALL, **before, **TRAY, **ACTIVE)
+    assert first.returncode == 0, first.stdout + first.stderr
+    old_pid = sandbox.tray_pid()
+    result = sandbox.run(UNINSTALL, **failing, **TRAY, **ACTIVE)
+    assert result.returncode == 0, result.stdout + result.stderr
+    warning = f"warning: {reason.format(pid=old_pid)}; it stops at the next log out."
+    assert warning in result.stderr.splitlines()
+    assert sandbox.is_sandbox_tray(old_pid)  # never SIGKILL
+    assert sandbox.tray_signals() == signals
+    # everything else is removed anyway; the autostart entry no longer starts it at a login
+    assert not sandbox.autostart_entry.exists()
+    assert not list(sandbox.tray_icons.glob("*.svg"))
+    assert not sandbox.root.exists()
+    assert "meeting-scribe uninstalled." in result.stdout

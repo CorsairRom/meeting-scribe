@@ -1,14 +1,15 @@
 ---
 type: runbook
 status: active
-last_updated: 2026-10-12
-phase: F6
+last_updated: 2026-10-17
+phase: F6, F6.5
 verifiable_by:
   - install.sh
   - uninstall.sh
   - scripts/install.sh
   - scripts/uninstall.sh
   - scripts/preflight.sh
+  - scripts/_common.sh
   - tests/unit/test_install_scripts.py
   - tests/unit/test_preflight.py
   - tests/unit/test_readme_prerequisites.py
@@ -22,17 +23,18 @@ ai_instructions:
 
 ## Purpose
 
-Install the service, the review app and the GNOME extension from a clone of this repository, update them with
-`git pull`, remove them, and fix what goes wrong. The installer first checks every prerequisite without changing
-anything, never runs `sudo` and never asks a question: it prints the commands and you (or an AI agent, with your
-consent) run them. Design: [`../specs/install.md`](../specs/install.md), [ADR-010](../decisions/010-install-never-uses-sudo.md),
+Install the service, the review app and the GNOME extension (outside GNOME Shell, the tray) from a clone of this
+repository, update them with `git pull`, remove them, and fix what goes wrong. The installer first checks every
+prerequisite without changing anything, never runs `sudo` and never asks a question: it prints the commands and you
+(or an AI agent, with your consent) run them. Design: [`../specs/install.md`](../specs/install.md), [ADR-010](../decisions/010-install-never-uses-sudo.md),
 [ADR-011](../decisions/011-hugging-face-token-in-keyring-and-models-from-preferences.md).
 
 ## Preconditions
 
-- Fedora with GNOME on Wayland, an NVIDIA GPU with at least 8 GB of VRAM and a working driver, and a clone of this
-  repository. The full list is the prerequisites table in the [README](../../README.md); the preflight tests every row.
-- A terminal opened inside the GNOME session (not over SSH).
+- Fedora on Wayland, with GNOME Shell (the extension) or another desktop with a tray host such as KDE Plasma (the
+  tray), an NVIDIA GPU with at least 8 GB of VRAM and a working driver, and a clone of this repository. The full list
+  is the prerequisites table in the [README](../../README.md); the preflight tests every row.
+- A terminal opened inside your desktop session (not over SSH).
 
 ## Steps
 
@@ -52,16 +54,21 @@ consent) run them. Design: [`../specs/install.md`](../specs/install.md), [ADR-01
    ```
 
    `make install` is an alias (`make install ARGS=--check` passes the option). The install repeats the preflight and
-   stops with zero changes when something blocks. Then it refuses while a recording is in progress (stop it from the
-   top-bar menu and run it again). `FORCE=1 ./install.sh` overrides only an unreadable recording state, never a recording.
+   stops with zero changes when something blocks. Then it refuses while a recording is in progress: stop it from the
+   Meeting Scribe menu (top bar, or the tray outside GNOME Shell) and run it again. `FORCE=1 ./install.sh` overrides
+   only an unreadable recording state, never a recording.
 3. Read the summary. `service: active`, `extension: enabled` (or "will appear after you log out and back in": on Wayland a
-   new extension is discovered after one log out and log in), `review app: ready`, and the `models:` line.
+   new extension is discovered after one log out and log in), `review app: ready`, and the `models:` line. Outside GNOME
+   Shell the line `tray: running` replaces the extension line: the installer copied the tray into the version
+   directory, wrote its autostart entry (`~/.config/autostart/dev.meetingscribe.Tray.desktop`) and its five icons
+   (`~/.local/share/icons/hicolor/scalable/status/`), and started it in the current session; it starts again at every
+   login.
 4. Add the speech models (human steps, from Preferences). The line `models: PENDING` is not a failure: recording works
    at once, processing waits for the models.
-   1. Open Preferences from the Meeting Scribe menu in the top bar.
+   1. Open Preferences from the Meeting Scribe menu (top bar, or the tray outside GNOME Shell).
    2. In **Speech models**, press **Accept the pyannote terms** and accept them in the browser, signed in to Hugging Face.
    3. Create a read token on Hugging Face (Settings, Access Tokens), paste it in **Hugging Face token** and apply it.
-      It is stored in the GNOME Keyring and never leaves it except to the download process.
+      It is stored in the keyring through the Secret Service and never leaves it except to the download process.
    4. Press **Download models** (about 1.65 GiB). The group shows step 1 of 2 and step 2 of 2 and has **Cancel**.
 
    If you already ran `hf auth login`, you can skip the token: with no keyring token the download uses that login.
@@ -78,7 +85,7 @@ consent) run them. Design: [`../specs/install.md`](../specs/install.md), [ADR-01
 | Exit code | Meaning | What to do |
 |---|---|---|
 | 0 | Success: installed (models may be pending), or `--check` found nothing that blocks | Nothing |
-| 1 | An install stage failed or was refused: recording in progress or its state unreadable, the `systemctl --user daemon-reload` failed, the service did not start, the extension step failed | Read the summary; see Troubleshooting |
+| 1 | An install stage failed or was refused: recording in progress or its state unreadable, the `systemctl --user daemon-reload` failed, the service did not start, the extension or tray step failed | Read the summary; see Troubleshooting |
 | 2 | Usage error (unknown option, `--json` without `--check`) | Fix the command line |
 | 10 | Blocked by the preflight: at least one `FIX` item | Run the printed commands, run `--check` again |
 | 11 | Blocked by the preflight: only `HUMAN` items remain | Only you can resolve them; an agent hands them back |
@@ -91,24 +98,31 @@ The ids are stable; the fields only grow in a later `schema_version`.
 
 Environment: `FORCE=1` (above), `REVIEW_APP_PYTHON` (the system interpreter the review app and the toolkit checks use,
 default `/usr/bin/python3`), `MEETING_SCRIBE_NVIDIA_SMI_TIMEOUT` (default 10 s), `MEETING_SCRIBE_OLLAMA_TIMEOUT`
-(default 3 s), `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT` (default 30 s), `SUMMARIES_LOCAL_BASE_URL` (a non-default Ollama address) and `HF_HUB_CACHE` or `HF_HOME` (where `disk.space` looks for the model cache).
+(default 3 s), `MEETING_SCRIBE_MODELS_CHECK_TIMEOUT` (default 30 s), `MEETING_SCRIBE_TRAY_WAIT_SECONDS` (default 5 s:
+how long the install and the uninstall wait for the tray to stop, and the install for the new tray to start), `SUMMARIES_LOCAL_BASE_URL` (a non-default Ollama address) and `HF_HUB_CACHE` or `HF_HOME` (where `disk.space` looks for the model cache).
 
 ## Check ids and fixes
 
 `FIX` means a command resolves it (printed, never run by the installer). `HUMAN` means no command does. `WARN` is optional.
 
+The preflight first asks the session bus whether GNOME Shell runs (`org.gnome.Shell`): if it does, the GNOME path
+applies (the extension); if not, the tray path applies. Where the tray path differs, the row says so.
+
 | Check id | Status when it fails | Fix or steps |
 |---|---|---|
-| `session.wayland` | HUMAN | Log out, choose "GNOME" (not "GNOME on Xorg") on the login screen, run the installer from a terminal in that session |
-| `session.gnome-shell` | HUMAN | Use a GNOME session with the Shell version listed in the extension's `metadata.json` (`shell-version`, today 50) |
-| `session.bus` | HUMAN | Run the installer from a terminal inside the GNOME session (not over SSH or from a tool without the session variables) |
+| `session.desktop` | never fails | Information only: "GNOME Shell: the extension will be installed" or "`<desktop>`: the tray will be installed" |
+| `session.wayland` | HUMAN; on the tray path WARN on X11 (not tested) | Log out, choose "GNOME" (not "GNOME on Xorg") on the login screen, run the installer from a terminal in that session; on the tray path, log in to your desktop on Wayland |
+| `session.gnome-shell` | HUMAN; SKIP on the tray path | Use a GNOME session with the Shell version listed in the extension's `metadata.json` (`shell-version`, today 50) |
+| `session.bus` | HUMAN | Run the installer from a terminal inside your desktop session (not over SSH or from a tool without the session variables) |
+| `session.tray-host` | WARN on the tray path; SKIP on GNOME Shell | The desktop shows no tray icons: enable its status notifier or tray applet (the tray runs and waits for it) |
 | `tool.uv` | FIX | `sudo dnf install uv` |
 | `tool.curl` | FIX | `sudo dnf install curl` |
 | `tool.ffmpeg` | FIX | `sudo dnf install ffmpeg-free` (the RPM Fusion `ffmpeg` works instead) |
 | `tool.pactl` | FIX | `sudo dnf install pulseaudio-utils` |
 | `tool.systemctl` | FIX | `sudo dnf install systemd` |
 | `tool.gdbus` | FIX | `sudo dnf install glib2` |
-| `tool.gnome-extensions` | FIX | `sudo dnf install gnome-shell` |
+| `tool.gnome-extensions` | FIX; SKIP on the tray path | `sudo dnf install gnome-shell` |
+| `tool.gjs` | FIX | `sudo dnf install gjs` (the tray runs on it and needs GLib 2.80 or later; GNOME Shell ships it) |
 | `gtk.pygobject` | FIX | `sudo dnf install python3-gobject` (the three `gtk.*` items below are skipped until it passes) |
 | `gtk.gtk4` | FIX | `sudo dnf install gtk4` |
 | `gtk.libadwaita` | FIX | `sudo dnf install libadwaita` |
@@ -122,8 +136,9 @@ default `/usr/bin/python3`), `MEETING_SCRIBE_NVIDIA_SMI_TIMEOUT` (default 10 s),
 | `ollama.reachable` | FIX | `sudo systemctl start ollama` when Ollama is a system service, else `ollama serve` in a terminal |
 | `ollama.model` | FIX | `ollama pull <model>` (the default `qwen3:4b-instruct-2507-q4_K_M` is about 2.5 GB); the installer never pulls |
 
-Human-only steps in the whole flow: the three `session.*` items, `gpu.driver`, `gpu.vram`, accepting the pyannote
-terms, creating the Hugging Face token, and the one log out and log in that makes GNOME Shell discover a new extension.
+Human-only steps in the whole flow: `session.wayland`, `session.gnome-shell`, `session.bus`, `gpu.driver`, `gpu.vram`,
+accepting the pyannote terms, creating the Hugging Face token, and the one log out and log in that makes GNOME Shell
+discover a new extension.
 
 ## Update
 
@@ -135,8 +150,10 @@ git pull
 
 The update is idempotent. It builds a new `versions/<timestamp>-<pid>/` directory, switches `current` atomically,
 restarts the service when it is idle (never during a recording: the restart is skipped with a warning and the new version
-applies on the next restart or login), and prunes the old version only after the new one runs. Running it again leaves
-the same unit file, activation file and extension, and one version directory. It never touches your meetings,
+applies on the next restart or login), and prunes the old version only after the new one runs. Outside GNOME Shell it
+stops the running tray by its PID (asked from the bus for `dev.meetingscribe.Tray`) and starts the new one. Running it
+again leaves the same unit file, activation file and extension (or tray autostart entry and icons), and one version
+directory. It never touches your meetings,
 `settings.json`, `.env`, the keyring items or the downloaded models. If the new version cannot start, the installer rolls
 back to the previous one, keeps the failed directory for inspection and exits 1. After an update that adds a D-Bus
 interface the Preferences window may ask you to restart the service: `systemctl --user restart meeting-scribe.service`.
@@ -148,7 +165,8 @@ interface the Preferences window may ask you to restart the service: `systemctl 
 ```
 
 (`make uninstall` is an alias.) It stops and disables the unit, removes the unit, the activation file, the desktop entry,
-the extension and the installed versions, and prints what it keeps. It refuses while a recording runs
+the extension and the installed versions, and prints what it keeps. Outside GNOME Shell it stops the tray by its PID
+instead of removing the extension. On either desktop it removes the tray's autostart entry and icons when they exist. It refuses while a recording runs
 (`FORCE=1 ./uninstall.sh` overrides that, by intent).
 
 Kept (not removed):
@@ -172,12 +190,13 @@ Kept (not removed):
 |---|---|
 | Exit 10 | At least one `FIX` item: run the printed commands, then `./install.sh --check` |
 | Exit 11 | Only `HUMAN` items remain: do the printed steps yourself, then `./install.sh --check` |
-| "a recording is in progress" (exit 1) | Stop the recording from the top-bar menu, then run the installer again |
+| "a recording is in progress" (exit 1) | Stop the recording from the Meeting Scribe menu (top bar, or the tray outside GNOME Shell), then run the installer again |
 | "the recording state could not be read" (exit 1) | Stop any recording, then `systemctl --user stop meeting-scribe.service` and run again, or `FORCE=1 ./install.sh` |
 | `service: NOT active` | Another instance (for example `make run`) owns the bus name: stop it with Ctrl+C, then `systemctl --user restart meeting-scribe.service`. Otherwise read `journalctl --user -u meeting-scribe.service` |
 | "rolled back" in the summary | The new version failed to start; the previous one runs. The new directory is kept in `versions/` for inspection; read the journal, fix the cause, run `./install.sh` again |
 | `extension: installed, will appear after you log out and back in` | Log out and back in once so GNOME Shell discovers the extension |
 | `extension: FAILED (...)` | Read the cause in the summary (`gnome-extensions pack` or `install` failed), see [`gnome-extension.md`](gnome-extension.md) |
+| `tray: FAILED (...)` | Read the cause in the summary. When the tray did not take `dev.meetingscribe.Tray`, run `~/.local/share/meeting-scribe/current/bin/meeting-scribe-tray` in a terminal to see its error (for example `gjs` missing); when the old tray did not stop, log out and back in |
 | `models: PENDING` | Expected after a first install: add the token and press Download models in Preferences. A meeting recorded meanwhile fails with `MODEL_UNAVAILABLE`; press Reprocess after the download |
 | Download fails with `DIARIZATION_MODEL_ACCESS_DENIED` | The terms were not accepted with the account that owns the token, or the token is wrong or revoked: accept the terms, paste a valid token, press Download models again |
 | Download fails with `MODEL_UNAVAILABLE` | No network or Hugging Face is unreachable: check the connection and press Download models (it resumes) |

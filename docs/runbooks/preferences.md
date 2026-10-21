@@ -1,7 +1,7 @@
 ---
 type: runbook
 status: active
-last_updated: 2026-10-12
+last_updated: 2026-10-17
 phase: F5
 verifiable_by:
   - docs/specs/preferences.md
@@ -33,7 +33,8 @@ Design: [`../specs/preferences.md`](../specs/preferences.md).
 ## Steps
 
 1. Open Preferences, either way:
-   - the **Preferences...** item at the bottom of the Meeting Scribe menu in the top bar, or
+   - the **Preferences...** item at the bottom of the Meeting Scribe menu in the top bar (or the tray menu outside
+     GNOME Shell), or
    - the gear of **Meeting Scribe** in the Extensions app.
 
    Both launch the review app with the Preferences dialog on top. If the service is not running, the dialog opens
@@ -76,7 +77,7 @@ A `SUMMARIES_PROVIDER=cloud` line without `SUMMARIES_CLOUD_ENABLED=true` is held
 
 ### API key
 
-The key is never a setting and never goes through D-Bus or a file: the window stores it in the GNOME Keyring
+The key is never a setting and never goes through D-Bus or a file: the window stores it in the keyring (Secret Service)
 (`Set API key...`, `Remove key`) and shows only "Key stored", "No key stored", "Keyring locked" or "Keyring
 unavailable". The manual alternative is [`store-cloud-api-key.md`](store-cloud-api-key.md).
 
@@ -91,7 +92,7 @@ pyannote pipeline is gated, so three steps are yours, in this order:
    steps: the app cannot do them for you.
 2. Create a read token on Hugging Face (Settings, Access Tokens), paste it in **Hugging Face token** and press the
    apply button (or Enter). The field is write-only: it empties at once and only "Token stored" is ever shown. The
-   token goes to the GNOME Keyring (`application=meeting-scribe`, `key=huggingface-token`) and nowhere else; it never
+   token goes to the keyring (Secret Service, `application=meeting-scribe`, `key=huggingface-token`) and nowhere else; it never
    passes through D-Bus. Paste a new one to replace it.
 3. Press **Download models**. The service downloads (the token is read from the keyring by the service and handed to
    the download process on its standard input), and the group shows "Downloading step 1 of 2", then "step 2 of 2",

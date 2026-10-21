@@ -1,7 +1,7 @@
 ---
 type: process
 status: active
-last_updated: 2026-10-09
+last_updated: 2026-10-17
 ai_instructions:
   - "This protocol is MANDATORY for you (AI) and for humans."
   - "If you make a change that triggers a protocol rule and do NOT update the docs, you are out of process."
@@ -46,7 +46,7 @@ Each action on the left **requires** updating the docs on the right. No exceptio
 | Add/modify a settings variable | `.env.example` + the configuration table in root `ARCHITECTURE.md` | Same commit |
 | Add/modify an error class | `architecture/error-codes-catalog.md` | Same commit |
 | Change an import-linter contract | root `ARCHITECTURE.md` (layering rules) | Same commit |
-| Change `scripts/`, `packaging/` or `gnome-extension/` behavior | matching `runbooks/` entry, `README.md` (install and quickstart), root `ARCHITECTURE.md` (sections 2 and 6) | Same commit |
+| Change `scripts/`, `packaging/`, `gnome-extension/` or `desktop-tray/` behavior | matching `runbooks/` entry, `README.md` (install and quickstart), root `ARCHITECTURE.md` (sections 2 and 6) | Same commit |
 | Complete a task | `project/backlog.md` and the ODD feature document | Same commit |
 
 ---

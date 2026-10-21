@@ -20,6 +20,8 @@ from tests.unit.install_sandbox import (
     SCRIPTS,
     UNINSTALL,
     Env,
+    desktop_query_name,
+    is_desktop_query,
     sandbox_fixture,  # noqa: F401  # the `sandbox` fixture
 )
 
@@ -27,9 +29,11 @@ IDLE = {"FAKE_GDBUS_MODE": "idle"}
 
 # The documented check ids (docs/specs/install.md section 4). A document may only hold these.
 CHECK_IDS = {
+    "session.desktop",
     "session.wayland",
     "session.gnome-shell",
     "session.bus",
+    "session.tray-host",
     "tool.uv",
     "tool.curl",
     "tool.ffmpeg",
@@ -37,6 +41,7 @@ CHECK_IDS = {
     "tool.systemctl",
     "tool.gdbus",
     "tool.gnome-extensions",
+    "tool.gjs",
     "gtk.pygobject",
     "gtk.gtk4",
     "gtk.libadwaita",
@@ -64,9 +69,13 @@ WRITE_CALLS = (
     "gnome-extensions install",
     "gnome-extensions enable",
     "gnome-extensions disable",
-    "gdbus",  # --check never calls the service
     "sudo",
 )
+
+
+def _service_calls(calls: list[str]) -> list[str]:
+    """The gdbus calls that are not the read-only desktop detection: --check makes none."""
+    return [line for line in calls if line.startswith("gdbus") and not is_desktop_query(line)]
 
 
 def _json(result: subprocess.CompletedProcess[str]) -> dict:
@@ -212,7 +221,8 @@ def test_a_recording_in_progress_exits_1_after_a_clean_preflight(sandbox: Env) -
 def test_check_never_calls_the_service_even_while_a_recording_runs(sandbox: Env) -> None:
     result = sandbox.run(INSTALL, "--check", FAKE_GDBUS_MODE="recording")
     assert result.returncode == 0, result.stderr
-    assert not any(line.startswith("gdbus") for line in sandbox.calls())
+    assert _service_calls(sandbox.calls()) == []
+    assert not any("dev.meetingscribe" in line for line in sandbox.calls())
 
 
 # -- the report (AC-3, AC-6) -------------------------------------------------------------------
@@ -313,6 +323,7 @@ def test_check_changes_nothing(
     calls = sandbox.calls()
     for write in WRITE_CALLS:
         assert not any(line.startswith(write) for line in calls), (write, calls)
+    assert _service_calls(calls) == []  # --check never calls the service
     assert not (sandbox.home.parent / "calls.log.failed").exists()
 
 
@@ -380,6 +391,7 @@ TOOL_FIXES = {
     "tool.systemctl": ("systemctl", "sudo dnf install systemd"),
     "tool.gdbus": ("gdbus", "sudo dnf install glib2"),
     "tool.gnome-extensions": ("gnome-extensions", "sudo dnf install gnome-shell"),
+    "tool.gjs": ("gjs", "sudo dnf install gjs"),
 }
 
 
@@ -650,7 +662,10 @@ def test_with_every_prerequisite_present_every_documented_check_passes(sandbox: 
     code, checks = _check(sandbox)
     assert code == 0
     assert set(checks) == CHECK_IDS  # every documented id, and nothing else
-    assert {i: c["status"] for i, c in checks.items() if c["status"] != "OK"} == {}
+    # on GNOME Shell the extension is the client, so the tray host does not apply
+    assert {i: c["status"] for i, c in checks.items() if c["status"] != "OK"} == {
+        "session.tray-host": "SKIP"
+    }
 
 
 @pytest.mark.parametrize(
@@ -1090,3 +1105,229 @@ def test_the_human_only_summary_has_no_fix_commands_to_run(sandbox: Env) -> None
         "Summary: 0 fixable, 1 human-only. Nothing was changed. "
         "Do the human-only steps, then run ./install.sh --check again."
     )
+
+
+# -- the desktop: GNOME Shell or the tray (F6.5, docs/specs/desktop-tray.md section 7) ---------
+
+# A Plasma session: org.gnome.Shell owns no name on the bus and a tray host (the watcher) runs.
+TRAY = {"FAKE_GNOME_SHELL_OWNER": "0", "XDG_CURRENT_DESKTOP": "KDE"}
+NO_TRAY_HOST = "the desktop shows no tray icons; enable its status notifier or tray applet"
+GNOME_DESKTOP = "GNOME Shell: the extension will be installed"
+DESKTOP_IDS = (
+    "session.desktop",
+    "session.wayland",
+    "session.gnome-shell",
+    "tool.gnome-extensions",
+    "tool.gjs",
+    "session.tray-host",
+)
+
+
+def _without_gnome_shell(sandbox: Env) -> None:
+    _remove(sandbox, "gnome-shell", "gnome-extensions")
+
+
+def test_the_tray_path_needs_no_gnome_shell_and_passes(sandbox: Env) -> None:  # AC-9
+    _without_gnome_shell(sandbox)
+    code, checks = _check(sandbox, **TRAY)
+    assert code == 0
+    assert set(checks) == CHECK_IDS  # the JSON report lists the new ids
+    assert _statuses(checks, *DESKTOP_IDS) == {
+        "session.desktop": "OK",
+        "session.wayland": "OK",
+        "session.gnome-shell": "SKIP",
+        "tool.gnome-extensions": "SKIP",
+        "tool.gjs": "OK",
+        "session.tray-host": "OK",
+    }
+    assert checks["session.desktop"]["summary"] == "KDE: the tray will be installed"
+    for ident in ("session.gnome-shell", "tool.gnome-extensions"):
+        assert "not a GNOME Shell session" in checks[ident]["summary"], ident
+    assert checks["tool.gjs"]["summary"].startswith("gjs found at ")
+    assert "org.kde.StatusNotifierWatcher" in checks["session.tray-host"]["summary"]
+    skipped = {i for i, c in checks.items() if c["status"] != "OK"}
+    assert skipped == {"session.gnome-shell", "tool.gnome-extensions"}
+
+
+def test_the_tray_path_without_gjs_is_a_fix_and_the_install_changes_nothing(
+    sandbox: Env,
+) -> None:  # AC-9
+    _without_gnome_shell(sandbox)
+    _remove(sandbox, "gjs")
+    code, checks = _check(sandbox, **TRAY)
+    assert code == 10
+    item = checks["tool.gjs"]
+    assert item["status"] == "FIX"
+    assert item["fix"] == ["sudo dnf install gjs"]
+    assert item["summary"] == "gjs is not installed"
+    assert "tray" in item["why"]
+    result = sandbox.run(INSTALL, **TRAY)
+    assert result.returncode == 10
+    assert "[ FIX ] tool.gjs" in result.stdout
+    assert "fix: sudo dnf install gjs" in result.stdout
+    assert sandbox.tree() == []  # zero changes
+    calls = sandbox.calls()
+    for write in WRITE_CALLS:
+        assert not any(line.startswith(write) for line in calls), (write, calls)
+    assert _service_calls(calls) == []
+
+
+@pytest.mark.parametrize("owner", ["0", "fail"])
+def test_the_tray_path_without_a_tray_host_is_a_warning(sandbox: Env, owner: str) -> None:
+    _without_gnome_shell(sandbox)
+    code, checks = _check(sandbox, **TRAY, FAKE_TRAY_HOST_OWNER=owner)
+    assert code == 0  # the tray runs and waits for a watcher
+    item = checks["session.tray-host"]
+    assert item["status"] == "WARN"
+    assert item["summary"] == NO_TRAY_HOST
+    assert item["why"]
+    text = sandbox.run(INSTALL, "--check", **TRAY, FAKE_TRAY_HOST_OWNER=owner).stdout
+    assert f"[ WARN] {'session.tray-host':<22} {NO_TRAY_HOST}" in text.splitlines()
+
+
+@pytest.mark.parametrize(
+    ("session", "status", "code"),
+    [("wayland", "OK", 0), ("x11", "WARN", 0), ("tty", "HUMAN", 11), ("", "HUMAN", 11)],
+)
+def test_the_tray_path_warns_on_x11_and_still_needs_a_graphical_session(
+    sandbox: Env, session: str, status: str, code: int
+) -> None:
+    _without_gnome_shell(sandbox)
+    exit_code, checks = _check(sandbox, **TRAY, XDG_SESSION_TYPE=session)
+    assert exit_code == code
+    item = checks["session.wayland"]
+    assert item["status"] == status
+    if status == "WARN":
+        assert item["summary"] == "XDG_SESSION_TYPE is x11; the tray is not tested on X11"
+        assert item["steps"] == []
+    if status == "HUMAN":
+        assert item["steps"]
+        assert "GNOME" not in " ".join([item["summary"], *item["steps"]])
+
+
+@pytest.mark.parametrize("env", [{}, {"XDG_CURRENT_DESKTOP": "KDE"}])
+def test_the_gnome_path_adds_the_desktop_and_gjs_and_skips_the_tray_host(
+    sandbox: Env, env: dict[str, str]
+) -> None:  # AC-11: the bus decides, not the variable
+    code, checks = _check(sandbox, **env)
+    assert code == 0
+    assert set(checks) == CHECK_IDS
+    assert _statuses(checks, *DESKTOP_IDS) == {
+        "session.desktop": "OK",
+        "session.wayland": "OK",
+        "session.gnome-shell": "OK",
+        "tool.gnome-extensions": "OK",
+        "tool.gjs": "OK",
+        "session.tray-host": "SKIP",
+    }
+    assert checks["session.desktop"]["summary"] == GNOME_DESKTOP
+    assert checks["session.gnome-shell"]["summary"].startswith("GNOME Shell 50.4 ")
+    assert checks["tool.gnome-extensions"]["summary"].startswith("gnome-extensions found at ")
+    assert checks["session.wayland"]["why"] == (
+        "the extension and the review app target GNOME on Wayland"
+    )
+
+
+def test_the_gnome_path_keeps_its_session_type_rule(sandbox: Env) -> None:  # AC-11
+    _, checks = _check(sandbox, XDG_SESSION_TYPE="x11")
+    assert checks["session.wayland"]["status"] == "HUMAN"  # not the tray path's warning
+
+
+def test_an_unset_desktop_name_reads_neutrally_on_the_tray_path(sandbox: Env) -> None:
+    _without_gnome_shell(sandbox)
+    _, checks = _check(sandbox, FAKE_GNOME_SHELL_OWNER="0")
+    assert checks["session.desktop"]["status"] == "OK"
+    assert checks["session.desktop"]["summary"] == (
+        "this desktop (XDG_CURRENT_DESKTOP is unset): the tray will be installed"
+    )
+
+
+@pytest.mark.parametrize("cause", ["no-answer", "no-gdbus"])
+def test_when_the_bus_cannot_be_asked_the_gnome_path_applies(sandbox: Env, cause: str) -> None:
+    if cause == "no-gdbus":
+        _remove(sandbox, "gdbus")
+    _, checks = _check(sandbox, FAKE_GNOME_SHELL_OWNER="fail", XDG_CURRENT_DESKTOP="KDE")
+    assert checks["session.desktop"]["summary"] == GNOME_DESKTOP
+    assert "could not be asked" in checks["session.desktop"]["detail"]
+    assert checks["session.tray-host"]["status"] == "SKIP"
+    assert checks["session.gnome-shell"]["status"] == "OK"
+
+
+@pytest.mark.parametrize("cause", ["no-answer", "no-gdbus"])
+def test_an_assumed_gnome_path_does_not_state_gnome_shell_as_a_fact(
+    sandbox: Env, cause: str
+) -> None:
+    if cause == "no-gdbus":
+        _remove(sandbox, "gdbus")
+    _, checks = _check(sandbox, FAKE_GNOME_SHELL_OWNER="fail")
+    assert checks["session.tray-host"]["summary"] == (
+        "skipped: the desktop could not be read, so the GNOME path was assumed"
+    )
+
+
+def test_a_known_gnome_path_skips_the_tray_host_because_of_gnome_shell(sandbox: Env) -> None:
+    _, checks = _check(sandbox)
+    assert checks["session.tray-host"]["summary"] == (
+        "skipped: on GNOME Shell the extension is the client"
+    )
+
+
+def _spec_why(ident: str) -> str:
+    """The "Why it is needed" cell of a check row in docs/specs/install.md section 4."""
+    spec = (ROOT / "docs" / "specs" / "install.md").read_text()
+    row = next(line for line in spec.splitlines() if line.startswith(f"| `{ident}` |"))
+    return row.split(" | ")[3]
+
+
+@pytest.mark.parametrize("env", [{}, TRAY], ids=["gnome", "tray"])
+def test_the_session_type_reason_is_the_spec_wording_on_both_paths(
+    sandbox: Env, env: dict[str, str]
+) -> None:
+    _, checks = _check(sandbox, **env)
+    assert checks["session.wayland"]["why"].lower() in _spec_why("session.wayland").lower()
+
+
+def test_a_different_gdbus_timeout_is_still_read_as_the_desktop_query(sandbox: Env) -> None:
+    result = sandbox.snippet("GDBUS_TIMEOUT=7; preflight_run", **TRAY)
+    assert result.returncode == 0, result.stderr
+    gdbus = [line for line in sandbox.calls() if line.startswith("gdbus")]
+    assert all("--timeout 7 " in line for line in gdbus), gdbus
+    assert [desktop_query_name(line) for line in gdbus] == [
+        "org.gnome.Shell",
+        "org.kde.StatusNotifierWatcher",
+    ]
+    assert _service_calls(sandbox.calls()) == []
+
+
+@pytest.mark.parametrize(("owner", "desktop"), [("1", "gnome"), ("0", "tray"), ("fail", "gnome")])
+def test_the_detected_desktop_is_exposed_to_the_install(
+    sandbox: Env, owner: str, desktop: str
+) -> None:
+    result = sandbox.snippet(
+        'preflight_run; echo "desktop=$PF_DESKTOP"', FAKE_GNOME_SHELL_OWNER=owner
+    )
+    assert result.stdout.splitlines() == [f"desktop={desktop}"], result.stderr
+
+
+@pytest.mark.parametrize(
+    ("env", "asked"),
+    [({}, ["org.gnome.Shell"]), (TRAY, ["org.gnome.Shell", "org.kde.StatusNotifierWatcher"])],
+)
+def test_the_desktop_is_read_from_the_bus_daemon_only(
+    sandbox: Env, env: dict[str, str], asked: list[str]
+) -> None:
+    sandbox.run(INSTALL, "--check", **env)
+    gdbus = [line for line in sandbox.calls() if line.startswith("gdbus")]
+    assert [desktop_query_name(line) for line in gdbus] == asked
+    assert all("--timeout 5 " in line for line in gdbus)  # the default bound
+
+
+def test_the_session_bus_and_keyring_wording_names_no_desktop(sandbox: Env) -> None:
+    run_dir = sandbox.home.parent / "run"
+    _, checks = _check(sandbox, DBUS_SESSION_BUS_ADDRESS="", XDG_RUNTIME_DIR=str(run_dir))
+    steps = " ".join(checks["session.bus"]["steps"])
+    assert "inside your desktop session" in steps
+    assert "GNOME" not in steps
+    why = checks["gtk.libsecret"]["why"]
+    assert "the keyring through the Secret Service" in why
+    assert "GNOME" not in why

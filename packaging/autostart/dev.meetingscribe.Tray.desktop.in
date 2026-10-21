@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Meeting Scribe tray
+Exec=@EXEC@
+NoDisplay=true

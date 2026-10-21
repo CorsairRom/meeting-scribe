@@ -24,6 +24,22 @@ DESKTOP_ENTRY_NAME="dev.meetingscribe.Review.desktop"
 DESKTOP_ENTRY_PATH="$APPLICATIONS_DIR/$DESKTOP_ENTRY_NAME"
 REVIEW_LAUNCHER_NAME="meeting-scribe-review"
 
+# The tray outside GNOME Shell (docs/specs/desktop-tray.md sections 1, 2 and 7): its files live in
+# each version directory, its launcher in the version's bin/, and an autostart entry starts it at
+# every login. It owns TRAY_BUS_NAME while it runs; its icons are named after that bus name.
+TRAY_BUS_NAME="dev.meetingscribe.Tray"
+TRAY_LAUNCHER_NAME="meeting-scribe-tray"
+TRAY_AUTOSTART_NAME="$TRAY_BUS_NAME.desktop"
+TRAY_AUTOSTART_PATH="$CONFIG_HOME/autostart/$TRAY_AUTOSTART_NAME"
+TRAY_ICONS_DIR="$DATA_HOME/icons/hicolor/scalable/status"
+# How long the tray name may take to go after a stop, or to come after a start: 5 s, or the
+# positive whole number of seconds in MEETING_SCRIBE_TRAY_WAIT_SECONDS (tests shorten it).
+TRAY_WAIT_SECONDS=5
+if [[ "${MEETING_SCRIBE_TRAY_WAIT_SECONDS:-}" =~ ^[1-9][0-9]*$ ]]; then
+  TRAY_WAIT_SECONDS="$MEETING_SCRIBE_TRAY_WAIT_SECONDS"
+fi
+TRAY_POLL_SECONDS=0.2 # the pause between two questions about the tray name
+
 # Prints $1 as one Exec argument of a desktop entry: double-quoted, with `"`, a backtick, `$` and
 # `\` escaped for the quoting level, `%` doubled (field codes), and every `\` doubled again for the
 # string level of the file (Desktop Entry Specification, "The Exec key").
@@ -99,4 +115,104 @@ refuse_unless_safe() {
 
 unit_active() {
   systemctl --user is-active --quiet "$UNIT_NAME"
+}
+
+# bus_name_owner NAME: prints yes, no or unknown (no gdbus, no answer, or an unreadable one). One
+# read-only question to the bus daemon, bounded by GDBUS_TIMEOUT; never a call to a service.
+bus_name_owner() {
+  local answer
+  if ! command -v gdbus >/dev/null 2>&1; then
+    echo unknown
+    return 0
+  fi
+  answer="$(gdbus call --session --timeout "$GDBUS_TIMEOUT" --dest org.freedesktop.DBus \
+    --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner "$1" \
+    2>/dev/null)" || {
+    echo unknown
+    return 0
+  }
+  case "$answer" in
+    *true*) echo yes ;;
+    *false*) echo no ;;
+    *) echo unknown ;;
+  esac
+}
+
+# -- the tray -------------------------------------------------------------------------------------
+
+# Why the last stop_tray or start_tray call failed, for the summary or a warning.
+TRAY_ERROR=""
+
+# tray_wait_owner yes|no: asks every TRAY_POLL_SECONDS until the tray name's owner state is $1.
+# The wait is bounded by elapsed time, not by a count of questions, so a slow bus (each question
+# may take up to GDBUS_TIMEOUT) does not stretch it. Bash's SECONDS counts whole seconds, hence
+# the extra second: the wait lasts at least TRAY_WAIT_SECONDS and less than one second more, plus
+# the last question.
+tray_wait_owner() {
+  local deadline=$((SECONDS + TRAY_WAIT_SECONDS + 1))
+  while true; do
+    if [[ "$(bus_name_owner "$TRAY_BUS_NAME")" == "$1" ]]; then return 0; fi
+    if ((SECONDS >= deadline)); then return 1; fi
+    sleep "$TRAY_POLL_SECONDS"
+  done
+}
+
+# Stops the running tray, if any: its PID comes from the bus daemon (a read-only
+# GetConnectionUnixProcessID for TRAY_BUS_NAME), it gets SIGTERM (never pkill -f), and the name
+# must go within TRAY_WAIT_SECONDS. Returns 1 with TRAY_ERROR set when it could not be stopped.
+stop_tray() {
+  local answer pid
+  case "$(bus_name_owner "$TRAY_BUS_NAME")" in
+    no) return 0 ;;
+    unknown)
+      TRAY_ERROR="the session bus did not say whether $TRAY_BUS_NAME is running"
+      return 1 ;;
+  esac
+  answer="$(gdbus call --session --timeout "$GDBUS_TIMEOUT" --dest org.freedesktop.DBus \
+    --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.GetConnectionUnixProcessID \
+    "$TRAY_BUS_NAME" 2>/dev/null)" || answer=""
+  # A PID at or below 1 is refused: `kill 0` would signal this script's whole process group, and
+  # PID 1 is init.
+  if [[ ! "$answer" =~ ^\(uint32\ ([0-9]+),\)$ ]] || ((BASH_REMATCH[1] <= 1)); then
+    # The name may have gone between the two questions: nothing is left to stop then.
+    if [[ "$(bus_name_owner "$TRAY_BUS_NAME")" == no ]]; then return 0; fi
+    TRAY_ERROR="the PID of the running $TRAY_BUS_NAME could not be read"
+    return 1
+  fi
+  pid="${BASH_REMATCH[1]}"
+  kill "$pid" 2>/dev/null || true # it may have exited on its own meanwhile
+  if ! tray_wait_owner no; then
+    TRAY_ERROR="the running $TRAY_BUS_NAME (pid $pid) did not stop within $TRAY_WAIT_SECONDS s"
+    return 1
+  fi
+}
+
+# Starts the tray of the version in charge, detached from this script and its terminal, and waits
+# for it to own TRAY_BUS_NAME. Returns 1 with TRAY_ERROR set when it does not.
+start_tray() {
+  local launcher="$CURRENT_LINK/bin/$TRAY_LAUNCHER_NAME"
+  if [[ ! -x "$launcher" ]]; then
+    TRAY_ERROR="the version in charge has no tray launcher ($launcher)"
+    return 1
+  fi
+  if ! (cd / && setsid -f "$launcher" </dev/null >/dev/null 2>&1); then
+    TRAY_ERROR="the tray could not be started (setsid -f $launcher)"
+    return 1
+  fi
+  if ! tray_wait_owner yes; then
+    TRAY_ERROR="the tray did not take $TRAY_BUS_NAME within $TRAY_WAIT_SECONDS s; run $launcher in a terminal to see why"
+    return 1
+  fi
+}
+
+# Removes the tray's autostart entry and its icons (the files named after its bus name), when
+# present; prints a step line only when there is something to remove.
+remove_tray_files() {
+  local icons=()
+  shopt -s nullglob
+  icons=("$TRAY_ICONS_DIR/$TRAY_BUS_NAME"-*.svg)
+  shopt -u nullglob
+  if [[ ! -e "$TRAY_AUTOSTART_PATH" && ${#icons[@]} -eq 0 ]]; then return 0; fi
+  echo "==> Removing the tray autostart entry and icons"
+  rm -f "$TRAY_AUTOSTART_PATH" "${icons[@]}"
 }
