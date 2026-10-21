@@ -2,11 +2,12 @@
 
 # meeting-scribe
 
-**Record, transcribe, tell speakers apart and summarize your meetings, entirely on your own GNOME desktop.**
+**Record, transcribe, tell speakers apart and summarize your meetings, entirely on your own Linux desktop: GNOME or KDE Plasma.**
 
 [![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB.svg?logo=python&logoColor=white)](pyproject.toml)
 [![GNOME Shell 50](https://img.shields.io/badge/GNOME%20Shell-50-4A86CF.svg?logo=gnome&logoColor=white)](gnome-extension/meeting-scribe@meetingscribe.dev/metadata.json)
+[![KDE Plasma 6](https://img.shields.io/badge/KDE%20Plasma-6-1D99F3.svg?logo=kde&logoColor=white)](docs/runbooks/desktop-tray.md)
 [![Fedora on Wayland](https://img.shields.io/badge/Fedora-Wayland-51A2DA.svg?logo=fedora&logoColor=white)](#prerequisites)
 [![NVIDIA GPU](https://img.shields.io/badge/GPU-NVIDIA%208%20GB-76B900.svg?logo=nvidia&logoColor=white)](#prerequisites)
 [![Local first](https://img.shields.io/badge/privacy-local--first-2EA44F.svg)](#safety)
@@ -22,10 +23,10 @@
 
 ---
 
-A local, GPU-accelerated meeting assistant for GNOME (Fedora, Wayland). Record from a panel button (or from a tray
-icon on KDE Plasma and other desktops), get a transcript with speakers told apart, name or merge speakers in a native
-GNOME review app, and generate a summary with a local (Ollama) or opt-in cloud (OpenCode Go) LLM. Everything runs on
-your machine; nothing leaves it unless you explicitly ask for a cloud summary.
+A local, GPU-accelerated meeting assistant for the Linux desktop (Fedora, Wayland). Record from a panel button on
+GNOME or from a tray icon on KDE Plasma and other desktops, get a transcript with speakers told apart, name or merge
+speakers in a native GTK4 review app, and generate a summary with a local (Ollama) or opt-in cloud (OpenCode Go) LLM.
+Everything runs on your machine; nothing leaves it unless you explicitly ask for a cloud summary.
 
 ## Highlights
 
