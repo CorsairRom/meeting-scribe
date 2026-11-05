@@ -4,7 +4,7 @@ Declarative glue only. Which meeting is open and what refreshes on a service eve
 ``ReviewSession``; this class shows the states it publishes.
 """
 
-from gi.repository import Adw, Gio, Gtk
+from gi.repository import Adw, Gdk, Gio, Gtk
 
 from meeting_scribe_review.core.errors import command_hint
 from meeting_scribe_review.core.presenters.api_key import ApiKeyState
@@ -16,6 +16,7 @@ from meeting_scribe_review.core.presenters.rename import RenameState
 from meeting_scribe_review.core.presenters.review import ReviewState, ReviewStatus
 from meeting_scribe_review.core.presenters.summary import SummaryState
 from meeting_scribe_review.core.session import ReviewSession, SummarySettingsListener
+from meeting_scribe_review.core.transcript import TRANSCRIPT_COPIED_TEXT, transcript_text
 from meeting_scribe_review.ui.dbus_gateway import DBusGateway
 from meeting_scribe_review.ui.dialogs import SpeakerDialogs
 from meeting_scribe_review.ui.key_store import SecretKeyStore
@@ -67,6 +68,8 @@ class ReviewWindow(Adw.ApplicationWindow):
             lambda selected: self._session.select(selected), lambda: self._session.retry()
         )
         self._transcript = TranscriptView()
+        self._copy_transcript_button = Gtk.Button(label="Copy", sensitive=False)
+        self._copy_transcript_button.connect("clicked", lambda _button: self._copy_transcript())
         self._speakers = SpeakersSection(
             SpeakerActions(
                 play=lambda speaker_id: self._session.play(speaker_id),
@@ -138,6 +141,7 @@ class ReviewWindow(Adw.ApplicationWindow):
         if state.status is ReviewStatus.READY:
             self._speakers.update(state)
             self._transcript.update(state.transcript)
+            self._copy_transcript_button.set_sensitive(bool(state.transcript))
         self._refresh()
 
     def show_rename(self, state: RenameState) -> None:
@@ -167,6 +171,14 @@ class ReviewWindow(Adw.ApplicationWindow):
     def _toast(self, text: str) -> None:
         self._toasts.add_toast(Adw.Toast(title=text))
 
+    def _copy_transcript(self) -> None:
+        """The whole transcript with the names shown now; the text is never logged."""
+        text = transcript_text(self._review.transcript)
+        if not text:
+            return
+        self.get_clipboard().set_content(Gdk.ContentProvider.new_for_value(text))
+        self._toast(TRANSCRIPT_COPIED_TEXT)
+
     def _review_box(self) -> Gtk.Box:
         """Speakers on top (a short scrolling list), the transcript below it."""
         speakers = Gtk.ScrolledWindow(
@@ -175,10 +187,13 @@ class ReviewWindow(Adw.ApplicationWindow):
             propagate_natural_height=True,
             max_content_height=SPEAKERS_MAX_HEIGHT,
         )
-        heading = Gtk.Label(label="Transcript", xalign=0, margin_start=12, margin_top=12)
+        heading = Gtk.Label(label="Transcript", xalign=0, hexpand=True)
         heading.add_css_class("title-4")
+        header = Gtk.Box(spacing=8, margin_start=12, margin_end=12, margin_top=12)
+        header.append(heading)
+        header.append(self._copy_transcript_button)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        for child in (speakers, Gtk.Separator(), heading, self._transcript):
+        for child in (speakers, Gtk.Separator(), header, self._transcript):
             box.append(child)
         return box
 

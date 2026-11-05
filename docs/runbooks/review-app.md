@@ -21,7 +21,9 @@ ai_instructions:
 
 Install the native review app (F4), open it from the panel menu (or the tray menu outside GNOME Shell), and fix the
 usual problems. The app is a thin D-Bus client of the service (`dev.meetingscribe.Meetings1`): it lists processed
-meetings, plays one sample per speaker, renames and merges speakers, and shows the transcript. Design: [`../specs/review-app.md`](../specs/review-app.md).
+meetings, plays one sample per speaker, renames and merges speakers, and shows the transcript. **Copy** next to the
+Transcript heading puts the whole transcript, with the names shown, on the clipboard. Design:
+[`../specs/review-app.md`](../specs/review-app.md).
 
 ## Privacy warning
 

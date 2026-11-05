@@ -11,7 +11,7 @@ from meeting_scribe_review.core.formatting import (
     unix_seconds,
 )
 from meeting_scribe_review.core.models import Utterance
-from meeting_scribe_review.core.transcript import TranscriptLine, build_transcript
+from meeting_scribe_review.core.transcript import TranscriptLine, build_transcript, transcript_text
 from tests.unit.review_app.fakes import speaker
 
 EXPECTED_NOON = int(datetime(2026, 10, 11, 12, 0, tzinfo=UTC).timestamp())
@@ -53,6 +53,20 @@ def test_an_unknown_speaker_id_falls_back_to_the_id() -> None:
 
 def test_no_utterances_gives_no_lines() -> None:
     assert build_transcript([speaker("S1")], []) == []
+
+
+def test_the_copied_transcript_is_one_paragraph_per_line_as_shown() -> None:
+    lines = [
+        TranscriptLine("S1", "Fake Alex", "00:00", "Fake one."),
+        TranscriptLine("S2", "Speaker 2", "1:02:05", "Fake two."),
+    ]
+    assert transcript_text(lines) == (
+        "[00:00] Fake Alex: Fake one.\n\n[1:02:05] Speaker 2: Fake two.\n"
+    )
+
+
+def test_an_empty_transcript_copies_nothing() -> None:
+    assert transcript_text([]) == ""
 
 
 def test_speaker_counts_are_pluralised() -> None:

@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from meeting_scribe_review.core.formatting import format_timestamp
 from meeting_scribe_review.core.models import Speaker, Utterance
 
+TRANSCRIPT_COPIED_TEXT = "Transcript copied"
+
 
 @dataclass(frozen=True, slots=True)
 class TranscriptLine:
@@ -29,3 +31,11 @@ def build_transcript(
         )
         for utterance in utterances
     ]
+
+
+def transcript_text(lines: Sequence[TranscriptLine]) -> str:
+    """The whole transcript as the view shows it, for the clipboard; empty when there is none."""
+    if not lines:
+        return ""
+    paragraphs = [f"[{line.timestamp}] {line.speaker_name}: {line.text}" for line in lines]
+    return "\n\n".join(paragraphs) + "\n"
