@@ -189,7 +189,7 @@ class ReviewWindow(Adw.ApplicationWindow):
         )
         heading = Gtk.Label(label="Transcript", xalign=0, hexpand=True)
         heading.add_css_class("title-4")
-        header = Gtk.Box(spacing=8, margin_start=12, margin_end=12, margin_top=12)
+        header = Gtk.Box(spacing=8, margin_start=12, margin_end=12, margin_top=12, margin_bottom=6)
         header.append(heading)
         header.append(self._copy_transcript_button)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
