@@ -581,19 +581,21 @@ def test_session_checks_read_the_extension_metadata(
         assert required.split()[0] in " ".join([item["summary"], *item["steps"]])
 
 
-@pytest.mark.parametrize("shell", ["50.4", "51.1"])
-def test_the_shipped_extension_metadata_accepts_gnome_shell_50_and_51(
-    sandbox: Env, shell: str
+@pytest.mark.parametrize(
+    ("shell", "status"), [("50.4", "OK"), ("51.1", "OK"), ("49.2", "HUMAN"), ("52.0", "HUMAN")]
+)
+def test_the_shipped_extension_metadata_accepts_gnome_shell_50_and_51_only(
+    sandbox: Env, shell: str, status: str
 ) -> None:
     _code, checks = _check(sandbox, FAKE_SHELL_VERSION=shell)
     item = checks["session.gnome-shell"]
-    assert item["status"] == "OK", item
+    assert item["status"] == status, item
     assert item["summary"].startswith(f"GNOME Shell {shell} ")
 
 
 def test_the_scripts_do_not_hardcode_the_shell_version() -> None:
     text = (SCRIPTS / "preflight.sh").read_text()
-    assert not re.search(r"\b50\b", text.replace("/50/", ""))  # read from metadata.json instead
+    assert not re.search(r"\b5[01]\b", text.replace("/50/", ""))  # read from metadata.json instead
 
 
 def test_an_unreadable_metadata_is_a_human_item(sandbox: Env) -> None:
