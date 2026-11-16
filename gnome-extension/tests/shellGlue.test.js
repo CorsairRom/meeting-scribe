@@ -103,11 +103,11 @@ test('extension.js passes the click wrapper parameter through to the controller'
     assertEqual(match[2], match[1], 'onPrimaryClick wrapper must forward its parameter');
 });
 
-test('metadata.json declares the required fields for GNOME Shell 50', () => {
+test('metadata.json declares the required fields for GNOME Shell 50 and 51', () => {
     const metadata = JSON.parse(read('metadata.json'));
     assertEqual(metadata.uuid, 'meeting-scribe@meetingscribe.dev');
     assertEqual(metadata.name, 'Meeting Scribe');
-    assertDeepEqual(metadata['shell-version'], ['50']);
+    assertDeepEqual(metadata['shell-version'], ['50', '51']);
     assertEqual(metadata['gettext-domain'], 'meeting-scribe');
     assertEqual(typeof metadata.url, 'string');
     assertEqual(metadata.url.startsWith('https://'), true);

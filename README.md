@@ -6,7 +6,7 @@
 
 [![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB.svg?logo=python&logoColor=white)](pyproject.toml)
-[![GNOME Shell 50](https://img.shields.io/badge/GNOME%20Shell-50-4A86CF.svg?logo=gnome&logoColor=white)](gnome-extension/meeting-scribe@meetingscribe.dev/metadata.json)
+[![GNOME Shell 50 | 51](https://img.shields.io/badge/GNOME%20Shell-50%20%7C%2051-4A86CF.svg?logo=gnome&logoColor=white)](gnome-extension/meeting-scribe@meetingscribe.dev/metadata.json)
 [![KDE Plasma 6](https://img.shields.io/badge/KDE%20Plasma-6-1D99F3.svg?logo=kde&logoColor=white)](docs/runbooks/desktop-tray.md)
 [![Fedora on Wayland](https://img.shields.io/badge/Fedora-Wayland-51A2DA.svg?logo=fedora&logoColor=white)](#prerequisites)
 [![NVIDIA GPU](https://img.shields.io/badge/GPU-NVIDIA%208%20GB-76B900.svg?logo=nvidia&logoColor=white)](#prerequisites)

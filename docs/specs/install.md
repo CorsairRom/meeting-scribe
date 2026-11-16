@@ -29,7 +29,7 @@ verifiable_by:
   - tests/e2e/model_setup/test_keyring_token_source.py
   - tests/e2e/base/test_secret_service_reader.py
   - tests/unit/review_app/test_models_presenter.py
-last_updated: 2026-10-17
+last_updated: 2026-11-16
 ai_instructions:
   - "This spec is a contract. Do NOT implement anything that is not in it."
   - "If you need to change the spec, update this doc FIRST and ask for confirmation."
@@ -180,7 +180,7 @@ AND a shortage is a FIX item that names the filesystem, the free and the require
 ### AC-10: GNOME on Wayland, and the shell version the extension declares
 
 ```gherkin
-GIVEN XDG_SESSION_TYPE is not wayland, or gnome-shell is missing, or its major version is not in the "shell-version" list of the extension metadata (today ["50"])
+GIVEN XDG_SESSION_TYPE is not wayland, or gnome-shell is missing, or its major version is not in the "shell-version" list of the extension metadata (today ["50", "51"])
 THEN session.wayland, session.gnome-shell are HUMAN items that state what was found and what is required
 AND the required versions are read from metadata.json, not repeated in the script
 ```
@@ -391,7 +391,7 @@ Only what could not be decided from the code and the owner decisions of 2026-10-
 | Errors | `DiarizationModelAccessError` says "run `hf auth login`"; `ModelUnavailableError` says "run `make install` again" |
 | Preferences and Settings1 | `Settings1` (service) owns the settings file; the window (`review-app/.../preferences_dialog.py`) stores the cloud API key itself through libsecret (`ui/key_store.py`, attributes `application=meeting-scribe`, `key=opencode-api-key`); the service reads that key with `dbus-fast` (`secret_service_store.py`). The key is not a setting and never crosses D-Bus (BR-005, ADR-009) |
 | `tests/unit/test_install_scripts.py` | 104 tests against a sandbox HOME and a PATH of fake `uv`, `systemctl`, `gnome-extensions`, `gdbus`, `python3`, `ollama` and a whitelist of coreutils |
-| Extension metadata | `"shell-version": ["50"]` (only GNOME Shell 50) |
+| Extension metadata | `"shell-version": ["50", "51"]` (GNOME Shell 50 and 51) |
 
 Two facts verified in the installed libraries (read from source, not run):
 
@@ -454,7 +454,7 @@ The preflight lives in a new `scripts/preflight.sh`, sourced by `scripts/install
 |---|---|---|---|---|
 | `session.desktop` | The desktop detection above; always OK: "GNOME Shell: the extension will be installed", or "`$XDG_CURRENT_DESKTOP`: the tray will be installed" | never fails | On GNOME Shell the extension is the client; on other desktops the tray is | None |
 | `session.wayland` | `$XDG_SESSION_TYPE` is `wayland` | HUMAN; on the tray path WARN on `x11` ("not tested"), HUMAN for any other value | The extension and the review app target GNOME on Wayland; on the tray path, the tray and the review app are tested on Wayland | Log out, choose "GNOME" (not "GNOME on Xorg"), run the installer from a terminal in that session; on the tray path, log in to your desktop on Wayland |
-| `session.gnome-shell` | `gnome-shell --version` major is in the `shell-version` list of `gnome-extension/.../metadata.json` (today 50); SKIP on the tray path ("not a GNOME Shell session") | HUMAN | GNOME Shell refuses to load an extension for another version | Use GNOME Shell 50 (Fedora 44) |
+| `session.gnome-shell` | `gnome-shell --version` major is in the `shell-version` list of `gnome-extension/.../metadata.json` (today 50 and 51); SKIP on the tray path ("not a GNOME Shell session") | HUMAN | GNOME Shell refuses to load an extension for another version | Use GNOME Shell 50 (Fedora 44) |
 | `session.bus` | `$DBUS_SESSION_BUS_ADDRESS` set or `$XDG_RUNTIME_DIR/bus` exists | HUMAN | The service, the extension and the apps talk over the session bus; `systemctl --user` needs it | Run from a terminal inside your desktop session |
 | `session.tray-host` | Tray path: `org.kde.StatusNotifierWatcher` has an owner on the session bus; SKIP on the GNOME path | WARN ("the desktop shows no tray icons; enable its status notifier or tray applet") | The tray icon shows only where a StatusNotifierItem host runs (KDE Plasma, Xfce, Cinnamon, LXQt, waybar); without one the tray runs and waits | Enable the desktop's status notifier or tray applet |
 | `tool.uv` | `command -v uv` | FIX | Installs the service and its Python 3.12 environment | `sudo dnf install uv` |
