@@ -11,9 +11,10 @@ const STYLE_RECORDING = 'meeting-scribe-recording';
 const STYLE_DIMMED = 'meeting-scribe-dimmed';
 const STYLE_FAILED = 'meeting-scribe-failed';
 
-// PanelMenu.Button (GNOME Shell 50) toggles its menu from a Clutter.ClickGesture that calls
+// PanelMenu.Button (GNOME Shell 50 and 51) toggles its menu from a Clutter.ClickGesture that calls
 // `this.menu.toggle()`. Replacing the menu with this subclass lets the controller decide
-// what a primary activation does: start recording (no menu) or open the menu.
+// what a primary activation does; today every state opens the menu, so a click never records
+// (CR-013).
 class IndicatorMenu extends PopupMenu.PopupMenu {
     constructor(sourceActor, onPrimaryClick) {
         super(sourceActor, 0.5, St.Side.TOP);

@@ -1,7 +1,7 @@
 ---
 type: runbook
 status: active
-last_updated: 2026-10-17
+last_updated: 2026-11-16
 phase: F3
 verifiable_by:
   - gnome-extension/meeting-scribe@meetingscribe.dev/lib/indicatorModel.js
@@ -31,8 +31,8 @@ and install it in your real session. The extension is a thin D-Bus client of the
 
 ## Preconditions
 
-- GNOME Shell 50 (`metadata.json` declares `shell-version: ["50"]`) on Wayland; `gjs` and the `gnome-extensions`
-  CLI installed.
+- GNOME Shell 50 or 51 (`metadata.json` declares `shell-version: ["50", "51"]`) on Wayland; `gjs` and the
+  `gnome-extensions` CLI installed.
 - For the real session: `./install.sh` (alias `make install`; [`install.md`](install.md)) does everything below (service, unit, extension) in one command. For the nested shell only: `make setup`, so the service can run (`make run`).
 - For the nested shell on GNOME 49 and later: the `mutter-devkit` package (Fedora, Arch). Source:
   [gjs.guide, Creating an Extension](https://gjs.guide/extensions/development/creating.html).

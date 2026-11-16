@@ -1,7 +1,7 @@
 ---
 type: runbook
 status: active
-last_updated: 2026-10-17
+last_updated: 2026-11-16
 phase: F6, F6.5
 verifiable_by:
   - install.sh
@@ -112,7 +112,7 @@ applies (the extension); if not, the tray path applies. Where the tray path diff
 |---|---|---|
 | `session.desktop` | never fails | Information only: "GNOME Shell: the extension will be installed" or "`<desktop>`: the tray will be installed" |
 | `session.wayland` | HUMAN; on the tray path WARN on X11 (not tested) | Log out, choose "GNOME" (not "GNOME on Xorg") on the login screen, run the installer from a terminal in that session; on the tray path, log in to your desktop on Wayland |
-| `session.gnome-shell` | HUMAN; SKIP on the tray path | Use a GNOME session with the Shell version listed in the extension's `metadata.json` (`shell-version`, today 50) |
+| `session.gnome-shell` | HUMAN; SKIP on the tray path | Use a GNOME session with the Shell version listed in the extension's `metadata.json` (`shell-version`, today 50 and 51) |
 | `session.bus` | HUMAN | Run the installer from a terminal inside your desktop session (not over SSH or from a tool without the session variables) |
 | `session.tray-host` | WARN on the tray path; SKIP on GNOME Shell | The desktop shows no tray icons: enable its status notifier or tray applet (the tray runs and waits for it) |
 | `tool.uv` | FIX | `sudo dnf install uv` |
